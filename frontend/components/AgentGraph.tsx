@@ -4,57 +4,92 @@ import ReactFlow, { Node, Edge, Background, Controls } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { AgentStatus } from '../hooks/useAgentWebSocket'
 
-function getNodeStyle(status: AgentStatus) {
+function getNodeStyle(status: AgentStatus, theme: 'dark' | 'light') {
   const base = {
     borderRadius: '12px',
-    fontSize: '11px',
-    padding: '10px 14px',
-    fontFamily: 'monospace',
+    fontSize: '10px',
+    padding: '12px 16px',
+    fontFamily: 'var(--font-mono)',
     letterSpacing: '0.05em',
     fontWeight: 'bold',
-    minWidth: '150px',
+    minWidth: '160px',
     textAlign: 'center' as const,
-    transition: 'all 0.5s ease-in-out',
-    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)'
+    transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+    boxShadow: theme === 'dark' 
+      ? '0 4px 12px rgba(0, 0, 0, 0.3)' 
+      : '0 4px 8px rgba(0, 0, 0, 0.03)'
   }
   
-  const styles = {
+  const lightStyles = {
     idle: {
       ...base,
-      background: '#0f172a',
+      background: '#ffffff',
       color: '#64748b',
-      border: '1px solid #1e293b'
+      border: '1px solid rgba(0,0,0,0.08)'
     },
     working: {
       ...base,
-      background: '#78350f',
-      color: '#f59e0b',
-      border: '2px solid #f59e0b',
-      boxShadow: '0 0 20px rgba(245,158,11,0.25)'
+      background: '#fffbeb',
+      color: '#d97706',
+      border: '1.5px solid #f59e0b',
+      boxShadow: '0 0 16px rgba(245,158,11,0.2)'
     },
     done: {
       ...base,
-      background: '#064e3b',
-      color: '#34d399',
-      border: '2px solid #10b981',
-      boxShadow: '0 0 15px rgba(16,185,129,0.15)'
+      background: '#f0fdf4',
+      color: '#16a34a',
+      border: '1.5px solid #10b981',
+      boxShadow: '0 0 16px rgba(16,185,129,0.15)'
     },
     alert: {
       ...base,
-      background: '#7f1d1d',
-      color: '#fca5a5',
-      border: '2px solid #ef4444',
-      boxShadow: '0 0 20px rgba(239,68,68,0.3)'
+      background: '#fef2f2',
+      color: '#dc2626',
+      border: '1.5px solid #ef4444',
+      boxShadow: '0 0 20px rgba(239,68,68,0.2)'
     }
   }
-  return styles[status] || styles.idle
+
+  const darkStyles = {
+    idle: {
+      ...base,
+      background: '#121214',
+      color: '#94a3b8',
+      border: '1px solid rgba(255,255,255,0.06)'
+    },
+    working: {
+      ...base,
+      background: '#1e150a',
+      color: '#fbbf24',
+      border: '1.5px solid #fbbf24',
+      boxShadow: '0 0 20px rgba(251,191,36,0.25)'
+    },
+    done: {
+      ...base,
+      background: '#091b15',
+      color: '#34d399',
+      border: '1.5px solid #34d399',
+      boxShadow: '0 0 20px rgba(52,211,153,0.2)'
+    },
+    alert: {
+      ...base,
+      background: '#220e0e',
+      color: '#f87171',
+      border: '1.5px solid #f87171',
+      boxShadow: '0 0 25px rgba(248,113,113,0.3)'
+    }
+  }
+  
+  const chosenStyles = theme === 'dark' ? darkStyles : lightStyles
+  return chosenStyles[status] || chosenStyles.idle
 }
 
 interface AgentGraphProps {
   agentStates: Record<string, AgentStatus>
+  theme: 'dark' | 'light'
 }
 
-export function AgentGraph({ agentStates }: AgentGraphProps) {
+export function AgentGraph({ agentStates, theme }: AgentGraphProps) {
   
   const nodes = useMemo<Node[]>(() => [
     // Top Row: Analysis & Input
@@ -62,19 +97,19 @@ export function AgentGraph({ agentStates }: AgentGraphProps) {
       id: 'threat_intel_agent',
       position: { x: 50, y: 50 },
       data: { label: '🔍 THREAT INTEL' },
-      style: getNodeStyle(agentStates['threat_intel_agent'])
+      style: getNodeStyle(agentStates['threat_intel_agent'], theme)
     },
     {
       id: 'recon_agent',
       position: { x: 260, y: 50 },
       data: { label: '🗺 RECON' },
-      style: getNodeStyle(agentStates['recon_agent'])
+      style: getNodeStyle(agentStates['recon_agent'], theme)
     },
     {
       id: 'detection_agent',
       position: { x: 470, y: 50 },
       data: { label: '📡 DETECTION' },
-      style: getNodeStyle(agentStates['detection_agent'])
+      style: getNodeStyle(agentStates['detection_agent'], theme)
     },
 
     // Middle Row: Simulation & Evaluation
@@ -82,19 +117,19 @@ export function AgentGraph({ agentStates }: AgentGraphProps) {
       id: 'red_team_agent',
       position: { x: 50, y: 200 },
       data: { label: '⚔ RED TEAM' },
-      style: getNodeStyle(agentStates['red_team_agent'])
+      style: getNodeStyle(agentStates['red_team_agent'], theme)
     },
     {
       id: 'attack_path_agent',
       position: { x: 260, y: 200 },
       data: { label: '📊 ATTACK PATH' },
-      style: getNodeStyle(agentStates['attack_path_agent'])
+      style: getNodeStyle(agentStates['attack_path_agent'], theme)
     },
     {
       id: 'malware_agent',
       position: { x: 470, y: 200 },
       data: { label: '🦠 MALWARE INV' },
-      style: getNodeStyle(agentStates['malware_agent'])
+      style: getNodeStyle(agentStates['malware_agent'], theme)
     },
 
     // Bottom Row: Mitigation & Brain
@@ -102,17 +137,17 @@ export function AgentGraph({ agentStates }: AgentGraphProps) {
       id: 'blue_team_agent',
       position: { x: 140, y: 350 },
       data: { label: '🛡 BLUE TEAM' },
-      style: getNodeStyle(agentStates['blue_team_agent'])
+      style: getNodeStyle(agentStates['blue_team_agent'], theme)
     },
     {
       id: 'incident_commander',
       position: { x: 380, y: 350 },
-      data: { label: '🎯 INCIDENT COMMANDER' },
+      data: { label: '🎯 INCIDENT CMDR' },
       style: {
-        ...getNodeStyle(agentStates['incident_commander']),
-        width: 200,
-        height: 48,
-        fontSize: '12px'
+        ...getNodeStyle(agentStates['incident_commander'], theme),
+        width: 180,
+        height: 44,
+        fontSize: '11px'
       }
     },
 
@@ -121,24 +156,28 @@ export function AgentGraph({ agentStates }: AgentGraphProps) {
       id: 'executive_decision',
       position: { x: 240, y: 480 },
       data: { label: '👔 EXECUTIVE BOARD' },
-      style: getNodeStyle(agentStates['executive_decision'])
+      style: getNodeStyle(agentStates['executive_decision'], theme)
     }
-  ], [agentStates])
+  ], [agentStates, theme])
+
 
   // Connection Edges showing data flow via the Commander
+  const edgeColor = theme === 'dark' ? '#334155' : '#cbd5e1'
   const edges = useMemo<Edge[]>(() => [
-    { id: 'e1', source: 'threat_intel_agent', target: 'incident_commander', animated: true, style: { stroke: '#475569' } },
-    { id: 'e2', source: 'incident_commander', target: 'recon_agent', animated: true, style: { stroke: '#475569' } },
-    { id: 'e3', source: 'incident_commander', target: 'detection_agent', animated: true, style: { stroke: '#475569' } },
-    { id: 'e4', source: 'incident_commander', target: 'red_team_agent', animated: true, style: { stroke: '#475569' } },
-    { id: 'e5', source: 'red_team_agent', target: 'attack_path_agent', animated: true, style: { stroke: '#475569' } },
-    { id: 'e6', source: 'incident_commander', target: 'malware_agent', animated: true, style: { stroke: '#475569' } },
-    { id: 'e7', source: 'incident_commander', target: 'blue_team_agent', animated: true, style: { stroke: '#475569' } },
-    { id: 'e8', source: 'incident_commander', target: 'executive_decision', animated: true, style: { stroke: '#475569' } }
-  ], [])
+    { id: 'e1', source: 'threat_intel_agent', target: 'incident_commander', animated: true, style: { stroke: edgeColor, strokeWidth: 1.5 } },
+    { id: 'e2', source: 'incident_commander', target: 'recon_agent', animated: true, style: { stroke: edgeColor, strokeWidth: 1.5 } },
+    { id: 'e3', source: 'incident_commander', target: 'detection_agent', animated: true, style: { stroke: edgeColor, strokeWidth: 1.5 } },
+    { id: 'e4', source: 'incident_commander', target: 'red_team_agent', animated: true, style: { stroke: edgeColor, strokeWidth: 1.5 } },
+    { id: 'e5', source: 'red_team_agent', target: 'attack_path_agent', animated: true, style: { stroke: edgeColor, strokeWidth: 1.5 } },
+    { id: 'e6', source: 'incident_commander', target: 'malware_agent', animated: true, style: { stroke: edgeColor, strokeWidth: 1.5 } },
+    { id: 'e7', source: 'incident_commander', target: 'blue_team_agent', animated: true, style: { stroke: edgeColor, strokeWidth: 1.5 } },
+    { id: 'e8', source: 'incident_commander', target: 'executive_decision', animated: true, style: { stroke: edgeColor, strokeWidth: 1.5 } }
+  ], [edgeColor])
+
+  const gridColor = theme === 'dark' ? '#1f2937' : '#e2e8f0'
 
   return (
-    <div className="w-full h-[580px] bg-slate-950/80 rounded-2xl overflow-hidden border border-slate-900 shadow-inner">
+    <div className="w-full h-[580px] rounded-2xl overflow-hidden glassmorphic shadow-md transition-all duration-300">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -146,9 +185,10 @@ export function AgentGraph({ agentStates }: AgentGraphProps) {
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
+        style={{ background: 'transparent' }}
       >
-        <Background color="#334155" gap={20} size={1} />
-        <Controls showInteractive={false} className="bg-slate-900 border border-slate-800 text-slate-300" />
+        <Background color={gridColor} gap={20} size={1} />
+        <Controls showInteractive={false} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200" />
       </ReactFlow>
     </div>
   )
