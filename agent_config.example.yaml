@@ -1,0 +1,49 @@
+# ARGUS — Band Agent Configuration
+# Copy this file to agent_config.yaml and fill in your Band credentials
+# Get these values from band.ai after creating each agent on June 12
+# NEVER commit agent_config.yaml to GitHub
+
+threat_intel_agent:
+  agent_id: "get-from-band-dashboard"
+  api_key: "get-from-band-dashboard"
+  room: "threat-intel-room"
+
+recon_agent:
+  agent_id: "get-from-band-dashboard"
+  api_key: "get-from-band-dashboard"
+  room: "recon-room"
+
+red_team_agent:
+  agent_id: "get-from-band-dashboard"
+  api_key: "get-from-band-dashboard"
+  room: "redteam-room"
+
+attack_path_agent:
+  agent_id: "get-from-band-dashboard"
+  api_key: "get-from-band-dashboard"
+  room: "attack-path-room"
+
+detection_agent:
+  agent_id: "get-from-band-dashboard"
+  api_key: "get-from-band-dashboard"
+  room: "detection-room"
+
+malware_agent:
+  agent_id: "get-from-band-dashboard"
+  api_key: "get-from-band-dashboard"
+  room: "malware-room"
+
+blue_team_agent:
+  agent_id: "get-from-band-dashboard"
+  api_key: "get-from-band-dashboard"
+  room: "blueteam-room"
+
+incident_commander:
+  agent_id: "get-from-band-dashboard"
+  api_key: "get-from-band-dashboard"
+  room: "incident-command-room"
+
+executive_decision:
+  agent_id: "get-from-band-dashboard"
+  api_key: "get-from-band-dashboard"
+  room: "executive-room"
