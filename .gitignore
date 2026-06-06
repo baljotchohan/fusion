@@ -220,6 +220,8 @@ __marimo__/
 # OS / IDE metadata
 .DS_Store
 .antigravitycli/
+graphify-out/
+
 
 # Local configuration secrets
 agent_config.yaml
