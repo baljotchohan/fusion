@@ -127,11 +127,19 @@ class BaseAgent:
         if is_mock_mode():
             # In mock mode, combine custom tools with our mock Band tools
             all_tools = self.custom_tools + self._get_mock_tools()
-            self.agent_executor = create_react_agent(
-                model=self.llm,
-                tools=all_tools,
-                state_modifier=self.system_prompt
-            )
+            try:
+                self.agent_executor = create_react_agent(
+                    model=self.llm,
+                    tools=all_tools,
+                    prompt=self.system_prompt
+                )
+            except TypeError:
+                self.agent_executor = create_react_agent(
+                    model=self.llm,
+                    tools=all_tools,
+                    state_modifier=self.system_prompt
+                )
+
         else:
             # Real mode uses thenvoi LangGraphAdapter wrapper which injects actual tools
             from thenvoi.adapters import LangGraphAdapter

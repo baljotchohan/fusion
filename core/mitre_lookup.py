@@ -81,7 +81,10 @@ class MITREDatabase:
 _db = MITREDatabase()
 
 def search_ttp(keyword: str) -> List[Dict]:
+    """Search the MITRE ATT&CK database for techniques matching a keyword."""
     return _db.search(keyword)
 
 def get_technique(tid: str) -> Dict:
+    """Retrieve details for a specific MITRE ATT&CK technique by its ID (e.g., T1566)."""
     return _db.get_by_id(tid)
+
