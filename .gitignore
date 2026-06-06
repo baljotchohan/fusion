@@ -226,3 +226,7 @@ graphify-out/
 # Local configuration secrets
 agent_config.yaml
 
+# Downloaded security data
+data/enterprise-attack.json
+
+
