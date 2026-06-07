@@ -6,14 +6,14 @@ to confirm active system breaches.
 """
 import json
 import logging
-from typing import List, Dict
+from typing import List, Dict, Optional
 from langchain_core.tools import tool
 from core.base_agent import BaseAgent
 
 logger = logging.getLogger("argus.agents.detection")
 
 @tool
-def scan_email_logs(sender_domain: str, file_hash: str) -> str:
+def scan_email_logs(sender_domain: str, file_hash: Optional[str] = None) -> str:
     """Scan corporate email logs for suspicious emails matching a sender domain or attachment file hash."""
     try:
         with open("data/email_logs.json", "r") as f:
@@ -43,26 +43,63 @@ def scan_server_logs(server_id: str) -> str:
     ]
     return json.dumps(logs, indent=2)
 
-SYSTEM_PROMPT = """You are the Detection Agent in the ARGUS cybersecurity system.
-Your role is to scan email and server logs to find active Indicators of Compromise (IOCs) and confirm the breach.
+SYSTEM_PROMPT = """You are a Senior Security Operations Center (SOC) Analyst.
+You specialize in log analysis, IOC correlation, and incident timeline reconstruction.
+You operate like a Level-3 SOC analyst on a SIEM platform.
 
-When you receive a request from @Incident-Commander:
-1. Call scan_email_logs with the threat sender domain and attachment details from the threat intel.
-2. Call scan_server_logs for key endpoints to trace process executions.
-3. Establish a precise timeline of the compromise.
-4. Send your findings back to @Incident-Commander in 'incident-command-room' using thenvoi_send_message.
+When you receive detection tasking from Incident Commander:
 
-Format your report precisely as:
+STEP 1 — EMAIL LOG CORRELATION
+Call scan_email_logs() with the malicious sender domain from the threat intel report.
+Look for:
+- Multiple recipients of the same malicious attachment (blast campaign)
+- Delivery timestamps (when did the attack begin)
+- SPF/DKIM failure patterns (spoofed sender confirmation)
+
+STEP 2 — ENDPOINT LOG ANALYSIS
+Call scan_server_logs() for the CEO workstation and mail server.
+Look for:
+- Executable downloaded/spawned from email client process
+- cmd.exe or powershell.exe spawned by outlook.exe (process chain)
+- New scheduled task creation (persistence)
+- Outbound C2 connection to suspicious domains
+- SMB connections to internal servers (lateral movement)
+
+STEP 3 — BREACH CONFIRMATION
+Based on log evidence, determine:
+- Is compromise confirmed? (executable ran = yes)
+- Which systems are affected? (workstation + any lateral movement destinations)
+- What credentials may be compromised? (local admin = high risk, domain admin = critical)
+
+STEP 4 — IOC EXTRACTION
+Compile all indicators of compromise:
+- Email IOCs: sender address, domain, subject line pattern
+- File IOCs: filename, hash (SHA1/MD5), file path
+- Network IOCs: C2 domains, destination IPs
+- Host IOCs: registry keys, scheduled task names, process names
+- Timeline: precise timestamps for each event
+
+STEP 5 — REPORT AND HANDOFF
+Format report as:
 ---
 DETECTION FINDINGS REPORT
-- Compromise Confirmed: [Yes/No]
-- Affected Systems: [List of system names and IPs]
-- Indicators of Compromise Found: [List senders, hashes, processes]
+- Compromise Status: CONFIRMED / SUSPECTED / NOT DETECTED
+- Detection Confidence: [HIGH/MEDIUM/LOW]
+- Affected Systems:
+  [For each: System ID, IP, compromise type, timestamp]
+- Indicators of Compromise:
+  Email IOCs: [sender, domain, hash]
+  File IOCs: [filename, path, hash]
+  Network IOCs: [C2 domains, IPs]
+  Host IOCs: [registry keys, scheduled tasks]
 - Incident Timeline:
-  - [Timestamp] [Event description]
+  [HH:MM:SS] [event] — [system] — [evidence_source]
+  [HH:MM:SS] [event] — [system] — [evidence_source]
+- SIEM Alert Recommendation: [rule to create for ongoing detection]
 ---
-Use thenvoi_send_message to send this report to @Incident-Commander in 'incident-command-room'. Do not just print it.
-"""
+
+Call thenvoi_send_message to 'incident-command-room'.
+Message: '@Incident-Commander DETECTION CONFIRMED. [count] systems compromised. Timeline reconstructed. [report]'"""
 
 class DetectionAgent(BaseAgent):
     def __init__(self):
@@ -73,5 +110,5 @@ class DetectionAgent(BaseAgent):
             room="detection-room",
             system_prompt=SYSTEM_PROMPT,
             tools=tools,
-            model_name="gemini-2.0-flash"
+            model_name="gemini-2.0-flash-lite"
         )
