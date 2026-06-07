@@ -7,6 +7,7 @@ import os
 import json
 import logging
 from typing import List, Dict
+from langchain_core.tools import tool
 
 logger = logging.getLogger("argus.mitre")
 
@@ -80,11 +81,13 @@ class MITREDatabase:
 # Global singleton
 _db = MITREDatabase()
 
-def search_ttp(keyword: str) -> List[Dict]:
+@tool
+def search_ttp(keyword: str) -> str:
     """Search the MITRE ATT&CK database for techniques matching a keyword."""
-    return _db.search(keyword)
+    return json.dumps(_db.search(keyword))
 
-def get_technique(tid: str) -> Dict:
+@tool
+def get_technique(tid: str) -> str:
     """Retrieve details for a specific MITRE ATT&CK technique by its ID (e.g., T1566)."""
-    return _db.get_by_id(tid)
+    return json.dumps(_db.get_by_id(tid))
 
