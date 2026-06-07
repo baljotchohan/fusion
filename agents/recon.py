@@ -6,7 +6,7 @@ exposed services, and potential entry points.
 """
 import json
 import logging
-from typing import List, Dict
+from typing import List, Dict, Optional
 from langchain_core.tools import tool
 from core.base_agent import BaseAgent
 
@@ -15,28 +15,39 @@ logger = logging.getLogger("argus.agents.recon")
 # Recon custom tools
 @tool
 def scan_network() -> str:
-    """Scan the company digital twin network to identify systems and IP topology."""
+    """Scan the company digital twin network to enumerate all systems, services, and topology."""
     try:
         with open("data/company.json", "r") as f:
             data = json.load(f)
-        systems = []
+        result = {
+            "company": data.get("company_name"),
+            "domain": data.get("domain"),
+            "internal_network": data.get("internal_network"),
+            "total_systems": len(data.get("systems", [])),
+            "systems": []
+        }
         for s in data.get("systems", []):
-            systems.append({
+            result["systems"].append({
                 "id": s.get("id"),
                 "name": s.get("name"),
                 "ip": s.get("ip"),
                 "os": s.get("os"),
-                "roles": s.get("roles")
+                "roles": s.get("roles", []),
+                "open_ports": s.get("open_ports", []),
+                "services": s.get("services", []),
+                "vuln_count": len(s.get("vulnerabilities", [])),
+                "critical_vulns": [
+                    v for v in s.get("vulnerabilities", [])
+                    if v.get("cvss", 0) >= 9.0
+                ]
             })
-        return json.dumps({
-            "internal_network": data.get("internal_network"),
-            "systems": systems
-        }, indent=2)
+        result["exposed_services"] = data.get("exposed_services", [])
+        return json.dumps(result, indent=2)
     except Exception as e:
-        return f"Error scanning network: {e}"
+        return f"Network scan error: {e}"
 
 @tool
-def find_vulnerable_systems(threat_type: str) -> str:
+def find_vulnerable_systems(threat_type: Optional[str] = None) -> str:
     """Find systems that have vulnerabilities matching a specific threat type or keyword."""
     try:
         with open("data/company.json", "r") as f:
@@ -64,27 +75,56 @@ def check_exposed_services() -> str:
     except Exception as e:
         return f"Error checking exposed services: {e}"
 
-SYSTEM_PROMPT = """You are the Reconnaissance Agent (Recon) in the ARGUS cybersecurity system.
-Your role is to map the company's attack surface and identify potential entry points related to the threat.
+SYSTEM_PROMPT = """You are a Senior Penetration Tester and Network Reconnaissance Specialist.
+You conduct authorized attack surface assessments for enterprise clients.
 
-When you receive a request from @Incident-Commander:
-1. Call scan_network to inspect the internal systems IP topology.
-2. Call find_vulnerable_systems to see which systems have known CVE vulnerabilities.
-3. Call check_exposed_services to identify services accessible from the outside.
-4. Synthesize these findings to find the highest risk target (e.g. vulnerable mail server, admin workstation).
-5. Send your report back to @Incident-Commander in 'incident-command-room' using thenvoi_send_message.
+When you receive reconnaissance tasking from Incident Commander:
 
-Format your report precisely as:
+STEP 1 — NETWORK TOPOLOGY SCAN
+Call scan_network() to enumerate all systems, IPs, and services.
+Identify: subnet range, total host count, domain structure.
+
+STEP 2 — VULNERABILITY SURFACE
+Call find_vulnerable_systems() to identify unpatched CVEs per host.
+For each vulnerable system, assess:
+- CVE severity (CRITICAL >= 9.0 CVSS, HIGH >= 7.0)
+- Exploitability (network-accessible = more critical)
+- Privilege impact (SYSTEM/admin privilege escalation risk)
+
+STEP 3 — EXPOSED SERVICES
+Call check_exposed_services() to find internet-facing services.
+Key risk indicators:
+- SMTP port 25 open = email relay/spoofing risk
+- RDP port 3389 open = brute force / credential spray target
+- MSSQL port 1433 open = SQL injection / data exfil path
+- Kerberos port 88 open = Kerberoasting attack surface
+
+STEP 4 — ATTACK SURFACE MAPPING
+Identify the most likely initial access paths:
+- Email server as entry point (phishing delivery)
+- CEO workstation as initial compromise target (admin creds)
+- Domain Controller as lateral movement destination (domain takeover)
+- Database server as crown jewel target (PII/financial data)
+
+STEP 5 — REPORT AND HANDOFF
+Format report as:
 ---
 RECONNAISSANCE REPORT
-- Internal IP Range: [CIDR]
-- Exposed Web Services: [Endpoints]
-- Vulnerable Systems Identified: [List systems, IPs, and CVEs]
-- Highest Risk Target: [System ID, IP, and reason]
-- Primary Attack Vector: [Entry point]
+- Target Network: [subnet]
+- Systems Enumerated: [count]
+- Critical Vulnerabilities Found:
+  [For each: System ID, IP, CVE-ID, CVSS, Attack Vector, Privilege Impact]
+- Exposed Internet Services:
+  [For each: Service, Endpoint, Risk Level, Attack Vector]
+- Identified Attack Paths:
+  Path 1 (Most Likely): [email server -> CEO workstation -> AD -> DB]
+  Path 2 (Alternative): [direct RDP brute force -> DB server]
+- Highest Risk System: [system ID] — [reason]
+- Estimated Time to Exploitation: [hours] given CVE availability
 ---
-Use thenvoi_send_message to send this report to @Incident-Commander in 'incident-command-room'. Do not just print it.
-"""
+
+Call thenvoi_send_message to send to 'incident-command-room'.
+Message: '@Incident-Commander RECON COMPLETE. Critical systems mapped. [report]'"""
 
 class ReconAgent(BaseAgent):
     def __init__(self):
@@ -95,5 +135,5 @@ class ReconAgent(BaseAgent):
             room="recon-room",
             system_prompt=SYSTEM_PROMPT,
             tools=tools,
-            model_name="gemini-2.0-flash"
+            model_name="gemini-2.0-flash-lite"
         )
