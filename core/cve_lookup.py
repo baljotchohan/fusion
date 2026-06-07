@@ -6,6 +6,7 @@ import aiohttp
 import asyncio
 import logging
 from typing import List, Dict
+from langchain_core.tools import tool
 
 logger = logging.getLogger("argus.cve")
 CVE_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
@@ -62,18 +63,15 @@ async def get_cves_async(keyword: str, max_results: int = 5) -> List[Dict]:
         logger.error(f"Error querying NVD CVE API: {e}")
         return []
 
-def get_cves(keyword: str, max_results: int = 5) -> List[Dict]:
-    """Synchronous wrapper for tool calls (e.g. LangChain tools)."""
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+@tool
+def get_cves(keyword: str, max_results: int = 5) -> str:
+    """Fetch CVE details asynchronously by keyword search.
     
-    if loop.is_running():
-        # Running inside another loop (like FastAPI), need to use a background task or run_coroutine_threadsafe
-        # But for simple scripts, we can use loop.run_until_complete
-        future = asyncio.run_coroutine_threadsafe(get_cves_async(keyword, max_results), loop)
-        return future.result()
-    else:
-        return loop.run_until_complete(get_cves_async(keyword, max_results))
+    Runs the async HTTP call in a dedicated thread to avoid blocking
+    or deadlocking the main asyncio event loop.
+    """
+    import concurrent.futures
+    import json
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(asyncio.run, get_cves_async(keyword, max_results))
+        return json.dumps(future.result(timeout=30))
