@@ -5,6 +5,7 @@ to the FastAPI WebSocket connections (to update the Next.js dashboard).
 """
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Callable, List, Dict
 
 logger = logging.getLogger("argus.event_bus")
@@ -32,7 +33,7 @@ class EventBus:
             "agent": agent_name,
             "status": status,  # 'idle', 'working', 'done', 'alert'
             "output": output or {},
-            "timestamp": "2026-06-19T08:45:00Z"  # Standardized mock demo timestamp
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         logger.info(f"Broadcasting event: Agent={agent_name}, Status={status}")
