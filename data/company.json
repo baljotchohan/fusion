@@ -1,7 +1,11 @@
 {
   "company_name": "TechCorp Inc.",
   "domain": "techcorp.com",
+  "industry": "B2B SaaS",
+  "employee_count": 450,
+  "annual_revenue_usd": 28000000,
   "internal_network": "192.168.1.0/24",
+  "dmz_network": "10.10.0.0/24",
   "systems": [
     {
       "id": "SRV-01-MAIL",
@@ -71,6 +75,19 @@
         { "port": 3389, "name": "Remote Desktop Services" }
       ],
       "vulnerabilities": []
+    },
+    {
+      "id": "SRV-04-BACKUP",
+      "name": "Backup and Recovery Server",
+      "ip": "192.168.1.30",
+      "os": "Ubuntu Server 22.04",
+      "roles": ["Veeam Backup Server", "Disaster Recovery"],
+      "open_ports": [9392, 22],
+      "services": [
+        { "port": 9392, "name": "Veeam Backup Service" },
+        { "port": 22, "name": "OpenSSH" }
+      ],
+      "vulnerabilities": []
     }
   ],
   "employees": [
@@ -83,5 +100,19 @@
   "exposed_services": [
     { "service": "SMTP Mail Server", "endpoint": "mail.techcorp.com:25", "internal_ip": "192.168.1.10" },
     { "service": "Webmail Portal", "endpoint": "https://webmail.techcorp.com", "internal_ip": "192.168.1.10" }
-  ]
+  ],
+  "security_controls": {
+    "antivirus": "CrowdStrike Falcon (outdated definitions on CEO-WORKSTATION-01)",
+    "email_security": "Proofpoint (SPF enforced, DKIM enabled, DMARC policy=quarantine)",
+    "mfa": "Enabled for VPN only, NOT for webmail",
+    "dlp": "Not deployed",
+    "siem": "Splunk (log retention 30 days)",
+    "edr": "CrowdStrike on servers, Defender on workstations"
+  },
+  "data_assets": {
+    "customer_pii_count": 125000,
+    "pii_types": ["name", "email", "billing_address", "payment_method_last4"],
+    "financial_records_years": 5,
+    "data_classification": "CONFIDENTIAL"
+  }
 }
