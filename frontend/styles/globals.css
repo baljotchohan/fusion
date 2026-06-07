@@ -70,3 +70,24 @@ body {
 .dark ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.25);
 }
+
+/* ── ARGUS War Room animations (ThreatGauge / PhaseTracker / agent chain) ── */
+.threat-critical {
+  animation: threatPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes threatPulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(239, 68, 68, 0.8); }
+}
+
+.agent-chain-line {
+  stroke: rgba(59, 130, 246, 0.4);
+  stroke-dasharray: 6 3;
+  animation: dashFlow 2s linear infinite;
+}
+
+@keyframes dashFlow {
+  from { stroke-dashoffset: 18; }
+  to { stroke-dashoffset: 0; }
+}
