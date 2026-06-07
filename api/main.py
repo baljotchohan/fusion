@@ -135,9 +135,13 @@ async def mock_llm_completions(request: Request):
     # Check if this is the second stage (after tools have executed)
     has_tool_messages = any(m.get("role") in ("tool", "function") for m in messages)
     
-    # Infer calling agent
-    agent_name = ""
-    if "Threat Intelligence" in system_msg or "ThreatIntelAgent" in system_msg:
+    # Infer calling agent — prefer the deterministic ARGUS_AGENT marker injected by BaseAgent
+    import re
+    _marker = re.search(r"\[ARGUS_AGENT:\s*([a-z_]+)\]", system_msg)
+    agent_name = _marker.group(1) if _marker else ""
+    if agent_name:
+        pass
+    elif "Threat Intelligence" in system_msg or "ThreatIntelAgent" in system_msg:
         agent_name = "threat_intel_agent"
     elif "Reconnaissance Analyst" in system_msg or "ReconAgent" in system_msg:
         agent_name = "recon_agent"
@@ -240,12 +244,12 @@ async def mock_llm_completions(request: Request):
                     "function": {"name": "generate_defense_actions", "arguments": "{\"full_context\": \"{}\"}"}
                 })
         elif agent_name == "incident_commander":
-            if "mock_thenvoi_send_message" in available_tool_names:
+            if "thenvoi_send_message" in available_tool_names:
                 tool_calls.append({
                     "id": "call_cmd_init_1",
                     "type": "function",
                     "function": {
-                        "name": "mock_thenvoi_send_message",
+                        "name": "thenvoi_send_message",
                         "arguments": "{\"room\": \"recon-room\", \"message\": \"@Recon Map topology for systems.\"}"
                     }
                 })
@@ -253,7 +257,7 @@ async def mock_llm_completions(request: Request):
                     "id": "call_cmd_init_2",
                     "type": "function",
                     "function": {
-                        "name": "mock_thenvoi_send_message",
+                        "name": "thenvoi_send_message",
                         "arguments": "{\"room\": \"detection-room\", \"message\": \"@Detection Scan email logs for indicators.\"}"
                     }
                 })
@@ -344,26 +348,26 @@ async def mock_llm_completions(request: Request):
         }
         
         next_step = next_room_map.get(agent_name)
-        if next_step and "mock_thenvoi_send_message" in available_tool_names:
+        if next_step and "thenvoi_send_message" in available_tool_names:
             room, message = next_step
             tool_calls.append({
                 "id": "call_next_handoff",
                 "type": "function",
                 "function": {
-                    "name": "mock_thenvoi_send_message",
+                    "name": "thenvoi_send_message",
                     "arguments": json.dumps({"room": room, "message": message})
                 }
             })
             
         # Incident commander stage-specific coordination
-        if agent_name == "incident_commander" and "mock_thenvoi_send_message" in available_tool_names:
+        if agent_name == "incident_commander" and "thenvoi_send_message" in available_tool_names:
             history_text = "\n".join([m.get("content", "") for m in messages if m.get("role") == "user"])
             if "Recon topology" in history_text or "Detection logs" in history_text:
                 tool_calls.append({
                     "id": "call_cmd_next_1",
                     "type": "function",
                     "function": {
-                        "name": "mock_thenvoi_send_message",
+                        "name": "thenvoi_send_message",
                         "arguments": "{\"room\": \"redteam-room\", \"message\": \"@Red-Team Run lateral movement simulations for compromise.\"}"
                     }
                 })
@@ -371,7 +375,7 @@ async def mock_llm_completions(request: Request):
                     "id": "call_cmd_next_2",
                     "type": "function",
                     "function": {
-                        "name": "mock_thenvoi_send_message",
+                        "name": "thenvoi_send_message",
                         "arguments": "{\"room\": \"malware-room\", \"message\": \"@Malware-Investigation Analyze compromised endpoint executables.\"}"
                     }
                 })
@@ -380,7 +384,7 @@ async def mock_llm_completions(request: Request):
                     "id": "call_cmd_next_3",
                     "type": "function",
                     "function": {
-                        "name": "mock_thenvoi_send_message",
+                        "name": "thenvoi_send_message",
                         "arguments": "{\"room\": \"attack-path-room\", \"message\": \"@Attack-Path Compute final threat path risk score.\"}"
                     }
                 })
@@ -389,7 +393,7 @@ async def mock_llm_completions(request: Request):
                     "id": "call_cmd_next_4",
                     "type": "function",
                     "function": {
-                        "name": "mock_thenvoi_send_message",
+                        "name": "thenvoi_send_message",
                         "arguments": "{\"room\": \"blueteam-room\", \"message\": \"@Blue-Team Create prioritized defensive playbooks.\"}"
                     }
                 })
@@ -397,7 +401,7 @@ async def mock_llm_completions(request: Request):
                     "id": "call_cmd_next_5",
                     "type": "function",
                     "function": {
-                        "name": "mock_thenvoi_send_message",
+                        "name": "thenvoi_send_message",
                         "arguments": "{\"room\": \"executive-room\", \"message\": \"@Executive-Decision Convene boardroom for critical threat.\"}"
                     }
                 })
