@@ -239,6 +239,32 @@ argus/
 
 ---
 
+## Band AI Integration
+
+ARGUS uses Band as the real coordination layer. Each agent connects to a dedicated
+Band room and communicates exclusively via @mentions and message handoffs.
+
+```
+threat-intel-room ──→ incident-command-room ──→ executive-room
+recon-room ────────────────────↑
+detection-room ─────────────────↑
+redteam-room ───────────────────↑
+malware-room ────────────────────↑
+attack-path-room ────────────────↑
+blueteam-room ───────────────────↑
+```
+
+Mock mode (`BAND_MOCK=true`) routes the same @mention handoffs through an in-process
+`MockBandBus`, so the full 9-agent chain runs offline with zero API keys. Flip
+`BAND_MOCK=false` to connect to live Band rooms — see [BAND_SWAP.md](BAND_SWAP.md).
+
+## Track
+
+**Regulated & High-Stakes Workflows** — autonomous multi-agent coordination
+for enterprise incident response, from threat detection to CEO-level decision.
+
+---
+
 ## Built With
 
 - [Band AI](https://band.ai) — Multi-agent coordination infrastructure
