@@ -47,7 +47,7 @@ const AGENTS = [
     name: 'malware_agent', 
     displayName: 'Malware Inv.', 
     description: 'Analyzes files static structure, PE headers, entropy, and dropped IOCs.',
-    llm: 'Mistral 7B',
+    llm: 'Gemini 2.0 Flash',
     room: '#malware-room'
   },
   { 
@@ -61,14 +61,14 @@ const AGENTS = [
     name: 'incident_commander', 
     displayName: 'Incident Cmdr', 
     description: 'Central conductor room that orchestrates hands-offs and dynamic recruitment.',
-    llm: 'Gemini 1.5 Pro',
+    llm: 'Gemini 2.0 Flash',
     room: '#incident-command-room'
   },
   { 
     name: 'executive_decision', 
     displayName: 'Executive Board', 
     description: 'Boardroom debate (CFO -> Legal -> Ops -> CEO) to yield containment choice.',
-    llm: 'Gemini 1.5 Pro',
+    llm: 'Gemini 2.0 Flash',
     room: '#executive-room'
   },
 ]
@@ -109,10 +109,19 @@ export default function WarRoom() {
     }
   }, [theme])
 
+  // Auto-reset simulation state 5s after CEO decision arrives
+  useEffect(() => {
+    if (ceoDecision) {
+      const timer = setTimeout(() => setIsSimulating(false), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [ceoDecision])
+
   const triggerAttack = async () => {
     setIsSimulating(true)
     try {
-      const response = await fetch('http://localhost:8000/api/trigger-attack', { method: 'POST' })
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const response = await fetch(`${apiBase}/api/trigger-attack`, { method: 'POST' })
       const data = await response.json()
       console.log('Triggered Attack:', data)
     } catch (e) {

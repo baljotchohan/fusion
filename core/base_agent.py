@@ -40,6 +40,7 @@ class BaseAgent:
         self.system_prompt = system_prompt
         self.custom_tools = tools or []
         self.model_name = model_name
+        self._is_busy = False  # Re-entrancy guard — drop duplicate wakeups
         
         load_dotenv()
         try:
@@ -186,7 +187,7 @@ class BaseAgent:
 
         else:
             # Real mode uses thenvoi LangGraphAdapter wrapper which injects actual tools
-            from thenvoi.adapters import LangGraphAdapter
+            from thenvoi.adapters.langgraph import LangGraphAdapter
             from thenvoi import Agent
             agent_id, api_key = self.load_credentials()
             
@@ -204,8 +205,14 @@ class BaseAgent:
 
     async def handle_mock_message(self, sender: str, message: str):
         """Handles a message arriving in Mock Mode, runs LangGraph executor, and broadcasts updates."""
+        # Drop the message if we are already processing one — prevents infinite cascades
+        if self._is_busy:
+            logger.info(f"[{self.display_name}] Busy — dropping duplicate wakeup from '{sender}'")
+            return
+        self._is_busy = True
+
         logger.info(f"[{self.display_name}] Wakeup! Message from '{sender}': {message[:80]}...")
-        
+
         # Broadcast "working" state to event bus/dashboard
         await event_bus.broadcast(self.name, "working", {"current_action": f"Analyzing input from {sender}"})
         
@@ -224,6 +231,7 @@ class BaseAgent:
                 
                 # Broadcast "done" state with final report
                 await event_bus.broadcast(self.name, "done", {"report": final_thought})
+                self._is_busy = False
                 return
 
             except Exception as e:
@@ -244,6 +252,7 @@ class BaseAgent:
                 else:
                     logger.error(f"[{self.display_name}] Error running agent: {e}")
                     await event_bus.broadcast(self.name, "alert", {"error": str(e)})
+                    self._is_busy = False
                     return
 
     async def run(self):

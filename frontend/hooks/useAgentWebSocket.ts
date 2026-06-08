@@ -28,67 +28,71 @@ export function useAgentWebSocket() {
   const [isConnected, setIsConnected] = useState<boolean>(false)
 
   useEffect(() => {
-    // Connect to FastAPI websocket server
-    const ws = new WebSocket('ws://localhost:8000/ws')
+    let ws: WebSocket | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-    ws.onopen = () => {
-      logger_info('WebSocket connected to FastAPI server')
-      setIsConnected(true)
-    }
+    function connect() {
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws'
+      ws = new WebSocket(wsUrl)
 
-    ws.onmessage = (event) => {
-      try {
-        const update: AgentUpdate = JSON.parse(event.data)
-        
-        // Update individual agent status
-        setAgentStates(prev => ({
-          ...prev,
-          [update.agent]: update.status
-        }))
-        
-        // Add message payload to logs
-        setLogEvents(prev => [update, ...prev].slice(0, 50)) // Keep last 50 events
+      ws.onopen = () => {
+        logger_info('WebSocket connected to FastAPI server')
+        setIsConnected(true)
+      }
 
-        // Special handlers for outputs
-        if (update.agent === 'attack_path_agent' && update.output) {
-          // Extract score (e.g. from report text or structured output)
-          // For demo, if score is calculated we extract it
-          if (update.output.score) {
-            setThreatScore(Number(update.output.score))
-          } else if (update.output.report) {
-            // regex search for risk score in report text
-            const match = update.output.report.match(/Combined Risk Score:\s*(\d+)/i)
-            if (match) {
-              setThreatScore(Number(match[1]))
+      ws.onmessage = (event) => {
+        try {
+          const update: AgentUpdate = JSON.parse(event.data)
+
+          setAgentStates(prev => ({
+            ...prev,
+            [update.agent]: update.status
+          }))
+
+          setLogEvents(prev => [update, ...prev].slice(0, 50))
+
+          if (update.agent === 'attack_path_agent' && update.output) {
+            if (update.output.score) {
+              setThreatScore(Number(update.output.score))
+            } else if (update.output.report) {
+              const match = update.output.report.match(/Combined Risk Score:\s*(\d+)/i)
+              if (match) setThreatScore(Number(match[1]))
             }
           }
-        }
 
-        if (update.agent === 'executive_decision' && update.output) {
-          if (update.output.report) {
-            // Parse CEO decision out of final text or structure
-            const ceoMatch = update.output.report.match(/FINAL CEO DECISION:\s*(\w+)/i)
-            const justificationMatch = update.output.report.match(/Justification:\s*([^\n]+)/i)
-            if (ceoMatch) {
-              setCeoDecision({
-                verdict: ceoMatch[1],
-                justification: justificationMatch ? justificationMatch[1] : 'Threat containment ROI validated.'
-              })
+          if (update.agent === 'executive_decision' && update.output) {
+            if (update.output.report) {
+              const ceoMatch = update.output.report.match(/FINAL CEO DECISION:\s*(\w+)/i)
+              const justificationMatch = update.output.report.match(/Justification:\s*([^\n]+)/i)
+              if (ceoMatch) {
+                setCeoDecision({
+                  verdict: ceoMatch[1],
+                  justification: justificationMatch ? justificationMatch[1] : 'Threat containment ROI validated.'
+                })
+              }
             }
           }
+        } catch (e) {
+          console.error('Error parsing WebSocket message:', e)
         }
-      } catch (e) {
-        console.error('Error parsing WebSocket message:', e)
+      }
+
+      ws.onclose = () => {
+        logger_info('WebSocket disconnected — reconnecting in 3s...')
+        setIsConnected(false)
+        reconnectTimer = setTimeout(connect, 3000)
+      }
+
+      ws.onerror = () => {
+        ws?.close()
       }
     }
 
-    ws.onclose = () => {
-      logger_info('WebSocket connection closed')
-      setIsConnected(false)
-    }
+    connect()
 
     return () => {
-      ws.close()
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      ws?.close()
     }
   }, [])
 

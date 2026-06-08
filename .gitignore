@@ -226,6 +226,12 @@ graphify-out/
 # Local configuration secrets
 agent_config.yaml
 
+# Deployment / frontend env + build artifacts
+.env.local
+frontend/.env.local
+node_modules/
+.next/
+
 # Downloaded security data
 data/enterprise-attack.json
 
