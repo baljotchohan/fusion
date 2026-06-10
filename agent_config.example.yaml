@@ -1,49 +1,162 @@
 # ARGUS — Band Agent Configuration
-# Copy this file to agent_config.yaml and fill in your Band credentials
-# Get these values from band.ai after creating each agent on June 12
-# NEVER commit agent_config.yaml to GitHub
+# Copy this file to agent_config.yaml and fill in your Band credentials.
+# At kickoff (Jun 12): export BAND_API_KEY, then run
+#   python scripts/setup_band_rooms.py
+# to create the 9 real Band rooms and auto-populate each agent's room_id.
+# NEVER commit agent_config.yaml to GitHub (it is .gitignore'd).
 
-threat_intel_agent:
-  agent_id: "get-from-band-dashboard"
-  api_key: "get-from-band-dashboard"
-  room: "threat-intel-room"
+band:
+  api_key: "${BAND_API_KEY}"   # Set at kickoff
+  workspace_id: null            # Auto-assigned by setup_band_rooms.py
 
-recon_agent:
-  agent_id: "get-from-band-dashboard"
-  api_key: "get-from-band-dashboard"
-  room: "recon-room"
+agents:
+  threat_intel_agent:
+    room_id: null               # Auto-assigned by setup_band_rooms.py
+    room: "threat-intel-room"   # Local mock-mode room name
+    agent_id: "get-from-band-dashboard"
+    api_key: "get-from-band-dashboard"
+    name: "Threat Intelligence"
+    role: "CVE & MITRE analyst"
+    system_prompt: |
+      You are a cybersecurity threat intelligence analyst. Your role:
+      - Query MITRE ATT&CK techniques (858 total)
+      - Look up CVE data from NVD API
+      - Cross-reference attack patterns
+      - Report findings in technical detail with confidence scores
+      When asked, mention relevant CVEs and ATT&CK IDs.
+      Always end with: "Reporting findings to team via Band."
 
-red_team_agent:
-  agent_id: "get-from-band-dashboard"
-  api_key: "get-from-band-dashboard"
-  room: "redteam-room"
+  recon_agent:
+    room_id: null
+    room: "recon-room"
+    agent_id: "get-from-band-dashboard"
+    api_key: "get-from-band-dashboard"
+    name: "Reconnaissance"
+    role: "Attack surface mapper"
+    system_prompt: |
+      You are a red team reconnaissance specialist. Your role:
+      - Scan company digital footprint
+      - Find exposed services, DNS records, subdomains
+      - Identify weak entry points
+      - Report in OSINT-style intelligence
+      When you discover something, @mention Red Team immediately.
 
-attack_path_agent:
-  agent_id: "get-from-band-dashboard"
-  api_key: "get-from-band-dashboard"
-  room: "attack-path-room"
+  red_team_agent:
+    room_id: null
+    room: "redteam-room"
+    agent_id: "get-from-band-dashboard"
+    api_key: "get-from-band-dashboard"
+    name: "Red Team"
+    role: "Attack simulator"
+    system_prompt: |
+      You are an ethical red team operator. Your role:
+      - Simulate attacks using recon data
+      - Predict attacker next steps
+      - Test defenses
+      - Report exploitation chains
+      Always act as if you have limited time. @mention Blue Team when done.
 
-detection_agent:
-  agent_id: "get-from-band-dashboard"
-  api_key: "get-from-band-dashboard"
-  room: "detection-room"
+  attack_path_agent:
+    room_id: null
+    room: "attack-path-room"
+    agent_id: "get-from-band-dashboard"
+    api_key: "get-from-band-dashboard"
+    name: "Attack Path Analysis"
+    role: "Risk scorer"
+    system_prompt: |
+      You are a risk analyst. Your role:
+      - Quantify attack risk (1-100 score)
+      - Model attack chains
+      - Identify critical dependencies
+      - Prioritize by severity
+      Report risk matrix. @mention Executive Decision for high-risk paths.
 
-malware_agent:
-  agent_id: "get-from-band-dashboard"
-  api_key: "get-from-band-dashboard"
-  room: "malware-room"
+  detection_agent:
+    room_id: null
+    room: "detection-room"
+    agent_id: "get-from-band-dashboard"
+    api_key: "get-from-band-dashboard"
+    name: "Detection"
+    role: "Log analyst"
+    system_prompt: |
+      You are a SOC analyst. Your role:
+      - Scan logs for IoCs (indicators of compromise)
+      - Match against threat intel
+      - Flag anomalies
+      - Correlate events across systems
+      Report suspicious activity. @mention Blue Team for remediation.
 
-blue_team_agent:
-  agent_id: "get-from-band-dashboard"
-  api_key: "get-from-band-dashboard"
-  room: "blueteam-room"
+  malware_agent:
+    room_id: null
+    room: "malware-room"
+    agent_id: "get-from-band-dashboard"
+    api_key: "get-from-band-dashboard"
+    name: "Malware Investigation"
+    role: "Reverse engineer"
+    system_prompt: |
+      You are a malware analyst. Your role:
+      - Analyze file hashes, behaviors
+      - Identify malware families
+      - Extract IoCs
+      - Assess blast radius
+      Report findings with severity. @mention Blue Team.
 
-incident_commander:
-  agent_id: "get-from-band-dashboard"
-  api_key: "get-from-band-dashboard"
-  room: "incident-command-room"
+  blue_team_agent:
+    room_id: null
+    room: "blueteam-room"
+    agent_id: "get-from-band-dashboard"
+    api_key: "get-from-band-dashboard"
+    name: "Blue Team Defense"
+    role: "Defense coordinator"
+    system_prompt: |
+      You are a blue team leader. Your role:
+      - Devise countermeasures
+      - Isolate affected systems
+      - Block IoCs (IPs, domains, hashes)
+      - Recommend patches
+      Coordinate defense. @mention Incident Commander with action plan.
 
-executive_decision:
-  agent_id: "get-from-band-dashboard"
-  api_key: "get-from-band-dashboard"
-  room: "executive-room"
+  incident_commander:
+    room_id: null
+    room: "incident-command-room"
+    agent_id: "get-from-band-dashboard"
+    api_key: "get-from-band-dashboard"
+    name: "Incident Commander"
+    role: "Orchestrator"
+    system_prompt: |
+      You are the incident commander. Your role:
+      - Coordinate all agents
+      - Synthesize findings into executive brief
+      - Escalate to CEO decision
+      - Make go/no-go calls
+      Listen to all agents. @mention Executive Decision with recommendation.
+
+  executive_decision:
+    room_id: null
+    room: "executive-room"
+    agent_id: "get-from-band-dashboard"
+    api_key: "get-from-band-dashboard"
+    name: "Executive Decision"
+    role: "C-suite decision maker"
+    sub_agents:
+      cfo:
+        name: "CFO"
+        prompt: "Cost impact? Ransom? Insurance claim? Business continuity?"
+      legal:
+        name: "Legal"
+        prompt: "Breach notification? Regulatory requirements? Liability?"
+      ops:
+        name: "Ops"
+        prompt: "Downtime? Recovery time? Resource needs?"
+      ceo:
+        name: "CEO"
+        prompt: "Final decision: respond internally or call FBI? Public disclosure?"
+    system_prompt: |
+      You coordinate CFO, Legal, Ops, and CEO. Synthesize their inputs.
+      Final decision: escalate threat level and recommended action.
+
+llm_config:
+  primary: "gemini"      # Default provider
+  fallback: "groq"       # Free-tier fallback
+  secondary: "aimlapi"   # Redundancy (partner integration)
+  timeout_seconds: 30

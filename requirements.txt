@@ -15,6 +15,9 @@ uvicorn[standard]>=0.30.0
 websockets>=12.0
 aiohttp>=3.9.0
 
+# ─── MCP SERVER (recruit ARGUS agents from external AI apps) ─
+mcp>=1.0.0
+
 # ─── UTILITIES ───────────────────────────────────────────────
 python-dotenv>=1.0.0
 pyyaml>=6.0.1

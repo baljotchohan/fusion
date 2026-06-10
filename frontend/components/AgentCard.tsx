@@ -32,14 +32,27 @@ interface AgentCardProps {
   description: string
   llm: string
   room: string
+  devMode?: boolean
+  lastOutput?: Record<string, any> | null
 }
 
-export function AgentCard({ name, displayName, status, description, llm, room }: AgentCardProps) {
+// Plain-English status line for non-technical viewers (normal mode)
+function plainEnglish(status: AgentStatus, lastOutput?: Record<string, any> | null): string {
+  if (status === 'working') return lastOutput?.current_action || 'Analyzing the situation…'
+  if (status === 'done') {
+    const report: string = lastOutput?.report || ''
+    return report ? report.replace(/[-—#*`]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 110) + '…' : 'Finished — report delivered to the team.'
+  }
+  if (status === 'alert') return 'Needs attention — something went wrong.'
+  return 'Waiting for an incident…'
+}
+
+export function AgentCard({ name, displayName, status, description, llm, room, devMode = false, lastOutput = null }: AgentCardProps) {
   const config = STATUS_CONFIGS[status] || STATUS_CONFIGS.idle
 
   return (
     <div className={`glassmorphic border rounded-xl p-4 flex flex-col justify-between h-[185px] transition-all duration-500 ${config.colorClass}`}>
-      <div>
+      <div className="min-h-0 flex-1">
         <div className="flex items-center justify-between mb-2">
           <span className="font-semibold text-xs tracking-tight text-slate-800 dark:text-slate-100">{displayName}</span>
           <div className="flex items-center gap-1.5 bg-slate-100/50 dark:bg-slate-900/50 border border-slate-200/50 dark:border-slate-800/80 px-2 py-0.5 rounded-full">
@@ -50,9 +63,21 @@ export function AgentCard({ name, displayName, status, description, llm, room }:
             <span className="text-[8px] uppercase font-bold tracking-wider opacity-85 text-slate-500 dark:text-slate-400">{config.label}</span>
           </div>
         </div>
-        <p className="text-[10.5px] text-slate-500 dark:text-slate-400 leading-relaxed font-sans line-clamp-3">
-          {description}
-        </p>
+        {devMode ? (
+          /* Dev mode: raw event JSON for hackers */
+          <pre className="text-[8px] font-mono bg-slate-950 text-emerald-400/90 p-2 rounded-md overflow-auto max-h-[88px] border border-slate-800">
+            {JSON.stringify({ agent: name, status, output: lastOutput || {} }, null, 1)}
+          </pre>
+        ) : status === 'idle' ? (
+          <p className="text-[10.5px] text-slate-500 dark:text-slate-400 leading-relaxed font-sans line-clamp-3">
+            {description}
+          </p>
+        ) : (
+          /* Normal mode: plain English for non-technical viewers */
+          <p className="text-[10.5px] text-slate-500 dark:text-slate-400 leading-relaxed font-sans line-clamp-4">
+            {plainEnglish(status, lastOutput)}
+          </p>
+        )}
       </div>
 
       <div className="mt-3 pt-2 border-t border-slate-200/50 dark:border-slate-800/60 flex flex-col gap-0.5 text-[9px] font-mono">

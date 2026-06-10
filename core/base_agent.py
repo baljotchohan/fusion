@@ -21,8 +21,36 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from core.band_client import mock_bus, is_mock_mode
 from core.event_bus import event_bus
+from core.memory_graph import memory_graph
 
 logger = logging.getLogger("argus.base_agent")
+
+import re as _re
+
+MEMORY_PROTOCOL_PROMPT = """
+
+MEMORY PROTOCOL (shared team memory graph):
+Before deep analysis, call query_team_memory with the relevant MITRE technique
+ID (e.g. T1566.002) to check if the team has handled a similar incident before.
+If a past incident matches, say so explicitly ("We've seen this before...") and
+reuse what worked. When you confirm an effective countermeasure, call
+record_defense_recipe so the whole team responds faster next time."""
+
+
+def _extract_mitre_tags(text: str) -> List[str]:
+    """Pull MITRE ATT&CK technique IDs (T1566, T1566.001, ...) out of a report."""
+    return sorted(set(_re.findall(r"\bT\d{4}(?:\.\d{3})?\b", text or "")))
+
+
+def _estimate_severity(text: str) -> int:
+    upper = (text or "").upper()
+    if "CRITICAL" in upper:
+        return 9
+    if "HIGH" in upper:
+        return 7
+    if "MEDIUM" in upper:
+        return 5
+    return 4
 
 class BaseAgent:
     def __init__(
@@ -37,8 +65,8 @@ class BaseAgent:
         self.name = name
         self.display_name = display_name
         self.room = room
-        self.system_prompt = system_prompt
-        self.custom_tools = tools or []
+        self.system_prompt = system_prompt + MEMORY_PROTOCOL_PROMPT
+        self.custom_tools = (tools or []) + self._get_memory_tools()
         self.model_name = model_name
         self._is_busy = False  # Re-entrancy guard — drop duplicate wakeups
         
@@ -92,6 +120,15 @@ class BaseAgent:
                 google_api_key=google_key,
                 temperature=0.1
             )
+        elif (aimlapi_key := os.getenv("AIMLAPI_KEY")) and "your-" not in aimlapi_key:
+            aiml_model = os.getenv("ARGUS_AIMLAPI_MODEL", "gpt-4o")
+            logger.info(f"[{self.display_name}] Using AI/ML API model: {aiml_model}")
+            self.llm = ChatOpenAI(
+                base_url="https://api.aimlapi.com/v1",
+                api_key=aimlapi_key,
+                model=aiml_model,
+                temperature=0.1
+            )
         else:
             logger.warning(f"[{self.display_name}] No API key configured. Running with dummy mock model.")
             self.llm = ChatOpenAI(
@@ -108,8 +145,9 @@ class BaseAgent:
             
         try:
             with open(config_path, "r") as f:
-                config = yaml.safe_load(f)
-            agent_conf = config.get(self.name, {})
+                config = yaml.safe_load(f) or {}
+            # New shape nests agents under 'agents:'; old shape was flat.
+            agent_conf = config.get("agents", {}).get(self.name) or config.get(self.name, {})
             return agent_conf.get("agent_id", "mock-id"), agent_conf.get("api_key", "mock-key")
         except Exception as e:
             logger.error(f"[{self.display_name}] Error loading configuration: {e}")
@@ -128,6 +166,51 @@ class BaseAgent:
                 loop.run_until_complete(coro)
         except Exception as e:
             logger.warning(f"[{self.display_name}] Could not schedule async task: {e}")
+
+    def _get_memory_tools(self) -> List[Any]:
+        """Shared memory graph tools available to every agent in every mode."""
+        agent_name = self.name
+
+        @tool("query_team_memory")
+        def query_team_memory(attack_technique: str) -> str:
+            """Query the team's shared memory graph for similar past incidents
+            by MITRE ATT&CK technique ID (e.g. 'T1566.002') or keyword.
+            Returns past findings so you can reuse what worked before."""
+            import concurrent.futures
+            import json as _json
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                past = ex.submit(
+                    asyncio.run, memory_graph.query_similar_incidents(attack_technique)
+                ).result(timeout=10)
+            if not past:
+                return _json.dumps({"similar_incidents": [], "note": "No past incidents match — this is new territory."})
+            return _json.dumps({"similar_incidents": past, "note": f"Team has seen this {len(past)} time(s) before."})
+
+        @tool("get_defense_recipe")
+        def get_defense_recipe(mitre_id: str) -> str:
+            """Retrieve the team's best-known defense recipe for a MITRE
+            technique ID (e.g. 'T1566.001'), learned from past incidents."""
+            import concurrent.futures
+            import json as _json
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                recipe = ex.submit(
+                    asyncio.run, memory_graph.get_defense_recipe(mitre_id)
+                ).result(timeout=10)
+            return _json.dumps(recipe or {"note": "No learned defense yet for this technique."})
+
+        @tool("record_defense_recipe")
+        def record_defense_recipe(mitre_id: str, detection_method: str, defense_action: str, success_rate: float = 0.8) -> str:
+            """Record a defense that worked for a MITRE technique so the whole
+            team responds faster on the next similar incident."""
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                ex.submit(
+                    asyncio.run,
+                    memory_graph.record_attack_pattern(mitre_id, detection_method, defense_action, success_rate),
+                ).result(timeout=10)
+            return f"Defense recipe for {mitre_id} recorded in shared team memory."
+
+        return [query_team_memory, get_defense_recipe, record_defense_recipe]
 
     def _get_mock_tools(self) -> List[Any]:
         """Creates mock versions of Band SDK platform tools for offline testing."""
@@ -228,7 +311,10 @@ class BaseAgent:
                 
                 final_thought = response["messages"][-1].content
                 logger.info(f"[{self.display_name}] Completed task. Final Thought: {final_thought[:100]}...")
-                
+
+                # Log the finding to the shared memory graph for future incidents
+                await self._log_to_memory(final_thought)
+
                 # Broadcast "done" state with final report
                 await event_bus.broadcast(self.name, "done", {"report": final_thought})
                 self._is_busy = False
@@ -254,6 +340,43 @@ class BaseAgent:
                     await event_bus.broadcast(self.name, "alert", {"error": str(e)})
                     self._is_busy = False
                     return
+
+    async def _log_to_memory(self, report: str):
+        """Persist this agent's final report into the active shared incident."""
+        try:
+            incident_id = memory_graph.get_latest_incident_id()
+            if not incident_id:
+                return
+            await memory_graph.log_finding(
+                incident_id,
+                self.name,
+                (report or "")[:1000],
+                severity=_estimate_severity(report),
+                tags=_extract_mitre_tags(report),
+            )
+            # The executive verdict closes the incident record
+            if self.name == "executive_decision" and "DECISION" in (report or "").upper():
+                memory_graph.set_final_decision(incident_id, (report or "")[:500])
+
+            # Blue Team countermeasures become learned defense recipes, so the
+            # team recognizes and counters the same technique faster next time
+            if self.name == "blue_team_agent":
+                inc = memory_graph.get_incident(incident_id) or {}
+                techniques = {
+                    tag
+                    for event in inc.get("timeline", [])
+                    for tag in event.get("tags", [])
+                    if _re.fullmatch(r"T\d{4}(?:\.\d{3})?", str(tag))
+                }
+                for mitre_id in techniques:
+                    await memory_graph.record_attack_pattern(
+                        mitre_id,
+                        detection_method="Correlated IoCs across team reports",
+                        defense_action=(report or "")[:300],
+                        success_rate=0.85,
+                    )
+        except Exception as e:
+            logger.warning(f"[{self.display_name}] Memory logging failed: {e}")
 
     async def run(self):
         """Starts the agent. In mock mode registers with the bus; in real mode runs the WebSocket."""

@@ -58,34 +58,40 @@ Full audit trail exported. Incident closed.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    ARGUS SYSTEM                      │
-│                                                      │
-│  ┌─────────────────────────────────────────────┐    │
-│  │           FastAPI Backend (port 8000)        │    │
-│  │    REST endpoints + WebSocket broadcasts     │    │
-│  └──────────────┬──────────────────────────────┘    │
-│                 │                                    │
-│  ┌──────────────▼──────────────────────────────┐    │
-│  │        9 Band Agents (Python + LangGraph)    │    │
-│  │  Each agent = LangGraph graph + Gemini LLM   │    │
-│  │  + custom tools (MITRE, CVE, digital twin)   │    │
-│  └──────────────┬──────────────────────────────┘    │
-└─────────────────┼───────────────────────────────────┘
-                  │ WebSocket (send/receive)
-         ┌────────▼────────────────┐
-         │    BAND AI PLATFORM     │
-         │  9 Chat Rooms           │
-         │  @mention routing       │
-         │  Context sharing        │
-         │  Audit trail            │
-         └─────────────────────────┘
-                  │
-         ┌────────▼────────────────┐
-         │   Next.js War Room      │
-         │   Dashboard (port 3000) │
-         │   React Flow + D3.js    │
-         └─────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        ARGUS Platform                           │
+│                                                                 │
+│  ┌─────────────────┐      ┌──────────────────┐                 │
+│  │  Web UI (Next)  │◄────►│  REST API        │                 │
+│  │ - Commander chat│      │  FastAPI :8000   │                 │
+│  │ - Agent cards   │      │  /api/v1/*       │                 │
+│  │ - Dev mode      │      │  WebSockets      │                 │
+│  └─────────────────┘      └────────┬─────────┘                 │
+│                                    │                            │
+│                          ┌─────────▼─────────┐                  │
+│                          │  Event Bus (async)│                  │
+│                          └─────────┬─────────┘                  │
+│         ┌─────────────┐  ┌─────────▼──────────────────────┐    │
+│         │  Band SDK   │◄─┤  9 Agents (LangGraph)          │    │
+│         │ Real rooms  │  │  Threat Intel · Recon · Red    │    │
+│         │ @mentions   │  │  Team · Attack Path · Detect   │    │
+│         └─────────────┘  │  · Malware · Blue Team ·       │    │
+│                          │  Commander · Executive Board   │    │
+│                          └──┬─────────┬──────────┬────────┘    │
+│                             │         │          │             │
+│                    ┌────────▼──┐ ┌────▼──────┐ ┌─▼──────────┐  │
+│                    │  Shared   │ │ LLM Router│ │ Connectors │  │
+│                    │  Memory   │ │ Gemini /  │ │ GitHub /   │  │
+│                    │  Graph    │ │ Groq /    │ │ NVD CVE /  │  │
+│                    │ (Graphify)│ │Featherless│ │ MITRE      │  │
+│                    │           │ │/ AI/ML API│ │            │  │
+│                    └───────────┘ └───────────┘ └────────────┘  │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  MCP Server — external AI apps recruit the agent team    │  │
+│  │  run_security_scan · analyze_threat · query_team_memory  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -96,13 +102,13 @@ Full audit trail exported. Incident closed.
 |-------|-----------|
 | Agent Coordination | [Band SDK](https://docs.thenvoi.com) |
 | Agent Framework | [LangGraph](https://langchain-ai.github.io/langgraph) |
-| Primary LLM | Gemini 2.0 Flash (Google AI) |
-| Backup LLM | Featherless AI (Qwen 2.5 72B) |
+| LLMs (BYO keys) | Gemini (primary) · Groq · Featherless · AI/ML API — auto-fallback router |
+| Shared Memory | Graphify incident graph (`argus_memory/`) — agents learn across incidents |
 | Backend | Python 3.11 + FastAPI + WebSocket |
-| Frontend | Next.js 14 + React + Tailwind CSS |
+| Agent Recruitment | MCP server (`mcp_server.py`) for external AI apps |
+| Real Connectors | GitHub API (secrets, Dependabot), NVD CVE API, MITRE ATT&CK |
+| Frontend | Next.js + React + Tailwind CSS |
 | Visualization | React Flow + D3.js |
-| Security Data | MITRE ATT&CK Enterprise JSON |
-| Vulnerability Data | NVD CVE API (free, no key) |
 | Total Cost | $0 |
 
 ---
@@ -180,6 +186,102 @@ cd frontend && npm run dev
 
 ---
 
+## 🧠 Shared Memory Graph
+
+Agents don't work in isolation. Every incident is logged to a shared memory graph (`argus_memory/`) that all 9 agents read and write:
+
+```json
+{
+  "INC-20260610-110117": {
+    "metadata": {"trigger": "phishing_email", "threat_level": 7},
+    "timeline": [
+      {"agent": "threat_intel_agent", "finding": "Found CVE-2024-21378...", "tags": ["T1566.001"]},
+      {"agent": "red_team_agent", "finding": "Simulated attack chain: 4 steps...", "tags": ["T1566.001", "T1021.002"]}
+    ],
+    "final_decision": "FINAL CEO DECISION: CONTAIN..."
+  }
+}
+```
+
+- Every agent has `query_team_memory`, `get_defense_recipe`, and `record_defense_recipe` tools.
+- Blue Team countermeasures are automatically distilled into **learned defense recipes** per MITRE technique.
+- Next phishing incident? The team queries memory: *"We've seen T1566.001 before — blocking these IoCs worked 85% of the time."* **Run #2 is faster than run #1.**
+
+---
+
+## 💬 Commander Chat & REST API
+
+### Chat with the Incident Commander (plain English)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"user_message": "Are we under attack?"}'
+```
+
+Reporting an attack ("we got a phishing email") **activates the full 9-agent swarm**. Informational questions get answered from team memory. Also available as a live WebSocket at `/api/v1/ws/chat`.
+
+### Scan a real GitHub repository
+
+```bash
+curl -X POST http://localhost:8000/api/v1/scan \
+  -H "Content-Type: application/json" \
+  -d '{"repo_url": "https://github.com/user/repo", "scan_type": "full"}'
+```
+
+Pulls **real** secret-scanning alerts, Dependabot vulnerabilities, and dependency manifests (set `GITHUB_TOKEN`), correlates them against live NVD CVE data, and returns a 1–10 threat level with recommendations.
+
+### Analyze an IoC
+
+```bash
+curl -X POST http://localhost:8000/api/v1/analyze-threat \
+  -H "Content-Type: application/json" \
+  -d '{"indicator": "corp-billing.xyz", "ioc_type": "domain"}'
+```
+
+### Query incident memory
+
+```bash
+curl http://localhost:8000/api/v1/incidents                 # all incidents
+curl http://localhost:8000/api/v1/incident/INC-20260610-110117
+curl http://localhost:8000/api/v1/memory/stats              # what the team has learned
+curl http://localhost:8000/api/v1/memory/similar/T1566.001  # similar past incidents
+```
+
+---
+
+## 🔌 MCP Server — Recruit ARGUS from Any AI App
+
+Expose the 9-agent team as tools to Claude (or any MCP client):
+
+```bash
+python mcp_server.py   # stdio transport; needs `python run.py` running
+```
+
+Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "argus": {"command": "python", "args": ["/path/to/argus/mcp_server.py"]}
+  }
+}
+```
+
+Tools exposed: `run_security_scan`, `analyze_threat`, `chat_with_commander`, `get_incident`, `get_team_decision`, `query_team_memory`, `learn_attack_pattern`.
+
+---
+
+## 🎮 UI Features
+
+- **Agent cards** — real-time status (Standby → Active → Complete) with plain-English findings
+- **Commander chat** — talk to the Incident Commander; it recruits the team
+- **Threat gauge** — visual 0–100 combined risk level
+- **Dev mode toggle** — `{ }` button flips every card and the chat to raw JSON event streams for hackers
+- **Interactive handoff graph** — watch agents @mention each other through Band rooms live
+
+---
+
 ## Project Structure
 
 ```
@@ -204,14 +306,22 @@ argus/
 │   └── executive_decision.py
 │
 ├── core/                   ← Shared utilities
-│   ├── base_agent.py
-│   ├── band_client.py
+│   ├── base_agent.py       ← LangGraph agent base + memory tools
+│   ├── band_client.py      ← Band SDK wrapper (real + mock bus)
+│   ├── memory_graph.py     ← Shared incident memory (Graphify)
+│   ├── llm_router.py       ← Multi-provider LLM router w/ fallback
 │   ├── mitre_lookup.py
 │   ├── cve_lookup.py
-│   └── event_bus.py
+│   └── event_bus.py        ← Async event bus + RealBandBus
+│
+├── connectors/             ← Real-world integrations
+│   └── github_scanner.py   ← Live GitHub secrets/Dependabot scanning
 │
 ├── api/                    ← FastAPI backend
-│   └── main.py
+│   ├── main.py             ← App, dashboard WS, demo trigger
+│   └── v1.py               ← Chat, scan, analyze-threat, incidents
+│
+├── mcp_server.py           ← MCP server: recruit agents from AI apps
 │
 ├── data/                   ← Static data
 │   ├── company.json        ← Digital twin (TechCorp Inc)

@@ -22,6 +22,7 @@ export function useAgentWebSocket() {
     incident_commander: 'idle',
     executive_decision: 'idle',
   })
+  const [agentOutputs, setAgentOutputs] = useState<Record<string, Record<string, any>>>({})
   const [logEvents, setLogEvents] = useState<AgentUpdate[]>([])
   const [threatScore, setThreatScore] = useState<number>(0)
   const [ceoDecision, setCeoDecision] = useState<Record<string, any> | null>(null)
@@ -48,6 +49,13 @@ export function useAgentWebSocket() {
             ...prev,
             [update.agent]: update.status
           }))
+
+          if (update.output && Object.keys(update.output).length > 0) {
+            setAgentOutputs(prev => ({
+              ...prev,
+              [update.agent]: update.output
+            }))
+          }
 
           setLogEvents(prev => [update, ...prev].slice(0, 50))
 
@@ -96,7 +104,7 @@ export function useAgentWebSocket() {
     }
   }, [])
 
-  return { agentStates, logEvents, threatScore, ceoDecision, isConnected, setAgentStates, setThreatScore, setCeoDecision, setLogEvents }
+  return { agentStates, agentOutputs, logEvents, threatScore, ceoDecision, isConnected, setAgentStates, setAgentOutputs, setThreatScore, setCeoDecision, setLogEvents }
 }
 
 function logger_info(msg: string) {

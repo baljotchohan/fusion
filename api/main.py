@@ -16,11 +16,15 @@ from pydantic import BaseModel
 
 from core.event_bus import event_bus
 from core.band_client import mock_bus, is_mock_mode
+from core.memory_graph import memory_graph
+from api.state import sim_state
+from api.v1 import router as v1_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("argus.api")
 
-app = FastAPI(title="ARGUS API", version="1.0.0")
+app = FastAPI(title="ARGUS API", version="2.0.0")
+app.include_router(v1_router)
 
 # Enable CORS for the Next.js War Room dashboard
 ALLOWED_ORIGINS = os.getenv(
@@ -39,16 +43,15 @@ app.add_middleware(
 # Active WebSocket dashboard connections
 active_websockets: List[WebSocket] = []
 
-# Guard: prevents a second simulation from starting while one is already running
-_simulation_running = False
-
 async def broadcast_event_to_websockets(event_data: dict):
     """Callback registered with event_bus to forward agent updates to the dashboard."""
-    global _simulation_running
+    # Track last-known status per agent for the chat API / MCP clients
+    if event_data.get("agent"):
+        sim_state.agent_statuses[event_data["agent"]] = event_data.get("status", "idle")
 
     # Auto-reset simulation lock when executive decision (last agent) finishes
     if event_data.get("agent") == "executive_decision" and event_data.get("status") == "done":
-        _simulation_running = False
+        sim_state.running = False
         # Clear all agent busy flags so the next run starts clean
         if is_mock_mode():
             for room_agents in mock_bus.rooms.values():
@@ -89,16 +92,21 @@ class TriggerResponse(BaseModel):
 @app.post("/api/trigger-attack", response_model=TriggerResponse)
 async def trigger_attack():
     """Triggers the demo phishing attack simulation by sending the initial alert to Threat Intel."""
-    global _simulation_running
-    if _simulation_running:
+    if sim_state.running:
         logger.warning("FastAPI: Simulation already running — ignoring duplicate trigger.")
         return {
             "status": "already_running",
             "message": "Simulation is already in progress. Please wait for it to complete.",
             "mode": "mock" if is_mock_mode() else "real"
         }
-    _simulation_running = True
+    sim_state.running = True
     logger.info("FastAPI: Attack trigger requested.")
+
+    # Open a shared-memory incident so every agent finding is recorded
+    from datetime import datetime, timezone
+    incident_id = f"INC-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    memory_graph.create_incident(incident_id, {"trigger": "phishing_email", "threat_level": 7})
+    sim_state.active_incident_id = incident_id
 
     # Load the phishing email alert trigger data
     trigger_path = "data/phishing_email.json"
@@ -161,14 +169,15 @@ async def get_status():
         "status": "healthy",
         "mock_mode": is_mock_mode(),
         "registered_rooms": list(mock_bus.rooms.keys()) if is_mock_mode() else [],
-        "simulation_running": _simulation_running,
+        "simulation_running": sim_state.running,
+        "active_incident_id": sim_state.active_incident_id,
+        "memory_incidents": memory_graph.get_memory_stats()["total_incidents"],
     }
 
 @app.post("/api/reset")
 async def reset_simulation():
     """Resets the simulation state so a new attack can be triggered."""
-    global _simulation_running
-    _simulation_running = False
+    sim_state.reset()
     # Clear all agent busy flags so they're ready for the next run
     if is_mock_mode():
         for room_agents in mock_bus.rooms.values():
