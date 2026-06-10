@@ -131,6 +131,31 @@ Full audit trail exported. Incident closed.
    - **CEO: "DECISION: Isolate all systems. Notify authorities. Engage legal team immediately."**
 9. Full audit trail exported as incident report
 
+## 🚀 Deployment
+
+You can deploy the ARGUS system completely live for free:
+
+### 1. Backend (Render)
+Deploy the FastAPI backend + all 9 background agents to Render using the one-click button below:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/baljotchohan/argus)
+
+**Configuration on Render:**
+- Render will automatically parse the [render.yaml](file:///Users/baljotchohan/Desktop/argus/render.yaml) blueprint.
+- During deployment, Render will prompt you to enter your LLM API keys (`GOOGLE_API_KEY`, etc.).
+- Render will boot up the persistent server using `python run.py`.
+- Once deployed, copy your Render service URL (e.g., `https://argus-backend.onrender.com`).
+
+### 2. Frontend (Vercel)
+Deploy the Next.js War Room Dashboard to Vercel:
+1. Push your repository to GitHub.
+2. Log into [vercel.com](https://vercel.com) and click **Add New Project**.
+3. Select your `argus` repository and specify `frontend` as the **Root Directory** of the project.
+4. Add the following **Environment Variables** in Vercel:
+   - `NEXT_PUBLIC_API_URL` = `https://your-render-url.onrender.com` (your Render backend URL)
+   - `NEXT_PUBLIC_WS_URL` = `wss://your-render-url.onrender.com/ws` (your Render WebSocket URL)
+5. Click **Deploy**. Vercel will build and host the dashboard automatically.
+
 ---
 
 ## Quick Start
