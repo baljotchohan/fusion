@@ -38,12 +38,15 @@ class MemoryGraph:
         self.incidents_file = self.base_path / "incidents.json"
         self.patterns_file = self.base_path / "attack_patterns.json"
         self.agent_profiles_file = self.base_path / "agent_profiles.json"
+        self.chat_file = self.base_path / "chat_history.json"
         self._ensure_files()
 
     def _ensure_files(self):
         for f in [self.incidents_file, self.patterns_file, self.agent_profiles_file]:
             if not f.exists():
                 f.write_text(json.dumps({}, indent=2))
+        if not self.chat_file.exists():
+            self.chat_file.write_text(json.dumps([], indent=2))
 
     # ── Incidents ─────────────────────────────────────────────────────────
 
@@ -172,6 +175,31 @@ class MemoryGraph:
             return None
         return max(methods, key=lambda x: x.get("success_rate", 0))
 
+    # ── Commander chat history ────────────────────────────────────────────
+
+    def append_chat(self, role: str, content: str, meta: Optional[dict] = None) -> dict:
+        """Persist one chat turn (user or commander) so the conversation
+        survives reloads and shows up in the Memory tab."""
+        turn = {
+            "role": role,
+            "content": content,
+            "meta": meta or {},
+            "timestamp": _utcnow(),
+        }
+        with _LOCK:
+            history = self._read_list(self.chat_file)
+            history.append(turn)
+            # Keep the on-disk log bounded; the UI only needs recent context
+            self._write_file(self.chat_file, history[-500:])
+        return turn
+
+    def get_chat_history(self, limit: int = 100) -> List[dict]:
+        return self._read_list(self.chat_file)[-limit:]
+
+    def clear_chat_history(self):
+        with _LOCK:
+            self._write_file(self.chat_file, [])
+
     # ── Summaries ─────────────────────────────────────────────────────────
 
     def get_team_summary(self, incident_id: str) -> str:
@@ -208,7 +236,14 @@ class MemoryGraph:
         except Exception:
             return {}
 
-    def _write_file(self, path: Path, data: dict):
+    def _read_list(self, path: Path) -> list:
+        try:
+            data = json.loads(path.read_text())
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def _write_file(self, path: Path, data):
         path.write_text(json.dumps(data, indent=2))
 
 

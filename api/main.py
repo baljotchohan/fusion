@@ -43,8 +43,16 @@ app.add_middleware(
 # Active WebSocket dashboard connections
 active_websockets: List[WebSocket] = []
 
+def _clear_agent_busy_flags():
+    if is_mock_mode():
+        for room_agents in mock_bus.rooms.values():
+            for agent in room_agents:
+                agent._is_busy = False
+
+
 async def broadcast_event_to_websockets(event_data: dict):
     """Callback registered with event_bus to forward agent updates to the dashboard."""
+    sim_state.touch()
     # Track last-known status per agent for the chat API / MCP clients
     if event_data.get("agent"):
         sim_state.agent_statuses[event_data["agent"]] = event_data.get("status", "idle")
@@ -53,11 +61,16 @@ async def broadcast_event_to_websockets(event_data: dict):
     if event_data.get("agent") == "executive_decision" and event_data.get("status") == "done":
         sim_state.running = False
         # Clear all agent busy flags so the next run starts clean
-        if is_mock_mode():
-            for room_agents in mock_bus.rooms.values():
-                for agent in room_agents:
-                    agent._is_busy = False
+        _clear_agent_busy_flags()
         logger.info("FastAPI: Simulation complete — state auto-reset.")
+
+    # An 'alert' means an agent died even after LLM fallback — release the
+    # trigger lock so the next Simulate click starts a fresh run instead of
+    # being ignored forever.
+    if event_data.get("status") == "alert" and sim_state.running:
+        sim_state.running = False
+        _clear_agent_busy_flags()
+        logger.warning("FastAPI: Agent error broke the chain — simulation lock released.")
 
     if not active_websockets:
         return
@@ -92,6 +105,13 @@ class TriggerResponse(BaseModel):
 @app.post("/api/trigger-attack", response_model=TriggerResponse)
 async def trigger_attack():
     """Triggers the demo phishing attack simulation by sending the initial alert to Threat Intel."""
+    # Self-heal a stale lock: a previous run that died mid-chain (e.g. the
+    # process lost its LLM provider) must not brick the Simulate button.
+    if sim_state.is_stale(max_idle_seconds=90):
+        logger.warning("FastAPI: Stale simulation lock (no agent events >90s) — auto-resetting.")
+        sim_state.reset()
+        _clear_agent_busy_flags()
+
     if sim_state.running:
         logger.warning("FastAPI: Simulation already running — ignoring duplicate trigger.")
         return {
@@ -100,6 +120,7 @@ async def trigger_attack():
             "mode": "mock" if is_mock_mode() else "real"
         }
     sim_state.running = True
+    sim_state.touch()
     logger.info("FastAPI: Attack trigger requested.")
 
     # Open a shared-memory incident so every agent finding is recorded
@@ -286,7 +307,9 @@ async def mock_llm_completions(request: Request):
     delay_range = (STAGE2_DELAYS if has_tool_messages else STAGE1_DELAYS).get(
         agent_name, (1.0, 2.0)
     )
-    await asyncio.sleep(random.uniform(*delay_range))
+    # ARGUS_MOCK_PACE scales the cinematic delays (0 = instant, 1 = original).
+    pace = float(os.getenv("ARGUS_MOCK_PACE", "0.6"))
+    await asyncio.sleep(random.uniform(*delay_range) * pace)
     # ──────────────────────────────────────────────────────────────────────────
 
     # ── Canned specialist reports (returned once a data tool has run) ──

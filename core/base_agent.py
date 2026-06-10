@@ -5,6 +5,7 @@ LangGraph compilation, and tool mapping for both real Band SDK
 and offline mock modes.
 """
 import os
+import time
 import yaml
 import logging
 import asyncio
@@ -26,6 +27,60 @@ from core.memory_graph import memory_graph
 logger = logging.getLogger("argus.base_agent")
 
 import re as _re
+
+# ── Process-wide LLM degradation window ──────────────────────────────────────
+# When any agent hits an unrecoverable provider error (daily quota exhausted,
+# request too large, invalid key), ALL agents skip the dead provider and run on
+# the local simulation engine for this window instead of burning retries.
+_LLM_COOLDOWN_SECONDS = float(os.getenv("ARGUS_LLM_COOLDOWN", "900"))
+_llm_degraded_until: float = 0.0
+
+# Provider error fragments that can NEVER succeed on retry within a demo window
+_FATAL_LLM_ERRORS = (
+    "per day",            # Groq "tokens per day (TPD)" daily quota exhausted
+    "tpd",
+    "request too large",  # single request exceeds the TPM admission cap
+    "insufficient_quota",
+    "invalid_api_key",
+    "model_decommissioned",
+    "model_not_found",
+    "permission_denied",
+)
+
+
+def llm_degraded() -> bool:
+    return time.time() < _llm_degraded_until
+
+
+def degrade_llm(reason: str):
+    global _llm_degraded_until
+    was_degraded = llm_degraded()
+    _llm_degraded_until = time.time() + _LLM_COOLDOWN_SECONDS
+    if not was_degraded:
+        logger.warning(
+            f"LLM provider unavailable ({reason[:160]}) — all agents switching to the "
+            f"local simulation engine for {int(_LLM_COOLDOWN_SECONDS / 60)} min."
+        )
+
+ARGUS_DOCTRINE = """You operate inside ARGUS, an autonomous Security Operations Center (SOC).
+You are an elite, real-world cyber operator — not a chatbot. Hold yourself to
+Tier-1 SOC / DFIR professional standards at all times.
+
+OPERATING DOCTRINE
+- Reason along the Cyber Kill Chain (Recon → Weaponization → Delivery →
+  Exploitation → Installation → C2 → Actions on Objectives) and map every
+  observation to MITRE ATT&CK tactics and technique IDs (Txxxx / Txxxx.yyy).
+- Be evidence-driven: separate confirmed facts (from your tools / data) from
+  assessment, and state confidence as HIGH / MEDIUM / LOW. Never invent IOCs.
+- Quantify impact: CVSS for vulnerabilities, blast radius for compromise,
+  dwell time, and business risk. Decisions follow evidence, not vibes.
+- Be decisive and concise. Lead with the conclusion, then the support.
+- You are one specialist in a coordinated team; produce the single artifact your
+  role owns, then hand off cleanly. Do not do another agent's job.
+
+ASSUMED ENVIRONMENT (TechCorp Inc digital twin): a mid-size enterprise — Microsoft
+AD domain, Exchange/mail server, customer database holding PII, C-Suite endpoints
+with admin rights, 192.168.1.0/24 internal subnet. Defend it as if it were real."""
 
 MEMORY_PROTOCOL_PROMPT = """
 
@@ -65,7 +120,7 @@ class BaseAgent:
         self.name = name
         self.display_name = display_name
         self.room = room
-        self.system_prompt = system_prompt + MEMORY_PROTOCOL_PROMPT
+        self.system_prompt = ARGUS_DOCTRINE + "\n\n" + system_prompt + MEMORY_PROTOCOL_PROMPT
         self.custom_tools = (tools or []) + self._get_memory_tools()
         self.model_name = model_name
         self._is_busy = False  # Re-entrancy guard — drop duplicate wakeups
@@ -77,12 +132,14 @@ class BaseAgent:
             self.loop = None
         self._setup_llm()
         self.agent_executor = None
+        self._local_executor = None
 
     def _setup_llm(self):
         """Set up LLM with priority: Featherless (OSS) → Groq (free/fast) → Gemini (fallback)."""
         google_key = os.getenv("GOOGLE_API_KEY")
         featherless_key = os.getenv("FEATHERLESS_API_KEY")
         groq_key = os.getenv("GROQ_API_KEY")
+        self.llm_is_local = False
 
         # Featherless handles open-source models (Mistral, Llama, Qwen) unless prefixed with groq: or groq/
         # If groq_key is set, we bypass Featherless to run all agents on Groq for reliability
@@ -108,17 +165,23 @@ class BaseAgent:
                 groq_model = "llama-3.3-70b-versatile"
             
             logger.info(f"[{self.display_name}] Using Groq model: {groq_model} (free tier)")
+            # max_tokens keeps each response within report size and stops the
+            # free-tier TPM/TPD admission control from overcounting requests.
             self.llm = ChatGroq(
                 api_key=groq_key,
                 model=groq_model,
-                temperature=0.1
+                temperature=0.1,
+                max_tokens=1024,
+                max_retries=0,  # we handle retry/fallback ourselves in _invoke_resilient
             )
         elif google_key and google_key not in ("your-gemini-api-key-here", ""):
             logger.info(f"[{self.display_name}] Using Gemini model: {self.model_name}")
             self.llm = ChatGoogleGenerativeAI(
                 model=self.model_name,
                 google_api_key=google_key,
-                temperature=0.1
+                temperature=0.1,
+                max_output_tokens=1024,
+                max_retries=0,
             )
         elif (aimlapi_key := os.getenv("AIMLAPI_KEY")) and "your-" not in aimlapi_key:
             aiml_model = os.getenv("ARGUS_AIMLAPI_MODEL", "gpt-4o")
@@ -131,11 +194,17 @@ class BaseAgent:
             )
         else:
             logger.warning(f"[{self.display_name}] No API key configured. Running with dummy mock model.")
-            self.llm = ChatOpenAI(
-                base_url="http://localhost:8000/mock-llm",
-                api_key="dummy",
-                model="mock-model"
-            )
+            self.llm = self._make_local_llm()
+            self.llm_is_local = True
+
+    def _make_local_llm(self):
+        """LLM client pointed at this server's deterministic /mock-llm engine."""
+        port = os.getenv("PORT", "8000")
+        return ChatOpenAI(
+            base_url=f"http://localhost:{port}/mock-llm",
+            api_key="dummy",
+            model="mock-model"
+        )
 
     def load_credentials(self) -> tuple[str, str]:
         """Loads agent_id and api_key from agent_config.yaml."""
@@ -255,18 +324,10 @@ class BaseAgent:
         if is_mock_mode():
             # In mock mode, combine custom tools with our mock Band tools
             all_tools = self.custom_tools + self._get_mock_tools()
-            try:
-                self.agent_executor = create_react_agent(
-                    model=self.llm,
-                    tools=all_tools,
-                    prompt=prompt
-                )
-            except TypeError:
-                self.agent_executor = create_react_agent(
-                    model=self.llm,
-                    tools=all_tools,
-                    state_modifier=prompt
-                )
+            self._all_tools = all_tools
+            self._agent_prompt = prompt
+            self._local_executor = None
+            self.agent_executor = self._build_executor(self.llm, all_tools, prompt)
 
         else:
             # Real mode uses thenvoi LangGraphAdapter wrapper which injects actual tools
@@ -286,6 +347,62 @@ class BaseAgent:
                 api_key=api_key
             )
 
+    def _build_executor(self, llm, tools, prompt):
+        try:
+            return create_react_agent(model=llm, tools=tools, prompt=prompt)
+        except TypeError:
+            return create_react_agent(model=llm, tools=tools, state_modifier=prompt)
+
+    def _get_local_executor(self):
+        """Executor wired to the deterministic local /mock-llm engine. Built
+        lazily so it costs nothing while the real provider is healthy."""
+        if self.llm_is_local:
+            return self.agent_executor
+        if self._local_executor is None:
+            self._local_executor = self._build_executor(
+                self._make_local_llm(), self._all_tools, self._agent_prompt
+            )
+        return self._local_executor
+
+    async def _invoke_resilient(self, inputs: dict, config: dict):
+        """Invoke the agent. If the LLM provider is rate-limited or down, retry
+        once for transient errors, then degrade to the local simulation engine
+        so the response chain always completes."""
+        if self.llm_is_local:
+            return await self.agent_executor.ainvoke(inputs, config=config)
+        if llm_degraded():
+            return await self._get_local_executor().ainvoke(inputs, config=config)
+
+        for attempt in range(2):
+            try:
+                return await self.agent_executor.ainvoke(inputs, config=config)
+            except Exception as e:
+                err = str(e)
+                err_lower = err.lower()
+                fatal = any(marker in err_lower for marker in _FATAL_LLM_ERRORS)
+                transient_429 = (
+                    "429" in err or "RESOURCE_EXHAUSTED" in err or "rate limit" in err_lower
+                )
+                if not fatal and transient_429 and attempt == 0:
+                    delay = 4 + random.uniform(0, 2)
+                    logger.warning(
+                        f"[{self.display_name}] Rate limited — one retry in {delay:.1f}s..."
+                    )
+                    await event_bus.broadcast(self.name, "working", {
+                        "current_action": f"Rate limited — retrying in {delay:.0f}s"
+                    })
+                    await asyncio.sleep(delay)
+                    continue
+                # Daily quota gone, request too large, provider down, or retry
+                # already failed: stop hammering and finish on the local engine.
+                degrade_llm(err)
+                await event_bus.broadcast(self.name, "working", {
+                    "current_action": "LLM provider saturated — continuing on local analysis engine"
+                })
+                break
+
+        return await self._get_local_executor().ainvoke(inputs, config=config)
+
     async def handle_mock_message(self, sender: str, message: str):
         """Handles a message arriving in Mock Mode, runs LangGraph executor, and broadcasts updates."""
         # Drop the message if we are already processing one — prevents infinite cascades
@@ -298,48 +415,25 @@ class BaseAgent:
 
         # Broadcast "working" state to event bus/dashboard
         await event_bus.broadcast(self.name, "working", {"current_action": f"Analyzing input from {sender}"})
-        
-        max_retries = 10
 
-        for attempt in range(max_retries):
-            try:
-                # Invoke compiled React agent
-                inputs = {"messages": [("user", f"Message from {sender}: {message}")]}
-                config = {"configurable": {"thread_id": self.name}}
-                
-                response = await self.agent_executor.ainvoke(inputs, config=config)
-                
-                final_thought = response["messages"][-1].content
-                logger.info(f"[{self.display_name}] Completed task. Final Thought: {final_thought[:100]}...")
+        inputs = {"messages": [("user", f"Message from {sender}: {message}")]}
+        config = {"configurable": {"thread_id": self.name}}
 
-                # Log the finding to the shared memory graph for future incidents
-                await self._log_to_memory(final_thought)
+        try:
+            response = await self._invoke_resilient(inputs, config)
+            final_thought = response["messages"][-1].content
+            logger.info(f"[{self.display_name}] Completed task. Final Thought: {final_thought[:100]}...")
 
-                # Broadcast "done" state with final report
-                await event_bus.broadcast(self.name, "done", {"report": final_thought})
-                self._is_busy = False
-                return
+            # Log the finding to the shared memory graph for future incidents
+            await self._log_to_memory(final_thought)
 
-            except Exception as e:
-                err_str = str(e)
-                is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower()
-
-                if is_rate_limit and attempt < max_retries - 1:
-                    # Short linear backoff delay for faster retries since rate limits are milder on the new model
-                    delay = 5 + attempt * 2 + random.uniform(0, 3)
-                    logger.warning(
-                        f"[{self.display_name}] Rate limited (429). "
-                        f"Retry {attempt + 1}/{max_retries - 1} in {delay:.1f}s..."
-                    )
-                    await event_bus.broadcast(self.name, "working", {
-                        "current_action": f"Rate limited — retrying in {delay:.0f}s (attempt {attempt + 1})"
-                    })
-                    await asyncio.sleep(delay)
-                else:
-                    logger.error(f"[{self.display_name}] Error running agent: {e}")
-                    await event_bus.broadcast(self.name, "alert", {"error": str(e)})
-                    self._is_busy = False
-                    return
+            # Broadcast "done" state with final report
+            await event_bus.broadcast(self.name, "done", {"report": final_thought})
+        except Exception as e:
+            logger.error(f"[{self.display_name}] Error running agent: {e}")
+            await event_bus.broadcast(self.name, "alert", {"error": str(e)})
+        finally:
+            self._is_busy = False
 
     async def _log_to_memory(self, report: str):
         """Persist this agent's final report into the active shared incident."""

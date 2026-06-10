@@ -67,7 +67,7 @@ export function LiveLog({ events }: LiveLogProps) {
   const activeEvents = getActiveEvents()
 
   return (
-    <div className="w-full flex flex-col rounded-xl overflow-hidden border border-slate-200/80 dark:border-slate-800/80 bg-slate-900 text-slate-100 shadow-md">
+    <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200/80 dark:border-slate-800/80 bg-slate-900 text-slate-100 shadow-md">
       {/* macOS Header */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950/70 border-b border-slate-950/80 backdrop-blur-md">
         <div className="flex items-center gap-1.5">
@@ -116,7 +116,7 @@ export function LiveLog({ events }: LiveLogProps) {
       </div>
 
       {/* Logs View */}
-      <div className="h-[270px] overflow-y-auto font-mono text-[10.5px] space-y-3 p-4 bg-slate-950/90 scrollbar-thin">
+      <div className="flex-1 min-h-[200px] overflow-y-auto font-mono text-[10.5px] space-y-3 p-4 bg-slate-950/90 scrollbar-thin">
         {activeEvents.length === 0 ? (
           <div className="flex h-full items-center justify-center text-slate-600 text-[10px] font-mono italic">
             &gt;_ NO LOGS MATCHING SEARCH OR LOGS CLEARED

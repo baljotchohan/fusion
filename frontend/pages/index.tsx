@@ -1,120 +1,49 @@
-// pages/index.tsx
+// pages/index.tsx — ARGUS command center shell.
 import React, { useState, useEffect } from 'react'
 import Head from 'next/head'
-import { useAgentWebSocket, AgentStatus } from '../hooks/useAgentWebSocket'
-import { AgentCard } from '../components/AgentCard'
+import { useAgentWebSocket } from '../hooks/useAgentWebSocket'
 import { AgentGraph } from '../components/AgentGraph'
 import { LiveLog } from '../components/LiveLog'
 import { ExecutivePanel } from '../components/ExecutivePanel'
-import { CommanderChat } from '../components/CommanderChat'
+import { ChatPanel } from '../components/ChatPanel'
 import { ThreatGauge } from '../components/ThreatGauge'
+import { StoryTicker } from '../components/StoryTicker'
+import { AgentDetailPanel } from '../components/AgentDetailPanel'
+import { MemoryView } from '../components/MemoryView'
+import { SettingsView } from '../components/SettingsView'
+import { DocsView } from '../components/DocsView'
+import { API_BASE } from '../lib/agents'
 
-const AGENTS = [
-  { 
-    name: 'threat_intel_agent', 
-    displayName: 'Threat Intel', 
-    description: 'Parses raw alerts; maps MITRE TTPs and CVE vulnerability links.',
-    llm: 'Gemini 2.0 Flash',
-    room: '#threat-intel-room'
-  },
-  { 
-    name: 'recon_agent', 
-    displayName: 'Recon', 
-    description: 'Maps target systems topology and local vulnerabilities using digital twin.',
-    llm: 'Gemini 2.0 Flash',
-    room: '#recon-room'
-  },
-  { 
-    name: 'detection_agent', 
-    displayName: 'Detection', 
-    description: 'Scans fake logs and email archives for matching domains and file hashes.',
-    llm: 'Gemini 2.0 Flash',
-    room: '#detection-room'
-  },
-  { 
-    name: 'red_team_agent', 
-    displayName: 'Red Team', 
-    description: 'Simulates lateral movement progression paths from entry to final target.',
-    llm: 'Gemini 2.0 Flash',
-    room: '#redteam-room'
-  },
-  { 
-    name: 'attack_path_agent', 
-    displayName: 'Attack Path', 
-    description: 'Predicts hacker next moves and computes combined critical risk score.',
-    llm: 'Gemini 2.0 Flash',
-    room: '#attack-path-room'
-  },
-  { 
-    name: 'malware_agent', 
-    displayName: 'Malware Inv.', 
-    description: 'Analyzes files static structure, PE headers, entropy, and dropped IOCs.',
-    llm: 'Gemini 2.0 Flash',
-    room: '#malware-room'
-  },
-  { 
-    name: 'blue_team_agent', 
-    displayName: 'Blue Team', 
-    description: 'Formulates prioritized defensive playbooks and calculates downtime.',
-    llm: 'Gemini 2.0 Flash',
-    room: '#blueteam-room'
-  },
-  { 
-    name: 'incident_commander', 
-    displayName: 'Incident Cmdr', 
-    description: 'Central conductor room that orchestrates hands-offs and dynamic recruitment.',
-    llm: 'Gemini 2.0 Flash',
-    room: '#incident-command-room'
-  },
-  { 
-    name: 'executive_decision', 
-    displayName: 'Executive Board', 
-    description: 'Boardroom debate (CFO -> Legal -> Ops -> CEO) to yield containment choice.',
-    llm: 'Gemini 2.0 Flash',
-    room: '#executive-room'
-  },
+type Tab = 'war' | 'memory' | 'settings' | 'docs'
+
+const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: 'war', label: 'War Room', icon: '⚡' },
+  { id: 'memory', label: 'Memory', icon: '🧠' },
+  { id: 'settings', label: 'Settings', icon: '⚙️' },
+  { id: 'docs', label: 'Docs', icon: '📖' },
 ]
 
-export default function WarRoom() {
+export default function ARGUS() {
   const {
-    agentStates,
-    agentOutputs,
-    logEvents,
-    threatScore,
-    ceoDecision,
-    isConnected,
-    setAgentStates,
-    setAgentOutputs,
-    setThreatScore,
-    setCeoDecision,
-    setLogEvents
+    agentStates, agentOutputs, logEvents, storyFeed, threatScore, ceoDecision, isConnected, resetAll,
   } = useAgentWebSocket()
 
+  const [tab, setTab] = useState<Tab>('war')
   const [isSimulating, setIsSimulating] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [devMode, setDevMode] = useState(false)
 
-  // Theme Sync on Mount
   useEffect(() => {
     const saved = localStorage.getItem('theme') as 'dark' | 'light' | null
-    if (saved) {
-      setTheme(saved)
-    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-      setTheme('light')
-    }
+    if (saved) setTheme(saved)
+    else if (window.matchMedia?.('(prefers-color-scheme: light)').matches) setTheme('light')
   }, [])
 
-  // Apply Theme class to document root
   useEffect(() => {
     const root = window.document.documentElement
-    if (theme === 'dark') {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
-    }
+    theme === 'dark' ? root.classList.add('dark') : root.classList.remove('dark')
   }, [theme])
 
-  // Auto-reset simulation state 5s after CEO decision arrives
   useEffect(() => {
     if (ceoDecision) {
       const timer = setTimeout(() => setIsSimulating(false), 5000)
@@ -124,193 +53,140 @@ export default function WarRoom() {
 
   const triggerAttack = async () => {
     setIsSimulating(true)
+    setTab('war')
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-      const response = await fetch(`${apiBase}/api/trigger-attack`, { method: 'POST' })
-      const data = await response.json()
-      console.log('Triggered Attack:', data)
-    } catch (e) {
-      console.error('Failed to trigger attack:', e)
+      await fetch(`${API_BASE}/api/trigger-attack`, { method: 'POST' })
+    } catch {
       setIsSimulating(false)
     }
   }
 
-  const resetSimulation = () => {
+  const resetSimulation = async () => {
     setIsSimulating(false)
-    setThreatScore(0)
-    setCeoDecision(null)
-    setLogEvents([])
-    setAgentOutputs({})
-
-    // Reset agent states to idle
-    const resetStates: Record<string, AgentStatus> = {}
-    AGENTS.forEach(a => {
-      resetStates[a.name] = 'idle'
-    })
-    setAgentStates(resetStates)
+    resetAll()
+    try { await fetch(`${API_BASE}/api/reset`, { method: 'POST' }) } catch {}
   }
 
-  const toggleTheme = () => {
-    setTheme(prev => {
-      const next = prev === 'dark' ? 'light' : 'dark'
-      localStorage.setItem('theme', next)
-      return next
-    })
-  }
+  const toggleTheme = () => setTheme(prev => {
+    const next = prev === 'dark' ? 'light' : 'dark'
+    localStorage.setItem('theme', next)
+    return next
+  })
 
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors duration-300 font-sans antialiased">
       <Head>
         <title>ARGUS — Autonomous Cyber Defense Command Center</title>
-        <meta name="description" content="9 autonomous AI agents coordinating through Band to triage and mitigate cybersecurity threats." />
+        <meta name="description" content="Nine autonomous AI agents that detect, analyze, and respond to cyber threats — and make the business call." />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      {/* Premium Apple/ChatGPT Style Minimalist Header */}
-      <header className="sticky top-0 z-50 glassmorphic border-b border-slate-200/50 dark:border-slate-850/50 px-6 py-3.5 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-3">
-              <span className="font-extrabold text-base tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5 font-mono">
-                ⚡ ARGUS SYSTEM
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-mono bg-slate-100 dark:bg-slate-900 text-slate-400 dark:text-slate-500 font-normal border border-slate-200/40 dark:border-slate-800/80">
-                  v1.0.0
+      {/* Header */}
+      <header className="sticky top-0 z-50 glassmorphic border-b border-slate-200/50 dark:border-slate-800/60 backdrop-blur-xl">
+        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-sm shadow-md">🛡️</div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-[15px] tracking-tight text-slate-900 dark:text-white">ARGUS</span>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-bold font-mono tracking-wider ${isConnected ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                  {isConnected ? 'ONLINE' : 'OFFLINE'}
                 </span>
-              </span>
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold font-mono tracking-wider ${isConnected ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
-                {isConnected ? 'ONLINE' : 'OFFLINE'}
-              </span>
+              </div>
+              <p className="text-[9px] text-slate-400 dark:text-slate-500 font-mono tracking-wide hidden sm:block">Autonomous Cyber Defense Command Center</p>
             </div>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono tracking-wider uppercase">9 agents. All seeing. Never sleeps.</p>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Dev Mode Toggle: raw JSON for hackers, plain English otherwise */}
-            <button
-              onClick={() => setDevMode(prev => !prev)}
-              className={`h-8.5 px-3 rounded-lg text-[10px] font-bold font-mono tracking-wider border transition duration-300 shadow-sm ${
-                devMode
-                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-                  : 'bg-white/40 dark:bg-slate-900/10 border-slate-200/60 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
-              }`}
-              aria-label="Toggle developer mode"
-            >
-              {devMode ? '{ } DEV MODE ON' : '{ } DEV MODE'}
-            </button>
-
-            {/* Theme Toggle Button */}
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg border border-slate-200/60 dark:border-slate-800/80 bg-white/40 dark:bg-slate-900/10 hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition duration-300 shadow-sm"
-              aria-label="Toggle theme"
-            >
-              {theme === 'dark' ? (
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                </svg>
-              )}
-            </button>
-
-            {isSimulating && (
+          {/* Tabs */}
+          <nav className="hidden md:flex items-center gap-1 bg-slate-100/60 dark:bg-slate-900/50 rounded-xl p-1">
+            {TABS.map(t => (
               <button
-                onClick={resetSimulation}
-                className="h-8.5 px-4 rounded-lg text-xs font-semibold border border-slate-200/60 dark:border-slate-800/80 bg-white/40 dark:bg-slate-900/10 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition duration-300 font-mono shadow-sm"
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`px-3.5 py-1.5 rounded-lg text-[12px] font-semibold transition flex items-center gap-1.5 ${
+                  tab === t.id ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
               >
-                RESET DEMO
+                <span className="text-[11px]">{t.icon}</span>{t.label}
               </button>
-            )}
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setDevMode(p => !p)}
+              className={`hidden sm:block h-8 px-2.5 rounded-lg text-[10px] font-bold font-mono tracking-wider border transition ${
+                devMode ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-600 dark:text-cyan-400' : 'bg-transparent border-slate-200/60 dark:border-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+              }`}
+            >{'{ }'} DEV</button>
             <button
               onClick={triggerAttack}
               disabled={isSimulating}
-              className={`h-8.5 px-5 rounded-lg text-xs font-bold font-mono tracking-wider transition-all duration-300 shadow-sm ${
-                isSimulating 
-                  ? 'bg-slate-100 border border-slate-250 text-slate-400 dark:bg-slate-900/50 dark:border-slate-850 dark:text-slate-600 cursor-not-allowed shadow-none' 
-                  : 'bg-slate-900 hover:bg-black text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-950 hover:scale-[1.01] active:scale-[0.99]'
+              className={`h-8 px-4 rounded-lg text-[12px] font-bold transition shadow-sm ${
+                isSimulating ? 'bg-slate-100 dark:bg-slate-900 text-slate-400 dark:text-slate-600 cursor-not-allowed' : 'bg-gradient-to-br from-cyan-600 to-blue-600 text-white hover:opacity-90 active:scale-95'
               }`}
-            >
-              {isSimulating ? 'SIMULATING THREAT...' : 'SIMULATE ATTACK'}
-            </button>
+            >{isSimulating ? 'Simulating…' : '⚡ Simulate Attack'}</button>
+            {isSimulating && (
+              <button onClick={resetSimulation} className="h-8 px-3 rounded-lg text-[11px] font-semibold border border-slate-200/60 dark:border-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Reset</button>
+            )}
           </div>
         </div>
+
+        {/* Mobile tabs */}
+        <nav className="md:hidden flex items-center gap-1 px-4 pb-2 overflow-x-auto">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold whitespace-nowrap ${tab === t.id ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-500'}`}>
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </nav>
       </header>
 
-      {/* Main layout */}
-      <main className="max-w-7xl mx-auto p-6 space-y-6">
-        {/* Top Segment: React Flow Graph + Logs Panel */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Active Flow Graph Visualizer */}
-          <div className="lg:col-span-8 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-[10px] font-bold font-mono tracking-widest text-slate-400 dark:text-slate-500 uppercase">Interactive Node Handoff Graph</h2>
-              {threatScore > 0 && (
-                <span className="text-[9.5px] font-mono font-bold tracking-wider px-2 py-0.5 rounded bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 shadow-sm">
-                  COMBINED RISK: {threatScore}/100
-                </span>
-              )}
+      <main className="max-w-[1400px] mx-auto p-4 sm:p-6">
+        {tab === 'war' && (
+          <div className="space-y-5">
+            {/* Top: narrative + threat gauge */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+              <div className="lg:col-span-8"><StoryTicker beats={storyFeed} isSimulating={isSimulating} hasDecision={!!ceoDecision} /></div>
+              <div className="lg:col-span-4 flex flex-col justify-center"><ThreatGauge score={threatScore} /></div>
             </div>
-            <AgentGraph agentStates={agentStates} theme={theme} />
-          </div>
 
-          {/* Console / Event Log Feed */}
-          <div className="lg:col-span-4 space-y-4 flex flex-col justify-between">
-            <div className="space-y-3 flex-1 flex flex-col">
-              <h2 className="text-[10px] font-bold font-mono tracking-widest text-slate-400 dark:text-slate-500 uppercase">Live Operations Log</h2>
-              <LiveLog events={logEvents} />
-            </div>
-            
-            {/* Simple Legend Card */}
-            <div className="glassmorphic border border-slate-200/60 dark:border-slate-850/50 rounded-xl p-4 space-y-2.5 shadow-sm">
-              <h3 className="text-[9px] font-mono font-bold text-slate-400 dark:text-slate-500 tracking-wider">COORDINATION METRICS</h3>
-              <div className="grid grid-cols-2 gap-2.5 text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                <div>• Total Swarms: <span className="text-slate-700 dark:text-slate-200 font-semibold">9 Agents</span></div>
-                <div>• Rooms: <span className="text-slate-700 dark:text-slate-200 font-semibold">9 Active</span></div>
-                <div>• Platform: <span className="text-slate-700 dark:text-slate-200 font-semibold">Band AI SDK</span></div>
-                <div>• Interface: <span className="text-slate-700 dark:text-slate-200 font-semibold">FastAPI WS</span></div>
+            {/* Middle: chat (left) + graph & logs (right) — equal height columns */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:items-stretch">
+              <div className="lg:col-span-5"><ChatPanel devMode={devMode} onIncident={() => setIsSimulating(true)} /></div>
+              <div className="lg:col-span-7 flex flex-col gap-4 lg:h-[640px]">
+                <div className="flex flex-col min-h-0 flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-[11px] font-bold font-mono tracking-widest text-slate-400 dark:text-slate-500 uppercase">Agent Coordination Graph</h2>
+                    {threatScore > 0 && (
+                      <span className="text-[9.5px] font-mono font-bold px-2 py-0.5 rounded bg-red-500/10 text-red-600 dark:text-red-400">RISK {threatScore}/100</span>
+                    )}
+                  </div>
+                  <AgentGraph agentStates={agentStates} theme={theme} heightClass="flex-1 min-h-[300px]" />
+                </div>
+                <div className="flex flex-col h-[220px]">
+                  <h2 className="text-[11px] font-bold font-mono tracking-widest text-slate-400 dark:text-slate-500 uppercase mb-2">Live Operations Log</h2>
+                  <div className="flex-1 min-h-0"><LiveLog events={logEvents} /></div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Commander Chat + Threat Gauge */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8">
-            <CommanderChat devMode={devMode} />
-          </div>
-          <div className="lg:col-span-4">
-            <ThreatGauge score={threatScore} />
-          </div>
-        </div>
+            {/* Executive verdict */}
+            <ExecutivePanel decision={ceoDecision} threatScore={threatScore} />
 
-        {/* Bottom Segment: Boardroom Verdict or Status Cards */}
-        <div className="space-y-6">
-          {/* Boardroom Escalation Panel */}
-          <ExecutivePanel decision={ceoDecision} threatScore={threatScore} />
-
-          {/* Individual Agent status list */}
-          <div className="space-y-3">
-            <h2 className="text-[10px] font-bold font-mono tracking-widest text-slate-400 dark:text-slate-500 uppercase">Autonomous Specialist Swarm</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              {AGENTS.map((agent) => (
-                <AgentCard
-                  key={agent.name}
-                  name={agent.name}
-                  displayName={agent.displayName}
-                  status={agentStates[agent.name]}
-                  description={agent.description}
-                  llm={agent.llm}
-                  room={agent.room}
-                  devMode={devMode}
-                  lastOutput={agentOutputs[agent.name]}
-                />
-              ))}
+            {/* Specialist details */}
+            <div>
+              <h2 className="text-[11px] font-bold font-mono tracking-widest text-slate-400 dark:text-slate-500 uppercase mb-3">Specialist Swarm — Details</h2>
+              <AgentDetailPanel agentStates={agentStates} agentOutputs={agentOutputs} devMode={devMode} />
             </div>
           </div>
-        </div>
+        )}
+
+        {tab === 'memory' && <MemoryView />}
+        {tab === 'settings' && <SettingsView theme={theme} onToggleTheme={toggleTheme} />}
+        {tab === 'docs' && <DocsView />}
       </main>
     </div>
   )

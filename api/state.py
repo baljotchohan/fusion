@@ -3,6 +3,7 @@
 Shared mutable API state, split out so api.main and api.v1 can both use it
 without circular imports.
 """
+import time
 from typing import Dict, Optional
 
 
@@ -13,6 +14,17 @@ class SimulationState:
         self.agent_statuses: Dict[str, str] = {}
         # Incident currently being worked by the swarm
         self.active_incident_id: Optional[str] = None
+        # Wall-clock time of the last agent event — used to detect a stalled
+        # run so the trigger lock can never stay stuck forever.
+        self.last_event_at: float = 0.0
+
+    def touch(self):
+        self.last_event_at = time.time()
+
+    def is_stale(self, max_idle_seconds: float = 90.0) -> bool:
+        """True if a run claims to be in progress but no agent has emitted
+        an event for max_idle_seconds — i.e. the chain died mid-flight."""
+        return self.running and (time.time() - self.last_event_at) > max_idle_seconds
 
     def reset(self):
         self.running = False

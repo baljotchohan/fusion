@@ -87,9 +87,10 @@ function getNodeStyle(status: AgentStatus, theme: 'dark' | 'light') {
 interface AgentGraphProps {
   agentStates: Record<string, AgentStatus>
   theme: 'dark' | 'light'
+  heightClass?: string
 }
 
-export function AgentGraph({ agentStates, theme }: AgentGraphProps) {
+export function AgentGraph({ agentStates, theme, heightClass = 'h-[580px]' }: AgentGraphProps) {
   
   const nodes = useMemo<Node[]>(() => [
     // Top Row: Analysis & Input
@@ -177,7 +178,7 @@ export function AgentGraph({ agentStates, theme }: AgentGraphProps) {
   const gridColor = theme === 'dark' ? '#1f2937' : '#e2e8f0'
 
   return (
-    <div className="w-full h-[580px] rounded-2xl overflow-hidden glassmorphic shadow-md transition-all duration-300">
+    <div className={`w-full ${heightClass} rounded-2xl overflow-hidden glassmorphic shadow-md transition-all duration-300`}>
       <ReactFlow
         nodes={nodes}
         edges={edges}

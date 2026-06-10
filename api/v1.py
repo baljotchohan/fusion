@@ -6,6 +6,7 @@ IoC analysis, and shared-memory incident retrieval.
 These are the product-facing endpoints (used by the Web UI, external
 clients, and the MCP server in mcp_server.py).
 """
+import os
 import json
 import logging
 import re
@@ -60,6 +61,56 @@ class ChatResponse(BaseModel):
     incident_id: str
     agent_updates: dict
     memory_context: str
+    intent: str = "general"
+    thinking_steps: List[str] = []
+    dispatched: bool = False
+    suggestions: List[str] = []
+
+
+# Intent vocabulary — keyword buckets the Commander uses to route a message.
+_STATUS_WORDS = ("status", "safe", "under attack", "right now", "happening",
+                 "current", "going on", "are we", "threat level", "risk")
+_MEMORY_WORDS = ("learn", "learned", "remember", "memory", "past", "history",
+                 "before", "previous", "seen this", "recipe", "pattern", "how many")
+_DOCS_WORDS = ("how do you work", "how does this work", "explain", "what is argus",
+               "who are you", "what can you do", "help", "documentation", "architecture")
+_GREETING_WORDS = ("hi", "hii", "hiya", "hello", "helo", "hallo", "hey", "heyy",
+                   "yo", "sup", "greetings", "howdy", "good", "gm", "morning")
+_THANKS_WORDS = ("thanks", "thank you", "thx", "ty", "appreciate", "great", "nice", "cool", "awesome")
+
+
+def _classify_intent(text: str) -> str:
+    """Cheap, deterministic intent router so replies are relevant offline."""
+    t = text.lower().strip().rstrip("!.")
+    words = t.split()
+    first = words[0] if words else t
+    if any(k in t for k in ATTACK_KEYWORDS):
+        return "attack_report"
+    # Greeting: whole message is a greeting, or it opens with one and is short.
+    if t in _GREETING_WORDS or first in _GREETING_WORDS:
+        return "greeting"
+    if t in _THANKS_WORDS or first in _THANKS_WORDS:
+        return "thanks"
+    if any(k in t for k in _DOCS_WORDS):
+        return "docs"
+    if any(k in t for k in _MEMORY_WORDS):
+        return "memory"
+    if any(k in t for k in _STATUS_WORDS) or t.endswith("?"):
+        return "status"
+    return "general"
+
+
+def _suggestions_for(intent: str) -> List[str]:
+    base = {
+        "attack_report": ["What's the risk score?", "What does Blue Team recommend?", "Show me the CEO decision"],
+        "status": ["Report a phishing email", "What has the team learned?", "How does ARGUS work?"],
+        "memory": ["Report a new incident", "What's our current status?", "Which attack patterns repeat?"],
+        "docs": ["Simulate a phishing attack", "What are the 9 agents?", "What is the MITRE mapping?"],
+        "greeting": ["We got a phishing email", "Are we under attack?", "What did the team learn?"],
+        "thanks": ["Report an incident", "What's our status?", "How does ARGUS work?"],
+        "general": ["Report an incident", "What's our status?", "What has the team learned?"],
+    }
+    return base.get(intent, base["general"])
 
 
 async def _dispatch_incident(incident_id: str, user_message: str):
@@ -88,58 +139,225 @@ async def _dispatch_incident(incident_id: str, user_message: str):
             await mock_bus.send_message("Commander-Chat", "threat-intel-room", alert)
 
 
-async def _commander_reply(user_message: str, incident_id: str, dispatched: bool) -> str:
-    """Synthesize the Commander's plain-English reply.
+def _incident_headline(incident_id: Optional[str]) -> Optional[dict]:
+    """A tight, structured snapshot of one incident — verdict, risk, top finding —
+    so chat replies stay clean instead of dumping the whole raw timeline."""
+    if not incident_id:
+        return None
+    inc = memory_graph.get_incident(incident_id)
+    if not inc:
+        return None
+    verdict = None
+    fd = inc.get("final_decision") or ""
+    m = re.search(r"FINAL CEO DECISION:\s*([A-Za-z]+)", fd, re.I)
+    if m:
+        verdict = m.group(1).upper()
+    risk = None
+    headline_finding = None
+    for ev in inc.get("timeline", []):
+        finding = str(ev.get("finding", ""))
+        rm = re.search(r"Combined Risk Score:\s*(\d+)", finding, re.I)
+        if rm:
+            risk = int(rm.group(1))
+        if ev.get("agent") == "threat_intel_agent" and not headline_finding:
+            tm = re.search(r"Threat Type:\s*([^\n]+)", finding, re.I)
+            if tm:
+                headline_finding = tm.group(1).strip()
+    return {
+        "incident_id": incident_id,
+        "verdict": verdict,
+        "risk": risk,
+        "threat_level": inc["metadata"].get("threat_level"),
+        "findings": len(inc.get("timeline", [])),
+        "headline": headline_finding,
+    }
 
-    Uses a real LLM when keys are configured; otherwise builds a
-    deterministic reply from the shared memory graph so offline demos work.
-    """
+
+def _deterministic_reply(intent: str, user_message: str, incident_id: str,
+                         dispatched: bool, stats: dict, latest_summary: str,
+                         latest_id: Optional[str]) -> str:
+    """Offline-safe, intent-aware Commander reply built from real memory state.
+    Replies are deliberately concise and structured — never raw timeline dumps."""
+    n_inc = stats["total_incidents"]
+    n_pat = len(stats["learned_patterns"])
+    active = [a for a, s in _agent_statuses().items() if s == "working"]
+    head = _incident_headline(latest_id)
+
+    def _latest_line() -> str:
+        if not head:
+            return ""
+        bits = []
+        if head["verdict"]:
+            bits.append(f"verdict **{head['verdict']}**")
+        if head["risk"] is not None:
+            bits.append(f"risk **{head['risk']}/100**")
+        tail = (" — " + ", ".join(bits)) if bits else ""
+        return f"Most recent: **{head['incident_id']}**{tail}. Open the **Memory** tab for the full timeline."
+
+    if intent == "attack_report" and dispatched:
+        return (
+            f"Understood — I've opened incident **{incident_id}** and activated the response team. "
+            "Here's what happens over the next ~30 seconds:\n"
+            "1. **Threat Intelligence** classifies the alert and maps it to MITRE ATT&CK.\n"
+            "2. **Recon + Detection** confirm what's exposed and whether it got in.\n"
+            "3. **Red Team + Malware** predict the next move and dissect the payload.\n"
+            "4. **Attack Path** scores the risk; if critical, **Blue Team** builds containment and the "
+            "**Executive Board** makes the business call.\n\n"
+            "Watch the graph on the right — I'll surface the verdict the moment the board decides."
+        )
+    if intent == "attack_report" and not dispatched:
+        return (
+            "A response is already running, so I've folded your report into the active incident rather than "
+            f"starting a second one. {_latest_line()}"
+        )
+    if intent == "status":
+        if sim_state.running and active:
+            who = ", ".join(_display(a) for a in active)
+            return (
+                f"**Actively responding now.** Working specialists: {who}. "
+                "No final containment decision yet — I'll have it within a few seconds."
+            )
+        if head:
+            if head["verdict"]:
+                return (
+                    f"**Stable** — no live intrusion in progress. The last incident **{head['incident_id']}** "
+                    f"resolved with verdict **{head['verdict']}**"
+                    + (f" at risk **{head['risk']}/100**" if head["risk"] is not None else "")
+                    + ".\n\nAsk me to *report a phishing email* to run a fresh response, or open the **Memory** tab for details."
+                )
+            return (
+                f"**Stable.** The last incident **{head['incident_id']}** is on record with {head['findings']} "
+                "findings logged. Open the **Memory** tab for the full timeline."
+            )
+        return (
+            "**All clear** — no incidents on record yet. Click **Simulate Attack**, or tell me about something "
+            "suspicious (e.g. \"we got a phishing email\") and I'll mobilize the team."
+        )
+    if intent == "memory":
+        patt = stats["learned_patterns"]
+        lines = "\n".join(f"• **{k}** — {v} defense recipe(s)" for k, v in list(patt.items())[:8]) or "• none yet"
+        return (
+            f"Across **{n_inc} incident(s)** the team has logged **{stats['total_findings']} findings** and learned "
+            f"**{n_pat} reusable defense pattern(s)** by MITRE technique:\n{lines}\n\n"
+            "On a repeat attack, agents check this first and reuse what worked — so we get faster each time."
+        )
+    if intent == "docs":
+        return (
+            "**ARGUS** is an Autonomous Cyber Defense Command Center. Nine specialist AI agents — Threat "
+            "Intelligence, Recon, Detection, Red Team, Malware, Attack Path, Blue Team, the Incident Commander "
+            "(me), and the Executive Board — coordinate to take a raw security alert all the way to a boarded "
+            "business decision (Contain / Shutdown / Escalate) in under three minutes.\n\n"
+            "Report an incident in plain English and I'll recruit the right specialists. The **Docs** tab has the "
+            "full breakdown, including how to drive the team over **MCP** and **connectors**."
+        )
+    if intent == "greeting":
+        state = "responding to a live incident" if sim_state.running else "stable and standing by"
+        return (
+            "Hi — I'm the **ARGUS Incident Commander**. I coordinate nine security specialists for you, and right "
+            f"now the system is **{state}**.\n\n"
+            "You can **report something suspicious**, ask **\"what's our status?\"**, or query **what we've learned**. "
+            "What would you like to do?"
+        )
+    if intent == "thanks":
+        return "Anytime — I'm standing watch. Report anything suspicious and I'll mobilize the team instantly."
+    # general
+    return (
+        "I can **mobilize the team** on a threat, give you a **status** read, or tell you **what we've learned**. "
+        "Try \"we got a phishing email,\" \"are we under attack?\", or \"what has the team learned?\""
+    )
+
+
+def _display(agent_key: str) -> str:
+    return {
+        "threat_intel_agent": "Threat Intel", "recon_agent": "Recon",
+        "red_team_agent": "Red Team", "attack_path_agent": "Attack Path",
+        "detection_agent": "Detection", "malware_agent": "Malware",
+        "blue_team_agent": "Blue Team", "incident_commander": "Incident Commander",
+        "executive_decision": "Executive Board",
+    }.get(agent_key, agent_key)
+
+
+async def _commander_reply(intent: str, user_message: str, incident_id: str,
+                           dispatched: bool) -> str:
+    """Synthesize the Commander's reply. Real LLM when a key is live and healthy,
+    otherwise an intent-aware deterministic reply from the shared memory graph."""
     stats = memory_graph.get_memory_stats()
     latest_id = memory_graph.get_latest_incident_id()
     latest_summary = memory_graph.get_team_summary(latest_id) if latest_id else "No incidents on record yet."
 
+    from core.base_agent import llm_degraded, degrade_llm
+
     llm_router = get_router()
-    if llm_router.available_providers():
+    if llm_router.available_providers() and not llm_degraded():
+        recent = memory_graph.get_chat_history(limit=6)
+        convo = "\n".join(f"{t['role']}: {t['content'][:200]}" for t in recent)
         prompt = (
-            "You are the ARGUS Incident Commander talking to a user in plain English.\n"
-            f"User message: {user_message}\n\n"
-            f"Active incident: {incident_id}\n"
-            f"Team was {'just activated on this incident' if dispatched else 'not activated (informational question)'}.\n"
-            f"Team memory stats: {json.dumps(stats['learned_patterns'])} learned defenses, "
-            f"{stats['total_incidents']} past incidents.\n"
+            "You are the ARGUS Incident Commander — a calm, sharp SOC lead — talking to a user in plain English.\n"
+            f"Detected intent: {intent}.\n"
+            f"Recent conversation:\n{convo}\n\n"
+            f"New user message: {user_message}\n\n"
+            f"Active incident: {incident_id}. Team was "
+            f"{'just activated on this incident' if dispatched else 'not activated (informational)'}.\n"
+            f"Memory: {stats['total_incidents']} past incidents, "
+            f"{len(stats['learned_patterns'])} learned defense patterns.\n"
             f"Latest incident summary:\n{latest_summary}\n\n"
-            "Reply in 3-6 sentences. Be concrete, calm, and non-technical. "
-            "If the team was activated, explain which specialists are working and what happens next."
+            "Reply in 3-6 sentences. Concrete, calm, non-technical. Use markdown bold for key terms. "
+            "If the team was activated, name the specialists working and what happens next."
         )
         try:
-            return await llm_router.call_llm(prompt, max_tokens=400)
+            return await llm_router.call_llm(prompt, max_tokens=420)
         except Exception as e:
             logger.warning(f"Commander chat LLM failed, using deterministic reply: {e}")
+            degrade_llm(str(e))
 
-    if dispatched:
-        return (
-            f"Understood — I've opened incident {incident_id} and activated the response team. "
-            "Threat Intelligence is analyzing your report now; Recon, Detection, Red Team, and "
-            "Blue Team will engage automatically as findings come in. If risk crosses the "
-            "critical threshold, the executive board convenes for a business decision. "
-            "Watch the agent cards for live status."
-        )
-    return (
-        "Here's where we stand. "
-        f"The team has handled {stats['total_incidents']} incident(s) and learned "
-        f"{len(stats['learned_patterns'])} defense pattern(s) so far.\n\n{latest_summary}"
-    )
+    return _deterministic_reply(intent, user_message, incident_id, dispatched,
+                                stats, latest_summary, latest_id)
+
+
+def _build_thinking_steps(intent: str, dispatched: bool, incident_id: str) -> List[str]:
+    """The actual background steps the Commander took — surfaced to the UI so the
+    user sees the reasoning, not just the answer."""
+    steps = [f"Parsed message → intent classified as **{intent.replace('_', ' ')}**"]
+    if intent == "attack_report":
+        if dispatched:
+            steps += [
+                f"Opened incident record **{incident_id}** in shared memory",
+                "Queried team memory for matching MITRE techniques",
+                "Dispatched alert into #threat-intel-room — swarm recruiting",
+                "Streaming specialist findings to the live graph",
+            ]
+        else:
+            steps += ["A response is already running — folded this into the active incident"]
+    elif intent == "status":
+        steps += [
+            "Read live agent statuses from the event bus",
+            f"Checked simulation lock (running={sim_state.running})",
+            "Summarized latest incident from memory graph",
+        ]
+    elif intent == "memory":
+        steps += [
+            "Loaded incident timeline + learned attack patterns from memory graph",
+            "Aggregated findings count and defense recipes by MITRE ID",
+        ]
+    elif intent == "docs":
+        steps += ["Pulled architecture overview from the knowledge base"]
+    elif intent in ("greeting", "thanks"):
+        steps += ["Checked live system state for a quick status read"]
+    else:
+        steps += ["Checked memory graph for relevant context"]
+    return steps
 
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_commander(msg: ChatMessage):
     """Chat with the Incident Commander. Attack reports recruit the full swarm."""
     incident_id = msg.incident_id or _new_incident_id()
-    text = msg.user_message.lower()
+    intent = _classify_intent(msg.user_message)
 
-    is_attack_report = any(k in text for k in ATTACK_KEYWORDS)
+    memory_graph.append_chat("user", msg.user_message, {"intent": intent})
+
     dispatched = False
-    if is_attack_report and not sim_state.running:
+    if intent == "attack_report" and not sim_state.running:
         memory_graph.create_incident(incident_id, {
             "trigger": "commander_chat",
             "user_message": msg.user_message[:300],
@@ -151,15 +369,36 @@ async def chat_with_commander(msg: ChatMessage):
         # Informational question — answer about the most recent incident
         incident_id = memory_graph.get_latest_incident_id()
 
-    commander_response = await _commander_reply(msg.user_message, incident_id, dispatched)
+    thinking_steps = _build_thinking_steps(intent, dispatched, incident_id)
+    commander_response = await _commander_reply(intent, msg.user_message, incident_id, dispatched)
     memory_context = memory_graph.get_team_summary(incident_id)
+
+    memory_graph.append_chat("assistant", commander_response,
+                             {"intent": intent, "incident_id": incident_id, "dispatched": dispatched})
 
     return ChatResponse(
         commander_response=commander_response,
         incident_id=incident_id,
         agent_updates=_agent_statuses(),
         memory_context=memory_context,
+        intent=intent,
+        thinking_steps=thinking_steps,
+        dispatched=dispatched,
+        suggestions=_suggestions_for(intent),
     )
+
+
+@router.get("/chat/history")
+async def chat_history(limit: int = 100):
+    """Return persisted Commander chat history for the Memory tab."""
+    return {"history": memory_graph.get_chat_history(limit=limit)}
+
+
+@router.delete("/chat/history")
+async def clear_chat_history():
+    """Clear the persisted Commander chat history."""
+    memory_graph.clear_chat_history()
+    return {"status": "cleared"}
 
 
 @router.websocket("/ws/chat")
@@ -184,6 +423,10 @@ async def websocket_chat(websocket: WebSocket):
                 "response": result.commander_response,
                 "incident_id": result.incident_id,
                 "memory_context": result.memory_context,
+                "intent": result.intent,
+                "thinking_steps": result.thinking_steps,
+                "dispatched": result.dispatched,
+                "suggestions": result.suggestions,
             })
     except WebSocketDisconnect:
         pass
@@ -358,3 +601,124 @@ async def similar_incidents(technique: str, limit: int = 5):
     """Query team memory for past incidents matching a MITRE technique."""
     past = await memory_graph.query_similar_incidents(technique, limit=limit)
     return {"technique": technique, "similar_incidents": past}
+
+
+# ─── SYSTEM SETTINGS & MCP REGISTRY ───────────────────────────
+
+# Mirrors the 7 tools exposed by mcp_server.py so the UI can render the MCP
+# surface without importing the MCP runtime (which needs the `mcp` package).
+MCP_TOOLS = [
+    {"name": "run_security_scan", "category": "Recon",
+     "description": "Scan a GitHub repo for exposed secrets, vulnerable dependencies, and Dependabot alerts.",
+     "inputs": ["repo_url", "scan_type"]},
+    {"name": "analyze_threat", "category": "Threat Intel",
+     "description": "Analyze an IoC (IP / domain / hash / keyword) against live NVD CVE data and team memory.",
+     "inputs": ["indicator", "ioc_type"]},
+    {"name": "chat_with_commander", "category": "Command",
+     "description": "Talk to the Incident Commander in plain English; reporting an attack activates the swarm.",
+     "inputs": ["message"]},
+    {"name": "get_incident", "category": "Memory",
+     "description": "Retrieve a past incident: agent finding timeline, threat level, and final decision.",
+     "inputs": ["incident_id"]},
+    {"name": "get_team_decision", "category": "Executive",
+     "description": "Get the Executive board's final verdict for an incident.",
+     "inputs": ["incident_id"]},
+    {"name": "query_team_memory", "category": "Memory",
+     "description": "Query collective memory for similar past incidents by MITRE technique or keyword.",
+     "inputs": ["attack_technique", "limit"]},
+    {"name": "learn_attack_pattern", "category": "Memory",
+     "description": "Teach the team a defense recipe for a MITRE technique so future incidents resolve faster.",
+     "inputs": ["mitre_id", "defense", "success_rate"]},
+]
+
+_PROVIDER_META = [
+    ("gemini", "GOOGLE_API_KEY", "Google Gemini 2.0 Flash", "Fast multimodal reasoning"),
+    ("groq", "GROQ_API_KEY", "Groq — Llama 3.3 70B", "Free, very low latency"),
+    ("featherless", "FEATHERLESS_API_KEY", "Featherless — OSS models", "Mistral / Qwen / Llama"),
+    ("aimlapi", "AIMLAPI_KEY", "AI/ML API — GPT-4o", "200+ models, one key"),
+]
+
+
+def _provider_status() -> list:
+    def _placeholder(v: Optional[str]) -> bool:
+        return not v or "your-" in v or "get-from" in v
+    router = get_router()
+    available = set(router.available_providers())
+    out = []
+    for pid, env, label, note in _PROVIDER_META:
+        key = os.getenv(env)
+        out.append({
+            "id": pid,
+            "env": env,
+            "label": label,
+            "note": note,
+            "configured": not _placeholder(key),
+            "in_chain": pid in available,
+            "masked_key": (key[:6] + "…" + key[-3:]) if key and not _placeholder(key) and len(key) > 12 else None,
+        })
+    return out
+
+
+class SettingsPatch(BaseModel):
+    mock_pace: Optional[float] = None
+    primary_provider: Optional[str] = None
+    reset_llm_degradation: Optional[bool] = None
+
+
+@router.get("/system/settings")
+async def get_system_settings():
+    """Everything the Settings tab renders: providers, LLM health, pace, mode, MCP tools."""
+    from core.base_agent import llm_degraded
+    return {
+        "mode": "mock" if is_mock_mode() else "real",
+        "band_mock": is_mock_mode(),
+        "llm": {
+            "primary": os.getenv("ARGUS_LLM_PRIMARY", "gemini"),
+            "degraded": llm_degraded(),
+            "providers": _provider_status(),
+            "active_provider": (get_router().available_providers() or ["local-engine"])[0]
+                if not llm_degraded() else "local-engine",
+        },
+        "simulation": {
+            "running": sim_state.running,
+            "active_incident_id": sim_state.active_incident_id,
+            "mock_pace": float(os.getenv("ARGUS_MOCK_PACE", "0.6")),
+        },
+        "rooms": list(mock_bus.rooms.keys()) if is_mock_mode() else [],
+        "agents": AGENT_NAMES,
+        "mcp": {
+            "server": "argus-mcp",
+            "transport": "stdio",
+            "tool_count": len(MCP_TOOLS),
+            "tools": MCP_TOOLS,
+            "connect_hint": "Run `python mcp_server.py` and register it in your MCP client (Claude Desktop, etc.).",
+        },
+        "memory_stats": memory_graph.get_memory_stats(),
+    }
+
+
+@router.post("/system/settings")
+async def update_system_settings(patch: SettingsPatch):
+    """Apply runtime settings from the UI (pace, primary provider, clear LLM cooldown)."""
+    applied = {}
+    if patch.mock_pace is not None:
+        pace = max(0.0, min(3.0, patch.mock_pace))
+        os.environ["ARGUS_MOCK_PACE"] = str(pace)
+        applied["mock_pace"] = pace
+    if patch.primary_provider:
+        os.environ["ARGUS_LLM_PRIMARY"] = patch.primary_provider
+        # Rebuild the router so the new primary takes effect immediately
+        import core.llm_router as _lr
+        _lr._router = None
+        applied["primary_provider"] = patch.primary_provider
+    if patch.reset_llm_degradation:
+        import core.base_agent as _ba
+        _ba._llm_degraded_until = 0.0
+        applied["reset_llm_degradation"] = True
+    return {"status": "ok", "applied": applied}
+
+
+@router.get("/system/mcp")
+async def get_mcp_registry():
+    """The MCP tool surface external AI apps can call."""
+    return {"server": "argus-mcp", "transport": "stdio", "tools": MCP_TOOLS}
