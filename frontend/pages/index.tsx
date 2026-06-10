@@ -6,6 +6,8 @@ import { AgentCard } from '../components/AgentCard'
 import { AgentGraph } from '../components/AgentGraph'
 import { LiveLog } from '../components/LiveLog'
 import { ExecutivePanel } from '../components/ExecutivePanel'
+import { CommanderChat } from '../components/CommanderChat'
+import { ThreatGauge } from '../components/ThreatGauge'
 
 const AGENTS = [
   { 
@@ -76,11 +78,13 @@ const AGENTS = [
 export default function WarRoom() {
   const {
     agentStates,
+    agentOutputs,
     logEvents,
     threatScore,
     ceoDecision,
     isConnected,
     setAgentStates,
+    setAgentOutputs,
     setThreatScore,
     setCeoDecision,
     setLogEvents
@@ -88,6 +92,7 @@ export default function WarRoom() {
 
   const [isSimulating, setIsSimulating] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [devMode, setDevMode] = useState(false)
 
   // Theme Sync on Mount
   useEffect(() => {
@@ -135,7 +140,8 @@ export default function WarRoom() {
     setThreatScore(0)
     setCeoDecision(null)
     setLogEvents([])
-    
+    setAgentOutputs({})
+
     // Reset agent states to idle
     const resetStates: Record<string, AgentStatus> = {}
     AGENTS.forEach(a => {
@@ -180,6 +186,19 @@ export default function WarRoom() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Dev Mode Toggle: raw JSON for hackers, plain English otherwise */}
+            <button
+              onClick={() => setDevMode(prev => !prev)}
+              className={`h-8.5 px-3 rounded-lg text-[10px] font-bold font-mono tracking-wider border transition duration-300 shadow-sm ${
+                devMode
+                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-white/40 dark:bg-slate-900/10 border-slate-200/60 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
+              }`}
+              aria-label="Toggle developer mode"
+            >
+              {devMode ? '{ } DEV MODE ON' : '{ } DEV MODE'}
+            </button>
+
             {/* Theme Toggle Button */}
             <button
               onClick={toggleTheme}
@@ -257,6 +276,16 @@ export default function WarRoom() {
           </div>
         </div>
 
+        {/* Commander Chat + Threat Gauge */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-8">
+            <CommanderChat devMode={devMode} />
+          </div>
+          <div className="lg:col-span-4">
+            <ThreatGauge score={threatScore} />
+          </div>
+        </div>
+
         {/* Bottom Segment: Boardroom Verdict or Status Cards */}
         <div className="space-y-6">
           {/* Boardroom Escalation Panel */}
@@ -275,6 +304,8 @@ export default function WarRoom() {
                   description={agent.description}
                   llm={agent.llm}
                   room={agent.room}
+                  devMode={devMode}
+                  lastOutput={agentOutputs[agent.name]}
                 />
               ))}
             </div>
