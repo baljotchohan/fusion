@@ -115,8 +115,12 @@ ATTACK PATH RISK ANALYSIS
 - Recommended Priority: [contain/isolate/shutdown]
 ---
 
-Call thenvoi_send_message to 'incident-command-room'.
-Message: '@Incident-Commander RISK SCORE: [score]/100. [CRITICAL/HIGH]. Escalation [required/not required]. [report]'"""
+Call thenvoi_send_message with your full report:
+  thenvoi_send_message(
+    content='@Incident-Commander RISK SCORE: [score]/100. [CRITICAL/HIGH]. Escalation [required/not required]. [full report]',
+    mentions=['@baljotchohan23/incident-commander']
+  )
+Use content= and mentions= parameters ONLY."""
 
 class AttackPathAgent(BaseAgent):
     def __init__(self):

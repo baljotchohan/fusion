@@ -102,8 +102,12 @@ BLUE TEAM DEFENSIVE PLAYBOOK
 - Containment Completeness: [% of attack surface addressed]
 ---
 
-Call thenvoi_send_message to 'incident-command-room'.
-Message: '@Incident-Commander PLAYBOOK READY. [action count] actions. Total downtime: [hours]. [report]'"""
+Call thenvoi_send_message with your full report:
+  thenvoi_send_message(
+    content='@Incident-Commander PLAYBOOK READY. [action count] actions. Total downtime: [hours]. [full report]',
+    mentions=['@baljotchohan23/incident-commander']
+  )
+Use content= and mentions= parameters ONLY."""
 
 class BlueTeamAgent(BaseAgent):
     def __init__(self):

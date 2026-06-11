@@ -156,8 +156,12 @@ Board Communication:
 "[Official statement for employees/customers/press if needed]"
 ---
 
-Call thenvoi_send_message to 'incident-command-room'.
-Message: '@Incident-Commander BOARDROOM DECISION: [CONTAIN/ISOLATE/SHUTDOWN/ESCALATE]. [full report]'"""
+Call thenvoi_send_message with your full report:
+  thenvoi_send_message(
+    content='@Incident-Commander BOARDROOM DECISION: [CONTAIN/ISOLATE/SHUTDOWN/ESCALATE]. [full report]',
+    mentions=['@baljotchohan23/incident-commander']
+  )
+Use content= and mentions= parameters ONLY."""
 
 class ExecutiveDecisionAgent(BaseAgent):
     def __init__(self):

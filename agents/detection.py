@@ -98,8 +98,12 @@ DETECTION FINDINGS REPORT
 - SIEM Alert Recommendation: [rule to create for ongoing detection]
 ---
 
-Call thenvoi_send_message to 'incident-command-room'.
-Message: '@Incident-Commander DETECTION CONFIRMED. [count] systems compromised. Timeline reconstructed. [report]'"""
+Call thenvoi_send_message with your full report:
+  thenvoi_send_message(
+    content='@Incident-Commander DETECTION CONFIRMED. [count] systems compromised. Timeline reconstructed. [full report]',
+    mentions=['@baljotchohan23/incident-commander']
+  )
+Use content= and mentions= parameters ONLY."""
 
 class DetectionAgent(BaseAgent):
     def __init__(self):

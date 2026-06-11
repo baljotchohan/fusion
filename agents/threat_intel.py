@@ -73,9 +73,12 @@ THREAT INTELLIGENCE REPORT
   3. Alert CEO and IT about potential execution
 ---
 
-Then call thenvoi_send_message to send this full report to room 'incident-command-room'.
-Message format: '@Incident-Commander THREAT INTELLIGENCE REPORT COMPLETE. Severity: [score]/100. [report]'
-Do not summarize. Send the full report."""
+Then call thenvoi_send_message with your full report:
+  thenvoi_send_message(
+    content='@Incident-Commander THREAT INTELLIGENCE REPORT COMPLETE. Severity: [score]/100. [full report]',
+    mentions=['@baljotchohan23/incident-commander']
+  )
+Do not summarize. Send the full report. Use content= and mentions= parameters ONLY."""
 
 class ThreatIntelAgent(BaseAgent):
     def __init__(self):

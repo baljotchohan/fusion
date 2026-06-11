@@ -123,8 +123,12 @@ RECONNAISSANCE REPORT
 - Estimated Time to Exploitation: [hours] given CVE availability
 ---
 
-Call thenvoi_send_message to send to 'incident-command-room'.
-Message: '@Incident-Commander RECON COMPLETE. Critical systems mapped. [report]'"""
+Call thenvoi_send_message with your full report:
+  thenvoi_send_message(
+    content='@Incident-Commander RECON COMPLETE. Critical systems mapped. [full report]',
+    mentions=['@baljotchohan23/incident-commander']
+  )
+Use content= and mentions= parameters ONLY."""
 
 class ReconAgent(BaseAgent):
     def __init__(self):
