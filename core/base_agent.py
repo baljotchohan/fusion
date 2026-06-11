@@ -10,10 +10,17 @@ import yaml
 import logging
 import asyncio
 import random
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Sequence, Union, Type, Callable
 from dotenv import load_dotenv
 
 from langchain_core.tools import tool
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.outputs import ChatResult, ChatGeneration
+from langchain_core.messages import BaseMessage
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
@@ -107,6 +114,193 @@ def _estimate_severity(text: str) -> int:
         return 5
     return 4
 
+class ResilientChatModel(BaseChatModel):
+    primary_llm: Any
+    fallback_llm: Any
+    agent_name: str
+    display_name: str
+    fallback_llm_is_local: bool
+
+    @property
+    def _llm_type(self) -> str:
+        return "resilient_chat_model"
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if llm_degraded() and not self.fallback_llm_is_local:
+            message = self.fallback_llm.invoke(messages, stop=stop, **kwargs)
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+        for attempt in range(6):
+            try:
+                message = self.primary_llm.invoke(messages, stop=stop, **kwargs)
+                return ChatResult(generations=[ChatGeneration(message=message)])
+            except Exception as e:
+                err = str(e)
+                err_lower = err.lower()
+                fatal = any(marker in err_lower for marker in _FATAL_LLM_ERRORS) or "tool call validation failed" in err_lower or "failed_generation" in err_lower
+                transient_429 = (
+                    "429" in err or "RESOURCE_EXHAUSTED" in err or "rate limit" in err_lower
+                )
+                if not fatal and transient_429 and attempt < 5:
+                    delay = 4 + random.uniform(0, 2)
+                    logger.warning(
+                        f"[{self.display_name}] Rate limited (sync) — retrying in {delay:.1f}s... Error: {err[:150]}"
+                    )
+                    time.sleep(delay)
+                    continue
+                logger.error(f"[{self.display_name}] LLM failed (sync): {err[:200]}")
+                degrade_llm(err)
+                break
+
+        message = self.fallback_llm.invoke(messages, stop=stop, **kwargs)
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    async def _agenerate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if llm_degraded() and not self.fallback_llm_is_local:
+            message = await self.fallback_llm.ainvoke(messages, stop=stop, **kwargs)
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+        for attempt in range(6):
+            try:
+                message = await self.primary_llm.ainvoke(messages, stop=stop, **kwargs)
+                return ChatResult(generations=[ChatGeneration(message=message)])
+            except Exception as e:
+                err = str(e)
+                err_lower = err.lower()
+                fatal = any(marker in err_lower for marker in _FATAL_LLM_ERRORS) or "tool call validation failed" in err_lower or "failed_generation" in err_lower
+                transient_429 = (
+                    "429" in err or "RESOURCE_EXHAUSTED" in err or "rate limit" in err_lower
+                )
+                if not fatal and transient_429 and attempt < 5:
+                    delay = 4 + random.uniform(0, 2)
+                    logger.warning(
+                        f"[{self.display_name}] Rate limited — retrying in {delay:.1f}s... Error: {err[:150]}"
+                    )
+                    await event_bus.broadcast(self.agent_name, "working", {
+                        "current_action": f"Rate limited — retrying in {delay:.0f}s"
+                    })
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error(f"[{self.display_name}] LLM failed: {err[:200]}")
+                degrade_llm(err)
+                break
+
+        message = await self.fallback_llm.ainvoke(messages, stop=stop, **kwargs)
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    def bind_tools(
+        self,
+        tools: Sequence[Union[Dict[str, Any], Type[BaseModel], Callable, BaseTool]],
+        *,
+        tool_choice: Optional[Union[dict, str, bool]] = None,
+        **kwargs: Any,
+    ) -> Runnable:
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+        formatted_tools = [convert_to_openai_tool(tool) for tool in tools]
+        return self.bind(tools=formatted_tools, **kwargs)
+
+from thenvoi.adapters.langgraph import LangGraphAdapter
+from thenvoi.core.types import PlatformMessage
+from thenvoi.core.protocols import AgentToolsProtocol
+
+class ArgusLangGraphAdapter(LangGraphAdapter):
+    def __init__(self, agent_name: str, agent_id: str, *args, **kwargs):
+        self._argus_agent_name = agent_name
+        self._argus_agent_id = agent_id
+        super().__init__(*args, **kwargs)
+
+    async def on_message(
+        self,
+        msg: PlatformMessage,
+        tools: AgentToolsProtocol,
+        history: Any,
+        participants_msg: str | None,
+        contacts_msg: str | None,
+        *,
+        is_session_bootstrap: bool,
+        room_id: str,
+    ) -> None:
+        if msg.sender_id == self._argus_agent_id:
+            logger.debug(f"[{self._argus_agent_name}] Skipping own message")
+            return
+
+        is_mentioned = False
+        
+        # Robust mentions retrieval: handles metadata as dict, Pydantic model, or None,
+        # and handle each item in the list as either a dict or an object.
+        raw_metadata = getattr(msg, "metadata", None)
+        raw_mentions = []
+        if raw_metadata is not None:
+            if isinstance(raw_metadata, dict):
+                raw_mentions = raw_metadata.get("mentions", []) or []
+            else:
+                raw_mentions = getattr(raw_metadata, "mentions", []) or []
+
+        for m in raw_mentions:
+            if isinstance(m, dict):
+                m_id = m.get("id")
+                m_handle = m.get("handle")
+                m_username = m.get("username")
+            else:
+                m_id = getattr(m, "id", None)
+                m_handle = getattr(m, "handle", None)
+                m_username = getattr(m, "username", None)
+
+            if m_id == self._argus_agent_id:
+                is_mentioned = True
+                break
+
+            agent_name_clean = self._argus_agent_name.replace("_", "-").replace("-agent", "").lower()
+            if m_handle:
+                m_handle_clean = m_handle.lstrip("@").lower()
+                if agent_name_clean in m_handle_clean:
+                    is_mentioned = True
+                    break
+            if m_username:
+                m_username_clean = m_username.lstrip("@").lower()
+                if agent_name_clean in m_username_clean:
+                    is_mentioned = True
+                    break
+
+        is_ic = self._argus_agent_name == "incident_commander"
+        is_from_user = msg.sender_type == "User"
+
+        # If any other agent is mentioned in the message, the Incident Commander should
+        # stay silent and let that agent handle it, unless the IC is also mentioned.
+        is_other_agent_mentioned = False
+        if is_ic and is_from_user and raw_mentions:
+            for m in raw_mentions:
+                m_id = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
+                if m_id != self._argus_agent_id:
+                    is_other_agent_mentioned = True
+                    break
+
+        if is_mentioned or (is_ic and is_from_user and not is_other_agent_mentioned):
+            logger.info(f"[{self._argus_agent_name}] Triggered! Processing message: '{msg.content[:100]}'")
+            await super().on_message(
+                msg,
+                tools,
+                history,
+                participants_msg,
+                contacts_msg,
+                is_session_bootstrap=is_session_bootstrap,
+                room_id=room_id,
+            )
+        else:
+            logger.debug(f"[{self._argus_agent_name}] Ignoring message (not mentioned): '{msg.content[:60]}'")
+
 class BaseAgent:
     def __init__(
         self,
@@ -135,17 +329,46 @@ class BaseAgent:
         self._local_executor = None
 
     def _setup_llm(self):
-        """Set up LLM with priority: Featherless (OSS) → Groq (free/fast) → Gemini (fallback)."""
+        """Set up LLM with priority based on the requested model name and available credentials."""
         google_key = os.getenv("GOOGLE_API_KEY")
         featherless_key = os.getenv("FEATHERLESS_API_KEY")
         groq_key = os.getenv("GROQ_API_KEY")
         self.llm_is_local = False
 
-        # Featherless handles open-source models (Mistral, Llama, Qwen) unless prefixed with groq: or groq/
-        # If groq_key is set, we bypass Featherless to run all agents on Groq for reliability
-        use_featherless = any(x in self.model_name.lower() for x in ("llama", "qwen", "mistral")) and not self.model_name.lower().startswith("groq") and not groq_key
+        model_lower = self.model_name.lower()
 
-        if use_featherless and featherless_key:
+        # 1. Groq Models (Primary for this session since Gemini free tier is exhausted and Featherless is unauthorized)
+        if groq_key and groq_key not in ("your-groq-api-key-here", ""):
+            groq_model = self.model_name
+            # Strip prefixes
+            if groq_model.lower().startswith("groq:"):
+                groq_model = groq_model[5:]
+            elif groq_model.lower().startswith("groq/"):
+                groq_model = groq_model[5:]
+
+            # Map all models to llama-3.3-70b-versatile due to limits/exhaustion of other options
+            groq_model = "llama-3.3-70b-versatile"
+
+            logger.info(f"[{self.display_name}] Routing to Groq model: {groq_model}")
+            self.llm = ChatGroq(
+                api_key=groq_key,
+                model=groq_model,
+                temperature=0.1,
+                max_tokens=1024,
+                max_retries=6,
+            )
+        # 2. Gemini Models (Fallback)
+        elif "gemini" in model_lower and google_key and google_key not in ("your-gemini-api-key-here", ""):
+            logger.info(f"[{self.display_name}] Using Gemini model: {self.model_name}")
+            self.llm = ChatGoogleGenerativeAI(
+                model=self.model_name,
+                google_api_key=google_key,
+                temperature=0.1,
+                max_output_tokens=1024,
+                max_retries=6,
+            )
+        # 3. Featherless OS Models (Fallback)
+        elif any(x in model_lower for x in ("llama", "qwen", "mistral")) and not model_lower.startswith("groq") and featherless_key and featherless_key not in ("your-featherless-api-key-here", ""):
             logger.info(f"[{self.display_name}] Using Featherless OS model: {self.model_name}")
             self.llm = ChatOpenAI(
                 base_url="https://api.featherless.ai/v1",
@@ -153,36 +376,17 @@ class BaseAgent:
                 model=self.model_name,
                 temperature=0.1
             )
-        elif groq_key and groq_key not in ("your-groq-api-key-here", ""):
-            # Determine groq model
-            groq_model = self.model_name
-            if groq_model.lower().startswith("groq:"):
-                groq_model = groq_model[5:]
-            elif groq_model.lower().startswith("groq/"):
-                groq_model = groq_model[5:]
-                
-            if not any(x in groq_model.lower() for x in ("llama", "mixtral", "gemma", "qwen", "groq", "canopy", "allam", "openai")):
-                groq_model = "llama-3.3-70b-versatile"
-            
-            logger.info(f"[{self.display_name}] Using Groq model: {groq_model} (free tier)")
-            # max_tokens keeps each response within report size and stops the
-            # free-tier TPM/TPD admission control from overcounting requests.
-            self.llm = ChatGroq(
-                api_key=groq_key,
-                model=groq_model,
-                temperature=0.1,
-                max_tokens=1024,
-                max_retries=0,  # we handle retry/fallback ourselves in _invoke_resilient
-            )
+        # 4. Fallback to Gemini if key exists but model was not matched
         elif google_key and google_key not in ("your-gemini-api-key-here", ""):
-            logger.info(f"[{self.display_name}] Using Gemini model: {self.model_name}")
+            logger.info(f"[{self.display_name}] Using Gemini model (fallback): {self.model_name}")
             self.llm = ChatGoogleGenerativeAI(
                 model=self.model_name,
                 google_api_key=google_key,
                 temperature=0.1,
                 max_output_tokens=1024,
-                max_retries=0,
+                max_retries=6,
             )
+        # 5. Fallback to AI/ML API
         elif (aimlapi_key := os.getenv("AIMLAPI_KEY")) and "your-" not in aimlapi_key:
             aiml_model = os.getenv("ARGUS_AIMLAPI_MODEL", "gpt-4o")
             logger.info(f"[{self.display_name}] Using AI/ML API model: {aiml_model}")
@@ -192,10 +396,21 @@ class BaseAgent:
                 model=aiml_model,
                 temperature=0.1
             )
+        # 6. Fallback to mock/local
         else:
             logger.warning(f"[{self.display_name}] No API key configured. Running with dummy mock model.")
             self.llm = self._make_local_llm()
             self.llm_is_local = True
+
+        if not self.llm_is_local:
+            fallback_llm = self._make_local_llm()
+            self.llm = ResilientChatModel(
+                primary_llm=self.llm,
+                fallback_llm=fallback_llm,
+                agent_name=self.name,
+                display_name=self.display_name,
+                fallback_llm_is_local=self.llm_is_local
+            )
 
     def _make_local_llm(self):
         """LLM client pointed at this server's deterministic /mock-llm engine."""
@@ -318,8 +533,21 @@ class BaseAgent:
         # deterministically by id instead of fragile system-prompt keyword matching.
         # Harmless metadata for real LLMs (Groq/Gemini/Featherless).
         prompt = f"{self.system_prompt}\n\n[ARGUS_AGENT: {self.name}]"
-        if self.llm.__class__.__name__ == "ChatGroq":
-            prompt = f"{prompt}\n\nCRITICAL: You MUST use standard tool calling. Never output XML tags like <function=...> or </function> to call tools."
+        is_groq = False
+        if hasattr(self.llm, "primary_llm"):
+            is_groq = self.llm.primary_llm.__class__.__name__ == "ChatGroq"
+        else:
+            is_groq = self.llm.__class__.__name__ == "ChatGroq"
+
+        if is_groq:
+            prompt = (
+                f"{prompt}\n\n"
+                f"CRITICAL GROQ TOOL CALLING RULES:\n"
+                f"1. You MUST use standard tool calling. Never output XML tags like <function=...> or </function>.\n"
+                f"2. For thenvoi_send_message, the 'mentions' parameter MUST be a list/array of strings (e.g., ['@baljotchohan23/threat-intel']), NEVER a single string.\n"
+                f"3. For thenvoi_send_event, the 'message_type' MUST be exactly one of: 'thought', 'error', 'task'. Never use any other value.\n"
+                f"4. For thenvoi_send_event, the 'metadata' parameter MUST be a dictionary/object (e.g., {{}}), NEVER a string."
+            )
 
         if is_mock_mode():
             # In mock mode, combine custom tools with our mock Band tools
@@ -330,21 +558,29 @@ class BaseAgent:
             self.agent_executor = self._build_executor(self.llm, all_tools, prompt)
 
         else:
-            # Real mode uses thenvoi LangGraphAdapter wrapper which injects actual tools
-            from thenvoi.adapters.langgraph import LangGraphAdapter
-            from thenvoi import Agent
+            # Real mode — uses thenvoi-sdk v0.2.11 LangGraphAdapter + Agent
+            # Pattern: PlatformRuntime(agent_id, api_key) → Agent(runtime, adapter)
+            from thenvoi.agent import Agent
+            from thenvoi.runtime.platform_runtime import PlatformRuntime
             agent_id, api_key = self.load_credentials()
-            
-            self.adapter = LangGraphAdapter(
+
+            self.adapter = ArgusLangGraphAdapter(
+                agent_name=self.name,
+                agent_id=agent_id,
                 llm=self.llm,
                 checkpointer=InMemorySaver(),
                 additional_tools=self.custom_tools,
-                prompt_template=prompt
+                custom_section=prompt,   # injected as "## Developer Instructions" by SDK
             )
-            self.real_agent = Agent.create(
-                adapter=self.adapter,
+            self.runtime = PlatformRuntime(
                 agent_id=agent_id,
-                api_key=api_key
+                api_key=api_key,
+                ws_url="wss://app.thenvoi.com/api/v1/socket/websocket",
+                rest_url="https://app.thenvoi.com",
+            )
+            self.real_agent = Agent(
+                runtime=self.runtime,
+                adapter=self.adapter,
             )
 
     def _build_executor(self, llm, tools, prompt):
@@ -365,43 +601,9 @@ class BaseAgent:
         return self._local_executor
 
     async def _invoke_resilient(self, inputs: dict, config: dict):
-        """Invoke the agent. If the LLM provider is rate-limited or down, retry
-        once for transient errors, then degrade to the local simulation engine
-        so the response chain always completes."""
-        if self.llm_is_local:
-            return await self.agent_executor.ainvoke(inputs, config=config)
-        if llm_degraded():
-            return await self._get_local_executor().ainvoke(inputs, config=config)
-
-        for attempt in range(2):
-            try:
-                return await self.agent_executor.ainvoke(inputs, config=config)
-            except Exception as e:
-                err = str(e)
-                err_lower = err.lower()
-                fatal = any(marker in err_lower for marker in _FATAL_LLM_ERRORS)
-                transient_429 = (
-                    "429" in err or "RESOURCE_EXHAUSTED" in err or "rate limit" in err_lower
-                )
-                if not fatal and transient_429 and attempt == 0:
-                    delay = 4 + random.uniform(0, 2)
-                    logger.warning(
-                        f"[{self.display_name}] Rate limited — one retry in {delay:.1f}s..."
-                    )
-                    await event_bus.broadcast(self.name, "working", {
-                        "current_action": f"Rate limited — retrying in {delay:.0f}s"
-                    })
-                    await asyncio.sleep(delay)
-                    continue
-                # Daily quota gone, request too large, provider down, or retry
-                # already failed: stop hammering and finish on the local engine.
-                degrade_llm(err)
-                await event_bus.broadcast(self.name, "working", {
-                    "current_action": "LLM provider saturated — continuing on local analysis engine"
-                })
-                break
-
-        return await self._get_local_executor().ainvoke(inputs, config=config)
+        """Invoke the agent. Since ResilientChatModel handles all retries and fallbacks internally,
+        we can call the agent executor directly."""
+        return await self.agent_executor.ainvoke(inputs, config=config)
 
     async def handle_mock_message(self, sender: str, message: str):
         """Handles a message arriving in Mock Mode, runs LangGraph executor, and broadcasts updates."""
@@ -483,5 +685,8 @@ class BaseAgent:
             while True:
                 await asyncio.sleep(1)
         else:
-            logger.info(f"[{self.display_name}] Starting Real WebSocket connection to Band AI platform...")
+            logger.info(
+                f"[{self.display_name}] Connecting to Band via WebSocket "
+                f"(agent_id={self.runtime._agent_id[:8]}...)"
+            )
             await self.real_agent.run()
