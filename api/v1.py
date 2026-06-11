@@ -113,30 +113,88 @@ def _suggestions_for(intent: str) -> List[str]:
     return base.get(intent, base["general"])
 
 
+async def dispatch_real_band_message(content: str, target_agent_handle_sub: str) -> bool:
+    """Send a message to the real Band platform chat room, resolving and mentioning the target agent."""
+    import yaml
+    from thenvoi_rest import AsyncRestClient
+    from thenvoi.client.rest import ChatMessageRequest
+    from thenvoi_rest.types import ChatMessageRequestMentionsItem
+
+    try:
+        config_path = "agent_config.yaml"
+        if not os.path.exists(config_path):
+            config_path = "agent_config.example.yaml"
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f) or {}
+        agent_conf = config.get("agents", {}).get("incident_commander") or config.get("incident_commander", {})
+        api_key = agent_conf.get("api_key")
+        if not api_key:
+            logger.error("Real Band dispatch: Incident Commander API key not found in config")
+            return False
+
+        client = AsyncRestClient(api_key=api_key, base_url="https://app.thenvoi.com")
+        chats_resp = await client.agent_api_chats.list_agent_chats()
+        chats = chats_resp.data or []
+        if not chats:
+            logger.error("Real Band dispatch: No active chats found for Incident Commander")
+            return False
+
+        chat_id = chats[0].id
+
+        p_resp = await client.agent_api_participants.list_agent_chat_participants(chat_id=chat_id)
+        participants = p_resp.data or []
+
+        target_p = None
+        for p in participants:
+            p_handle = p.handle if hasattr(p, "handle") else p.get("handle") if isinstance(p, dict) else ""
+            p_id = p.id if hasattr(p, "id") else p.get("id") if isinstance(p, dict) else ""
+            p_name = p.name if hasattr(p, "name") else p.get("name") if isinstance(p, dict) else ""
+
+            if p_handle and target_agent_handle_sub.lower() in p_handle.lower():
+                target_p = {"id": p_id, "handle": p_handle, "name": p_name}
+                break
+
+        if not target_p:
+            logger.error(f"Real Band dispatch: Target agent matching '{target_agent_handle_sub}' not found in participants")
+            return False
+
+        mentions = [
+            ChatMessageRequestMentionsItem(
+                id=target_p["id"],
+                handle=target_p["handle"],
+                name=target_p["name"]
+            )
+        ]
+
+        if not content.startswith(f"@{target_p['handle']}"):
+            content = f"@{target_p['handle']} {content}"
+
+        await client.agent_api_messages.create_agent_chat_message(
+            chat_id=chat_id,
+            message=ChatMessageRequest(content=content, mentions=mentions)
+        )
+        logger.info(f"Real Band dispatch: Successfully sent trigger message to chat {chat_id} mentioning {target_p['handle']}")
+        return True
+    except Exception as e:
+        logger.error(f"Real Band dispatch failed: {e}")
+        return False
+
+
 async def _dispatch_incident(incident_id: str, user_message: str):
     """Wake the swarm: route the alert into the Threat Intel Band room."""
     sim_state.running = True
     sim_state.active_incident_id = incident_id
     alert = (
-        f"@Threat-Intel USER-REPORTED INCIDENT {incident_id}. "
+        f"USER-REPORTED INCIDENT {incident_id}. "
         f"User report: {user_message}. Analyze and return threat report to incident-command-room."
     )
     if is_mock_mode():
-        await mock_bus.send_message("Commander-Chat", "threat-intel-room", alert)
+        await mock_bus.send_message("Commander-Chat", "threat-intel-room", f"@Threat-Intel {alert}")
     else:
-        import os
-        import httpx
-        try:
-            band_api_key = os.getenv("BAND_API_KEY", "")
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                await client.post(
-                    "https://api.band.ai/v1/rooms/threat-intel-room/messages",
-                    headers={"Authorization": f"Bearer {band_api_key}"},
-                    json={"content": alert, "sender": "Commander-Chat"},
-                )
-        except Exception as e:
-            logger.error(f"Real Band dispatch failed, falling back to local bus: {e}")
-            await mock_bus.send_message("Commander-Chat", "threat-intel-room", alert)
+        success = await dispatch_real_band_message(alert, "threat-intel")
+        if not success:
+            logger.warning("Real Band dispatch failed, falling back to local bus")
+            await mock_bus.send_message("Commander-Chat", "threat-intel-room", f"@Threat-Intel {alert}")
 
 
 def _incident_headline(incident_id: Optional[str]) -> Optional[dict]:

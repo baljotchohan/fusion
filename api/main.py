@@ -159,22 +159,18 @@ async def trigger_attack():
         }
     else:
         # Real mode: send via real Band SDK
-        logger.info("FastAPI: Real mode. Sending phishing alert to real Band rooms...")
+        logger.info("FastAPI: Real mode. Sending phishing alert to real Band room...")
         try:
-            from thenvoi import Agent
-            band_api_key = os.getenv("BAND_API_KEY", "")
-            # Publish trigger to threat-intel-room via Band REST API
-            import httpx
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    "https://api.band.ai/v1/rooms/threat-intel-room/messages",
-                    headers={"Authorization": f"Bearer {band_api_key}"},
-                    json={"content": f"@Threat-Intel Phishing email alert: {alert_text}", "sender": "SOC-Alert-Sensor"}
-                )
-                logger.info(f"Band API response: {resp.status_code}")
+            from api.v1 import dispatch_real_band_message
+            success = await dispatch_real_band_message(
+                f"Phishing email alert: {alert_text}",
+                "threat-intel"
+            )
+            if not success:
+                logger.error("Real Band dispatch failed, falling back to local mock bus")
+                await mock_bus.send_message("SOC-Alert-Sensor", "threat-intel-room", f"@Threat-Intel Phishing email alert: {alert_text}")
         except Exception as e:
             logger.error(f"Real mode Band trigger error: {e}")
-            # Fallback: also fire locally so agents still respond
             await mock_bus.send_message("SOC-Alert-Sensor", "threat-intel-room", f"@Threat-Intel Phishing email alert: {alert_text}")
 
         return {
@@ -393,15 +389,60 @@ async def mock_llm_completions(request: Request):
         "executive_decision": ("incident-command-room", "@Incident-Commander Boardroom verdict:\n" + final_reports["executive_decision"]),
     }
 
+    # Check if the caller expects the real SDK schema (content, mentions) or mock schema (room, message)
+    expects_real_schema = False
+    for t in tools:
+        func = t.get("function", {})
+        if func.get("name") == "thenvoi_send_message":
+            properties = func.get("parameters", {}).get("properties", {})
+            if "content" in properties:
+                expects_real_schema = True
+                break
+
+    def _resolve_mention_handle(msg_text: str) -> str:
+        msg_text = msg_text.lower()
+        if "@threat-intel" in msg_text:
+            return "@baljotchohan23/threat-intel"
+        if "@recon" in msg_text:
+            return "@baljotchohan23/recon"
+        if "@red-team" in msg_text:
+            return "@baljotchohan23/red-team"
+        if "@attack-path" in msg_text:
+            return "@baljotchohan23/attack-path"
+        if "@detection" in msg_text:
+            return "@baljotchohan23/detection"
+        if "@malware-investigation" in msg_text or "@malware" in msg_text:
+            return "@baljotchohan23/malware-investigation"
+        if "@blue-team" in msg_text:
+            return "@baljotchohan23/blue-team"
+        if "@incident-commander" in msg_text:
+            return "@baljotchohan23/incident-commander"
+        if "@executive-decision" in msg_text:
+            return "@baljotchohan23/executive-decision"
+        if "@baljot chohan" in msg_text or "@baljotchohan" in msg_text:
+            return "@baljotchohan23"
+        return "@baljotchohan23/incident-commander"  # Default fallback
+
     def _send(call_id, room, message):
-        tool_calls.append({
-            "id": call_id,
-            "type": "function",
-            "function": {
-                "name": "thenvoi_send_message",
-                "arguments": json.dumps({"room": room, "message": message}),
-            },
-        })
+        if expects_real_schema:
+            handle = _resolve_mention_handle(message)
+            tool_calls.append({
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": "thenvoi_send_message",
+                    "arguments": json.dumps({"content": message, "mentions": [handle]}),
+                },
+            })
+        else:
+            tool_calls.append({
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": "thenvoi_send_message",
+                    "arguments": json.dumps({"room": room, "message": message}),
+                },
+            })
 
     def _call(call_id, name, arguments):
         tool_calls.append({
@@ -524,6 +565,91 @@ async def mock_llm_completions(request: Request):
                     _send("call_cmd_detect", "detection-room", "@Detection Scan email logs for indicators.")
                 else:
                     response_content = "Incident Commander: awaiting specialist reports..."
+
+    if body.get("stream"):
+        import time
+        from fastapi.responses import StreamingResponse
+
+        async def stream_generator():
+            if tool_calls:
+                # Yield tool calls delta chunk
+                chunk = {
+                    "id": "chatcmpl-mock",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "mock-model",
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "index": i,
+                                    "id": tc["id"],
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc["function"]["name"],
+                                        "arguments": tc["function"]["arguments"]
+                                    }
+                                }
+                                for i, tc in enumerate(tool_calls)
+                            ]
+                        },
+                        "finish_reason": None
+                    }]
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
+                await asyncio.sleep(0.02)
+                
+                # Yield finish_reason chunk
+                chunk = {
+                    "id": "chatcmpl-mock",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "mock-model",
+                    "choices": [{
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "tool_calls"
+                    }]
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
+            else:
+                # Yield content delta chunk
+                chunk = {
+                    "id": "chatcmpl-mock",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "mock-model",
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "content": response_content
+                        },
+                        "finish_reason": None
+                    }]
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
+                await asyncio.sleep(0.02)
+                
+                # Yield finish_reason chunk
+                chunk = {
+                    "id": "chatcmpl-mock",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "mock-model",
+                    "choices": [{
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop"
+                    }]
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
+                
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
     return JSONResponse({
         "choices": [{
