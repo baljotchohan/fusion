@@ -1,15 +1,15 @@
 # core/memory_graph.py
 """
-Graphify-backed shared incident memory for all 9 agents.
+Graphify-backed shared deal memory for all 5 partner agents.
 
-Every incident is logged to a shared on-disk graph (JSON namespace under
-./argus_memory). Agents query past incidents and learned defense recipes
-before acting, so the team gets measurably faster on repeat attacks.
+Every deal evaluation is logged to a shared on-disk graph (JSON namespace under
+./fusion_memory). Agents query past deals and learned checklist items
+before acting, so the team gets measurably faster on repeat evaluations.
 
 Files:
-  - incidents.json:        all past incidents with per-agent finding timelines
-  - attack_patterns.json:  learned defenses per MITRE technique
-  - agent_profiles.json:   per-agent learning stats (findings, incidents seen)
+  - incidents.json:        all past deals with per-partner finding timelines
+  - attack_patterns.json:  learned checklists per risk category
+  - agent_profiles.json:   per-partner learning stats (findings, deals seen)
 """
 import json
 import logging
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 
-logger = logging.getLogger("argus.memory_graph")
+logger = logging.getLogger("fusion.memory_graph")
 
 # Single process-wide lock: the JSON namespace is small and write
 # contention only happens during agent fan-out, so coarse locking is fine.
@@ -30,9 +30,9 @@ def _utcnow() -> str:
 
 
 class MemoryGraph:
-    """Shared incident memory graph used by every ARGUS agent."""
+    """Shared deal memory graph used by every FUSION agent."""
 
-    def __init__(self, graphify_dir: str = "./argus_memory"):
+    def __init__(self, graphify_dir: str = "./fusion_memory"):
         self.base_path = Path(graphify_dir)
         self.base_path.mkdir(exist_ok=True)
         self.incidents_file = self.base_path / "incidents.json"
