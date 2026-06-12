@@ -1,154 +1,208 @@
-// components/LiveLog.tsx
-import React, { useState } from 'react'
-import { AgentUpdate } from '../hooks/useAgentWebSocket'
+// components/LiveLog.tsx — Meeting Minutes / Deliberation Transcript feed.
+'use client'
+
+import React, { useRef, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ScrollText } from 'lucide-react'
+import { AGENT_BY_NAME } from '../lib/agents'
+import type { AgentUpdate } from '../hooks/useAgentWebSocket'
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 interface LiveLogProps {
   events: AgentUpdate[]
 }
 
-const AGENT_DISPLAY_NAMES: Record<string, string> = {
-  threat_intel_agent: 'Threat Intel',
-  recon_agent: 'Recon',
-  red_team_agent: 'Red Team',
-  attack_path_agent: 'Attack Path',
-  detection_agent: 'Detection',
-  malware_agent: 'Malware Inv',
-  blue_team_agent: 'Blue Team',
-  incident_commander: 'Inc Commander',
-  executive_decision: 'Executive Board',
+/* ------------------------------------------------------------------ */
+/*  Status badge config                                                */
+/* ------------------------------------------------------------------ */
+
+const BADGE_CONFIG: Record<
+  string,
+  { label: string; dot: string; text: string; bg: string }
+> = {
+  working: {
+    label: 'Auditing…',
+    dot: 'bg-amber-500 animate-pulse',
+    text: 'text-amber-700 dark:text-amber-400',
+    bg: 'bg-amber-50 dark:bg-amber-500/10 border-amber-200/60 dark:border-amber-500/20',
+  },
+  done: {
+    label: 'Findings Logged',
+    dot: 'bg-emerald-500',
+    text: 'text-emerald-700 dark:text-emerald-400',
+    bg: 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200/60 dark:border-emerald-500/20',
+  },
+  idle: {
+    label: 'Stand-by',
+    dot: 'bg-slate-400 dark:bg-slate-600',
+    text: 'text-slate-500 dark:text-slate-400',
+    bg: 'bg-slate-50 dark:bg-slate-800/40 border-slate-200/60 dark:border-slate-700/40',
+  },
+  alert: {
+    label: 'Attention',
+    dot: 'bg-red-500 animate-pulse',
+    text: 'text-red-700 dark:text-red-400',
+    bg: 'bg-red-50 dark:bg-red-500/10 border-red-200/60 dark:border-red-500/20',
+  },
 }
 
-const LOG_COLOR_MAP: Record<string, string> = {
-  working: 'text-amber-500 dark:text-amber-400',
-  done: 'text-emerald-600 dark:text-emerald-400',
-  alert: 'text-red-600 dark:text-red-400',
-  idle: 'text-slate-400 dark:text-slate-500'
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Pretty timestamp — e.g. "12:04 PM" */
+function fmtTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return ''
+  }
 }
+
+/** Pull a human-readable summary from the agent output, if available. */
+function summarise(output: Record<string, any>): string | null {
+  if (!output || Object.keys(output).length === 0) return null
+
+  // Prefer an explicit summary field
+  if (typeof output.summary === 'string' && output.summary.length > 0)
+    return output.summary
+
+  // Fallback: first ~140 chars of a report string, cleaned up
+  if (typeof output.report === 'string' && output.report.length > 0)
+    return output.report
+      .replace(/[-—#*`]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 140) + '…'
+
+  // Fallback: current_action from working state
+  if (typeof output.current_action === 'string')
+    return output.current_action
+
+  return null
+}
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
 
 export function LiveLog({ events }: LiveLogProps) {
-  const [searchQuery, setSearchQuery] = useState('')
-  const [clearedTimestamp, setClearedTimestamp] = useState<number | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  const handleClear = () => {
-    setClearedTimestamp(Date.now())
-  }
-
-  const handleCopy = () => {
-    const visibleEvents = getActiveEvents()
-    if (visibleEvents.length === 0) return
-    
-    const logText = visibleEvents.map(event => {
-      const name = AGENT_DISPLAY_NAMES[event.agent] || event.agent
-      const text = event.output?.report || event.output?.event || JSON.stringify(event.output)
-      return `[${event.timestamp}] [${name.toUpperCase()}] [${event.status.toUpperCase()}]: ${text}`
-    }).join('\n')
-
-    navigator.clipboard.writeText(logText)
-      .then(() => alert('Logs copied to clipboard'))
-      .catch(err => console.error('Failed to copy logs:', err))
-  }
-
-  const getActiveEvents = () => {
-    let filtered = events
-    if (clearedTimestamp) {
-      filtered = filtered.filter(e => new Date(e.timestamp).getTime() > clearedTimestamp)
+  // Auto-scroll to bottom whenever a new event arrives
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     }
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(e => {
-        const name = (AGENT_DISPLAY_NAMES[e.agent] || e.agent).toLowerCase()
-        const text = (e.output?.report || e.output?.event || JSON.stringify(e.output) || '').toLowerCase()
-        return name.includes(query) || text.includes(query)
-      })
-    }
-    return filtered
-  }
+  }, [events.length])
 
-  const activeEvents = getActiveEvents()
+  const isEmpty = events.length === 0
 
   return (
-    <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200/80 dark:border-slate-800/80 bg-slate-900 text-slate-100 shadow-md">
-      {/* macOS Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950/70 border-b border-slate-950/80 backdrop-blur-md">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f56] border border-[#e0443e]"></span>
-          <span className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e] border border-[#dea123]"></span>
-          <span className="w-2.5 h-2.5 rounded-full bg-[#27c93f] border border-[#1aab29]"></span>
-        </div>
-        <span className="text-[10px] font-mono text-slate-400 font-medium">bash - telemetry@argus</span>
+    <div className="glassmorphic border border-slate-200/60 dark:border-slate-800/60 rounded-2xl shadow-sm flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-5 pb-3">
         <div className="flex items-center gap-2">
-          <button 
-            onClick={handleCopy}
-            className="text-[9px] font-mono text-slate-400 hover:text-white transition px-1.5 py-0.5 rounded hover:bg-slate-800"
-            title="Copy all logs"
-            disabled={activeEvents.length === 0}
-          >
-            COPY
-          </button>
-          <button 
-            onClick={handleClear}
-            className="text-[9px] font-mono text-slate-400 hover:text-white transition px-1.5 py-0.5 rounded hover:bg-slate-800"
-            title="Clear logs locally"
-          >
-            CLEAR
-          </button>
+          <ScrollText className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Meeting Minutes
+          </h2>
         </div>
-      </div>
-
-      {/* Filter Bar */}
-      <div className="px-3 py-1.5 bg-slate-950/20 border-b border-slate-950/30 flex items-center">
-        <span className="text-[9.5px] font-mono text-slate-500 mr-2">FILTER:</span>
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search logs by agent or keyword..."
-          className="flex-1 bg-transparent text-[10px] font-mono text-slate-200 placeholder-slate-600 outline-none border-none p-0"
-        />
-        {searchQuery && (
-          <button 
-            onClick={() => setSearchQuery('')}
-            className="text-[9px] text-slate-500 hover:text-slate-300 ml-1 font-mono"
-          >
-            ✕
-          </button>
+        {!isEmpty && (
+          <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500 tabular-nums">
+            {events.length} entr{events.length === 1 ? 'y' : 'ies'}
+          </span>
         )}
       </div>
 
-      {/* Logs View */}
-      <div className="flex-1 min-h-[200px] overflow-y-auto font-mono text-[10.5px] space-y-3 p-4 bg-slate-950/90 scrollbar-thin">
-        {activeEvents.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-slate-600 text-[10px] font-mono italic">
-            &gt;_ NO LOGS MATCHING SEARCH OR LOGS CLEARED
+      {/* Scrollable feed */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-5 pb-5 scroll-smooth"
+      >
+        {isEmpty ? (
+          /* ---- Empty state ---- */
+          <div className="flex flex-col items-center justify-center h-full py-12">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/50 flex items-center justify-center mb-4">
+              <ScrollText className="w-5 h-5 text-slate-300 dark:text-slate-600" />
+            </div>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400 font-medium mb-1">
+              No minutes recorded yet
+            </p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center max-w-[200px] leading-relaxed">
+              Submit a deal to begin the committee deliberation.
+            </p>
           </div>
         ) : (
-          activeEvents.map((event, index) => {
-            const agentName = AGENT_DISPLAY_NAMES[event.agent] || event.agent
-            const colorClass = LOG_COLOR_MAP[event.status] || 'text-slate-300'
-            const logContent = event.output?.report || event.output?.event || JSON.stringify(event.output)
-            const timeStr = event.timestamp.includes('T') 
-              ? event.timestamp.split('T')[1].replace('Z', '').substring(0, 8)
-              : event.timestamp
+          /* ---- Timeline ---- */
+          <div className="space-y-3">
+            <AnimatePresence initial={false}>
+              {events.map((evt, idx) => {
+                const agent = AGENT_BY_NAME[evt.agent]
+                const badge = BADGE_CONFIG[evt.status] || BADGE_CONFIG.idle
+                const summary = summarise(evt.output)
 
-            return (
-              <div key={index} className="border-b border-slate-900/50 pb-2.5 last:border-0 last:pb-0">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <span className="text-slate-500">[{timeStr}]</span>
-                  <span className="text-blue-400 font-bold uppercase tracking-wider text-[9px]">{agentName}</span>
-                  <span className={`px-1 py-[0.5px] rounded-[3px] text-[7.5px] font-extrabold uppercase bg-slate-900 border border-slate-800 ${colorClass}`}>
-                    {event.status}
-                  </span>
-                </div>
-                <p className="text-slate-300 whitespace-pre-wrap leading-relaxed pl-2.5 border-l border-slate-800 font-light">
-                  {logContent}
-                </p>
-              </div>
-            )
-          })
+                return (
+                  <motion.div
+                    key={`${evt.agent}-${evt.timestamp}-${idx}`}
+                    initial={{ opacity: 0, y: 16, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
+                    className="flex items-start gap-3"
+                  >
+                    {/* Avatar circle */}
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50 flex items-center justify-center text-sm select-none">
+                      {agent?.icon ?? '🤖'}
+                    </div>
+
+                    {/* Bubble */}
+                    <div className="flex-1 min-w-0 rounded-xl bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/50 p-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
+                      {/* Top row: name + time + badge */}
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-[12px] font-semibold text-slate-800 dark:text-slate-100 truncate">
+                            {agent?.displayName ?? evt.agent}
+                          </span>
+                          <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500 tabular-nums flex-shrink-0">
+                            {fmtTime(evt.timestamp)}
+                          </span>
+                        </div>
+
+                        {/* Status badge */}
+                        <div
+                          className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[8px] font-bold uppercase tracking-wider flex-shrink-0 ${badge.bg} ${badge.text}`}
+                        >
+                          <span
+                            className={`inline-block w-1.5 h-1.5 rounded-full ${badge.dot}`}
+                          />
+                          {badge.label}
+                        </div>
+                      </div>
+
+                      {/* Summary text */}
+                      {summary && (
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-3">
+                          {summary}
+                        </p>
+                      )}
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
+          </div>
         )}
       </div>
     </div>
   )
 }
 
-export default LiveLog;
+export default LiveLog

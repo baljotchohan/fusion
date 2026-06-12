@@ -1,65 +1,163 @@
-// components/StoryTicker.tsx — plain-English narrative of the live incident.
-import React from 'react'
-import { StoryBeat } from '../hooks/useAgentWebSocket'
+// components/StoryTicker.tsx — horizontal narrative ticker that streams
+// plain-English story beats as the committee deliberates.
+'use client'
 
+import React, { useRef, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { AGENT_BY_NAME } from '../lib/agents'
+import type { StoryBeat } from '../hooks/useAgentWebSocket'
+
+/* ── Props ─────────────────────────────────────────────────── */
 interface StoryTickerProps {
   beats: StoryBeat[]
   isSimulating: boolean
   hasDecision: boolean
 }
 
-const toneStyle: Record<StoryBeat['tone'], string> = {
-  info: 'border-l-cyan-500 text-slate-600 dark:text-slate-300',
-  alert: 'border-l-red-500 text-slate-700 dark:text-slate-200',
-  success: 'border-l-emerald-500 text-slate-700 dark:text-slate-200',
+/* ── Tone → accent mapping ─────────────────────────────────── */
+const toneAccent: Record<StoryBeat['tone'], { dot: string; text: string }> = {
+  info:    { dot: 'bg-accent-cyan',  text: 'text-text-secondary' },
+  alert:   { dot: 'bg-danger',       text: 'text-danger' },
+  success: { dot: 'bg-accent-green', text: 'text-accent-green' },
 }
 
+/* ── Component ─────────────────────────────────────────────── */
 export function StoryTicker({ beats, isSimulating, hasDecision }: StoryTickerProps) {
-  const idle = beats.length === 0 && !isSimulating
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to newest beat
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ left: scrollRef.current.scrollWidth, behavior: 'smooth' })
+    }
+  }, [beats.length])
+
+  const idle = beats.length === 0 && !isSimulating && !hasDecision
 
   return (
-    <div className="glassmorphic border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-3">
+    <div className="w-full rounded-xl bg-bg-card border border-border shadow-sm overflow-hidden">
+      {/* Header strip */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border">
         <div className="flex items-center gap-2">
-          <span className="text-base">📖</span>
-          <h2 className="text-[12px] font-bold text-slate-800 dark:text-slate-100">What’s happening</h2>
+          <span className="text-sm">📖</span>
+          <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-text-secondary">
+            Live Narrative
+          </span>
         </div>
+
+        {/* Status indicator */}
         {isSimulating && !hasDecision && (
-          <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-amber-600 dark:text-amber-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Live
+          <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-accent-amber">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-accent-amber opacity-75 animate-ping" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent-amber" />
+            </span>
+            Live
           </span>
         )}
+
         {hasDecision && (
-          <span className="text-[9px] font-mono uppercase tracking-wider text-emerald-600 dark:text-emerald-400">✓ Resolved</span>
+          <span className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-accent-green">
+            <span className="text-xs">✓</span>
+            Deliberation complete
+          </span>
         )}
       </div>
 
-      {idle && (
-        <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 p-4">
-          <p className="text-[12px] text-slate-600 dark:text-slate-300 leading-relaxed">
-            <strong className="text-slate-800 dark:text-white">The scenario:</strong> a hacker emails the CEO a fake
-            invoice with malware attached. Click <strong className="text-slate-800 dark:text-white">Simulate Attack</strong> and
-            watch nine AI specialists detect it, predict the attacker’s next move, build a defense, and make the
-            business call — in under a minute.
-          </p>
-        </div>
-      )}
+      {/* Ticker body */}
+      <div
+        ref={scrollRef}
+        className="flex items-center gap-3 px-4 py-3 overflow-x-auto noscrollbar"
+      >
+        {/* Empty / idle state */}
+        {idle && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex items-center gap-2 whitespace-nowrap"
+          >
+            <span className="text-sm">🪑</span>
+            <span className="text-[11px] text-text-muted italic font-medium">
+              Committee standing by…
+            </span>
+          </motion.div>
+        )}
 
-      {!idle && (
-        <ol className="space-y-2">
-          {isSimulating && beats.length === 0 && (
-            <li className="text-[12px] text-slate-500 dark:text-slate-400 italic pl-3">
-              📧 A malicious invoice email just hit the CEO’s inbox — the team is engaging…
-            </li>
+        {/* Simulating but no beats yet — animated dots */}
+        {isSimulating && beats.length === 0 && !hasDecision && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex items-center gap-2 whitespace-nowrap"
+          >
+            <span className="text-sm">📧</span>
+            <span className="text-[11px] text-text-secondary font-medium">
+              Partners engaging
+            </span>
+            <span className="flex items-center gap-1 ml-1">
+              {[0, 1, 2].map(i => (
+                <motion.span
+                  key={i}
+                  className="w-1 h-1 rounded-full bg-accent-amber"
+                  animate={{ opacity: [0.25, 1, 0.25] }}
+                  transition={{ duration: 1, repeat: Infinity, delay: i * 0.25 }}
+                />
+              ))}
+            </span>
+          </motion.div>
+        )}
+
+        {/* Story beats */}
+        <AnimatePresence mode="popLayout">
+          {beats.map((beat, i) => {
+            const agent = AGENT_BY_NAME[beat.agent]
+            const tone = toneAccent[beat.tone] || toneAccent.info
+
+            return (
+              <motion.div
+                key={`${beat.agent}-${i}`}
+                layout
+                initial={{ opacity: 0, x: 24, scale: 0.92 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: -12 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+                className="flex-shrink-0 flex items-center gap-2.5 pl-3 pr-4 py-2 rounded-lg bg-bg-subtle border border-border hover:border-border-strong transition-colors duration-200 group"
+              >
+                {/* Tone dot */}
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tone.dot}`} />
+
+                {/* Agent icon */}
+                <span className="text-base flex-shrink-0" title={agent?.displayName}>
+                  {agent?.icon ?? '🤖'}
+                </span>
+
+                {/* Narrative text */}
+                <span className={`text-[11px] font-medium leading-snug whitespace-nowrap ${tone.text}`}>
+                  {beat.line}
+                </span>
+              </motion.div>
+            )
+          })}
+        </AnimatePresence>
+
+        {/* Decision complete badge */}
+        <AnimatePresence>
+          {hasDecision && beats.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ delay: 0.2, type: 'spring', stiffness: 300, damping: 24 }}
+              className="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-green-soft border border-accent-green/30"
+            >
+              <span className="text-accent-green text-xs font-bold">✓</span>
+              <span className="text-[11px] font-mono font-bold text-accent-green tracking-wider uppercase whitespace-nowrap">
+                Verdict Rendered
+              </span>
+            </motion.div>
           )}
-          {beats.map((b, i) => (
-            <li key={i} className={`pl-3 border-l-2 ${toneStyle[b.tone]} text-[12px] leading-relaxed`}>
-              <span className="font-mono text-[9px] text-slate-400 dark:text-slate-600 mr-2">{String(i + 1).padStart(2, '0')}</span>
-              {b.line}
-            </li>
-          ))}
-        </ol>
-      )}
+        </AnimatePresence>
+      </div>
     </div>
   )
 }
