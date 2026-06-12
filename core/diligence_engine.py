@@ -179,7 +179,7 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Legal score
     leg_score = 1.0
-    has_lawsuit = any(w in lit_str.lower() for w in ["lawsuit", "litigation", "patent dispute", "sued"])
+    has_lawsuit = any(w in lit_str.lower() for w in ["lawsuit", "litigation", "patent dispute", "sued"]) and not any(neg in lit_str.lower() for neg in ["no active", "no pending", "no lawsuits", "none", "no litigation"])
     if has_lawsuit:
         leg_score += 5.0
         if lit_damages > 0.5 * raise_amt_val:
@@ -190,7 +190,7 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     if is_non_compliant:
         leg_score += 3.0
         
-    is_unlicensed = any(w in comp_str.lower() for w in ["unlicensed", "without required licenses", "without licenses"])
+    is_unlicensed = any(w in comp_str.lower() for w in ["unlicensed", "without required licenses", "without licenses", "lacks money transmitter", "lacks licenses"])
     if is_unlicensed:
         leg_score += 4.0
     leg_score = min(10.0, leg_score)
@@ -207,7 +207,7 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     if is_plaintext_ssn:
         tech_score += 5.0
         
-    is_undisclosed_breach = any(w in sec_str.lower() for w in ["undisclosed", "data breach", "breach"])
+    is_undisclosed_breach = ("undisclosed" in sec_str.lower() and "breach" in sec_str.lower()) and not any(neg in sec_str.lower() for neg in ["no undisclosed", "no security breaches"])
     if is_undisclosed_breach:
         tech_score += 3.0
         

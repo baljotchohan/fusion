@@ -1116,7 +1116,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
         "evidence": cust_evidence
     }
 
-    lit_match = re.search(r"(?:lawsuit|litigation|patent dispute|sued by|dispute)[^\n\.]*[\n\.]", text, re.IGNORECASE)
+    lit_match = re.search(r"(?:lawsuit|litigation|patent dispute|sued by|dispute)[^\n]*", text, re.IGNORECASE)
     lit_val = "No active lawsuits or pending litigation."
     lit_conf = 40
     lit_start, lit_end = -1, -1
@@ -1154,7 +1154,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     comp_evidence = "Default compliance state"
     
     for word in ["NYC Local Law 144", "CFPB", "GDPR", "SOC 2", "SOC2", "unlicensed"]:
-        match = re.search(rf"([^%\n\.]*{word}[^\n\.]*)", text, re.IGNORECASE)
+        match = re.search(rf"([^%\n]*{word}[^\n]*)", text, re.IGNORECASE)
         if match:
             comp_val = match.group(1).strip()
             comp_conf = 95
@@ -1216,7 +1216,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     sec_evidence = "Default security status"
     
     for word in ["plaintext", "SSNs", "PII", "breach", "data breach", "pentest", "MFA"]:
-        match = re.search(rf"([^%\n\.]*{word}[^\n\.]*)", text, re.IGNORECASE)
+        match = re.search(rf"([^%\n]*{word}[^\n]*)", text, re.IGNORECASE)
         if match:
             sec_val = match.group(1).strip()
             sec_conf = 95
