@@ -8,7 +8,7 @@ import logging
 from typing import List, Dict
 from langchain_core.tools import tool
 
-logger = logging.getLogger("argus.cve")
+logger = logging.getLogger("fusion.cve")
 CVE_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 async def get_cves_async(keyword: str, max_results: int = 5) -> List[Dict]:
