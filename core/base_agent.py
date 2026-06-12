@@ -31,7 +31,7 @@ from core.band_client import mock_bus, is_mock_mode
 from core.event_bus import event_bus
 from core.memory_graph import memory_graph
 
-logger = logging.getLogger("argus.base_agent")
+logger = logging.getLogger("fusion.base_agent")
 
 import re as _re
 
@@ -69,34 +69,31 @@ def degrade_llm(reason: str):
             f"local simulation engine for {int(_LLM_COOLDOWN_SECONDS / 60)} min."
         )
 
-ARGUS_DOCTRINE = """You operate inside ARGUS, an autonomous Security Operations Center (SOC).
-You are an elite, real-world cyber operator — not a chatbot. Hold yourself to
-Tier-1 SOC / DFIR professional standards at all times.
+ARGUS_DOCTRINE = """You operate inside FUSION, an AI-powered Venture Capital Investment Committee.
+You are an elite investment professional — not a chatbot. Hold yourself to
+top-tier VC partner standards at all times.
 
 OPERATING DOCTRINE
-- Reason along the Cyber Kill Chain (Recon → Weaponization → Delivery →
-  Exploitation → Installation → C2 → Actions on Objectives) and map every
-  observation to MITRE ATT&CK tactics and technique IDs (Txxxx / Txxxx.yyy).
-- Be evidence-driven: separate confirmed facts (from your tools / data) from
-  assessment, and state confidence as HIGH / MEDIUM / LOW. Never invent IOCs.
-- Quantify impact: CVSS for vulnerabilities, blast radius for compromise,
-  dwell time, and business risk. Decisions follow evidence, not vibes.
-- Be decisive and concise. Lead with the conclusion, then the support.
-- You are one specialist in a coordinated team; produce the single artifact your
-  role owns, then hand off cleanly. Do not do another agent's job.
+- You are a domain specialist on a coordinated investment committee evaluating a startup for funding.
+- Be evidence-driven: separate confirmed facts from assessment. State confidence as HIGH / MEDIUM / LOW.
+- Quantify everything: dollar amounts, percentages, time horizons, risk multiples. Decisions follow data.
+- Be decisive and concise. Lead with your conclusion, then support it with evidence.
+- Red flags must be called out explicitly — your job is to protect LP capital. Never soften a dealbreaker.
+- You are one specialist; produce the single artifact your role owns, then hand off cleanly to the Managing Partner.
+- Use the load_deal_brief tool to access the startup pitch data before analyzing.
 
-ASSUMED ENVIRONMENT (TechCorp Inc digital twin): a mid-size enterprise — Microsoft
-AD domain, Exchange/mail server, customer database holding PII, C-Suite endpoints
-with admin rights, 192.168.1.0/24 internal subnet. Defend it as if it were real."""
+DEAL CONTEXT: The committee is evaluating a startup pitch for a potential investment.
+Each partner independently investigates their domain, reports findings to the Managing Partner,
+who synthesizes all findings into a final INVEST / PASS / CONDITIONAL decision."""
 
 MEMORY_PROTOCOL_PROMPT = """
 
-MEMORY PROTOCOL (shared team memory graph):
-Before deep analysis, call query_team_memory with the relevant MITRE technique
-ID (e.g. T1566.002) to check if the team has handled a similar incident before.
-If a past incident matches, say so explicitly ("We've seen this before...") and
-reuse what worked. When you confirm an effective countermeasure, call
-record_defense_recipe so the whole team responds faster next time."""
+MEMORY PROTOCOL (shared deal memory):
+Before analysis, call query_team_memory with the deal name or sector (e.g. 'NovaPay fintech BNPL')
+to check if the committee has evaluated similar deals before.
+If a past deal matches, note it explicitly ("We've seen this pattern before...") and apply learnings.
+When you confirm a recurring red flag pattern, call record_defense_recipe so the team
+spots it faster on future deals."""
 
 
 def _extract_mitre_tags(text: str) -> List[str]:
@@ -607,9 +604,14 @@ class BaseAgent:
 
     async def handle_mock_message(self, sender: str, message: str):
         """Handles a message arriving in Mock Mode, runs LangGraph executor, and broadcasts updates."""
-        # Drop the message if we are already processing one — prevents infinite cascades
+        # Wait if we are already processing a message — prevents infinite cascades while ensuring no reports are dropped
+        for _ in range(60):  # Wait up to 30 seconds
+            if not self._is_busy:
+                break
+            await asyncio.sleep(0.5)
+
         if self._is_busy:
-            logger.info(f"[{self.display_name}] Busy — dropping duplicate wakeup from '{sender}'")
+            logger.info(f"[{self.display_name}] Timeout waiting for agent to become free — dropping duplicate wakeup from '{sender}'")
             return
         self._is_busy = True
 
@@ -651,12 +653,11 @@ class BaseAgent:
                 tags=_extract_mitre_tags(report),
             )
             # The executive verdict closes the incident record
-            if self.name == "executive_decision" and "DECISION" in (report or "").upper():
+            if self.name == "managing_partner" and "DECISION" in (report or "").upper():
                 memory_graph.set_final_decision(incident_id, (report or "")[:500])
 
-            # Blue Team countermeasures become learned defense recipes, so the
-            # team recognizes and counters the same technique faster next time
-            if self.name == "blue_team_agent":
+            # Legal partner findings become learned risk patterns for future deals
+            if self.name == "legal_partner":
                 inc = memory_graph.get_incident(incident_id) or {}
                 techniques = {
                     tag
