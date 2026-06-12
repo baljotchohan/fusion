@@ -1,6 +1,6 @@
-// components/ChatPanel.tsx — Commander chat with visible reasoning steps.
+// components/ChatPanel.tsx — Managing Partner chat with visible reasoning steps.
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { API_BASE } from '../lib/agents'
+import { API_BASE } from '@/lib/agents'
 
 interface ChatTurn {
   role: 'user' | 'assistant'
@@ -43,7 +43,7 @@ function ThinkingTrace({ steps, live }: { steps: string[]; live?: boolean }) {
         <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
         <span className="flex items-center gap-1.5">
           {live && <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />}
-          Commander reasoning · {steps.length} step{steps.length === 1 ? '' : 's'}
+          Managing Partner reasoning · {steps.length} step{steps.length === 1 ? '' : 's'}
         </span>
       </button>
       {open && (
@@ -72,7 +72,7 @@ export function ChatPanel({ devMode, onIncident }: ChatPanelProps) {
   const [liveSteps, setLiveSteps] = useState<string[]>([])
   const [lastRaw, setLastRaw] = useState<Record<string, any> | null>(null)
   const [suggestions, setSuggestions] = useState<string[]>([
-    'We got a phishing email', 'Are we under attack?', 'What has the team learned?',
+    'Evaluate NovaPay Inc raising Series A', 'What is the committee status?', 'What has the committee learned?',
   ])
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -133,7 +133,7 @@ export function ChatPanel({ devMode, onIncident }: ChatPanelProps) {
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '⚠ Cannot reach the Incident Commander — is the ARGUS backend running on port 8000?',
+        content: '⚠ Cannot reach the Managing Partner — is the FUSION backend running on port 8000?',
       }])
     } finally {
       stagedTimers.forEach(clearTimeout)
@@ -149,8 +149,8 @@ export function ChatPanel({ devMode, onIncident }: ChatPanelProps) {
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-xs shadow-sm">🎯</div>
           <div>
-            <h2 className="text-[12px] font-bold text-slate-800 dark:text-slate-100">Incident Commander</h2>
-            <p className="text-[9px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider">Plain English in · 9 agents out</p>
+            <h2 className="text-[12px] font-bold text-slate-800 dark:text-slate-100">Managing Partner</h2>
+            <p className="text-[9px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider">Plain English in · 5 partners out</p>
           </div>
         </div>
         <span className="text-[8.5px] font-mono text-slate-400 dark:text-slate-600 uppercase tracking-wider px-2 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-800">live</span>
@@ -160,10 +160,10 @@ export function ChatPanel({ devMode, onIncident }: ChatPanelProps) {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && !thinking && (
           <div className="h-full flex flex-col items-center justify-center text-center px-6">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500/15 to-blue-600/15 flex items-center justify-center text-xl mb-3">🛡️</div>
-            <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-200">How can I help you defend?</p>
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500/15 to-blue-600/15 flex items-center justify-center text-xl mb-3">💼</div>
+            <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-200">How can I help evaluate?</p>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 max-w-xs leading-relaxed">
-              Report something suspicious and I’ll mobilize the right specialists, or ask about our status and what we’ve learned.
+              Submit a startup pitch brief and I’ll mobilize the specialist partners, or ask about our status and what we’ve evaluated.
             </p>
           </div>
         )}
@@ -233,7 +233,7 @@ export function ChatPanel({ devMode, onIncident }: ChatPanelProps) {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && send()}
-          placeholder="Report an incident or ask the Commander…"
+          placeholder="Evaluate a deal or ask the Managing Partner…"
           className="flex-1 bg-white/70 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800 text-slate-800 dark:text-slate-100 px-3.5 py-2.5 rounded-xl text-[12px] focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-600"
         />
         <button

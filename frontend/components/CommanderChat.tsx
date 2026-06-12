@@ -1,4 +1,4 @@
-// components/CommanderChat.tsx
+// components/CommanderChat.tsx — legacy/compatibility advisor chat.
 import React, { useState, useRef, useEffect } from 'react'
 
 interface ChatTurn {
@@ -46,7 +46,7 @@ export function CommanderChat({ devMode }: CommanderChatProps) {
     } catch (e) {
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: '⚠ Cannot reach the Incident Commander — is the ARGUS backend running?' },
+        { role: 'assistant', content: '⚠ Cannot reach the Managing Partner — is the FUSION backend running?' },
       ])
     } finally {
       setThinking(false)
@@ -57,10 +57,10 @@ export function CommanderChat({ devMode }: CommanderChatProps) {
     <div className="glassmorphic border border-slate-200/60 dark:border-slate-850/50 rounded-xl p-4 flex flex-col shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-[10px] font-bold font-mono tracking-widest text-slate-400 dark:text-slate-500 uppercase">
-          Chat with Incident Commander
+          Chat with Managing Partner
         </h2>
         <span className="text-[8px] font-mono text-slate-400 dark:text-slate-600 uppercase tracking-wider">
-          plain english in · 9 agents out
+          plain english in · 5 partners out
         </span>
       </div>
 
@@ -70,7 +70,7 @@ export function CommanderChat({ devMode }: CommanderChatProps) {
       >
         {messages.length === 0 && (
           <p className="text-[11px] text-slate-400 dark:text-slate-600 font-mono">
-            Try: “We got a phishing email” · “Are we under attack?” · “What did the team learn?”
+            Try: “Evaluate NovaPay Inc” · “What is the committee status?” · “What has the committee learned?”
           </p>
         )}
         {messages.map((msg, i) => (
@@ -94,7 +94,7 @@ export function CommanderChat({ devMode }: CommanderChatProps) {
         {thinking && (
           <div className="text-left">
             <div className="inline-block px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] font-mono text-slate-400 animate-pulse">
-              Commander coordinating agents…
+              Managing Partner coordinating committee…
             </div>
           </div>
         )}
@@ -112,7 +112,7 @@ export function CommanderChat({ devMode }: CommanderChatProps) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          placeholder="Ask about threat level, report an incident, query team memory…"
+          placeholder="Ask about risk levels, evaluate a deal, query memory..."
           className="flex-1 bg-white/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 text-slate-800 dark:text-slate-100 px-3 py-2 rounded-lg text-[12px] focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-600 placeholder:text-slate-400 dark:placeholder:text-slate-600"
         />
         <button
