@@ -21,9 +21,9 @@ from api.state import sim_state
 from api.v1 import router as v1_router
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("argus.api")
+logger = logging.getLogger("fusion.api")
 
-app = FastAPI(title="ARGUS API", version="2.0.0")
+app = FastAPI(title="FUSION API", version="1.0.0")
 app.include_router(v1_router)
 
 # Enable CORS for the Next.js War Room dashboard
@@ -57,12 +57,19 @@ async def broadcast_event_to_websockets(event_data: dict):
     if event_data.get("agent"):
         sim_state.agent_statuses[event_data["agent"]] = event_data.get("status", "idle")
 
-    # Auto-reset simulation lock when executive decision (last agent) finishes
-    if event_data.get("agent") == "executive_decision" and event_data.get("status") == "done":
-        sim_state.running = False
-        # Clear all agent busy flags so the next run starts clean
-        _clear_agent_busy_flags()
-        logger.info("FastAPI: Simulation complete — state auto-reset.")
+    # Auto-reset simulation lock when managing partner (last agent) finishes and delivers the final synthesized verdict
+    if event_data.get("agent") == "managing_partner" and event_data.get("status") == "done":
+        output_data = event_data.get("output") or {}
+        report_text = output_data.get("report") or ""
+        import re
+        if re.search(r"DECISION:", report_text, re.I):
+            sim_state.running = False
+            # Clear all agent busy flags so the next run starts clean
+            _clear_agent_busy_flags()
+            logger.info("FastAPI: Simulation complete (verdict rendered) — state auto-reset.")
+        else:
+            # Awaiting specialist findings, do not clear running state yet
+            pass
 
     # An 'alert' means an agent died even after LLM fallback — release the
     # trigger lock so the next Simulate click starts a fresh run instead of
@@ -104,80 +111,50 @@ class TriggerResponse(BaseModel):
 
 @app.post("/api/trigger-attack", response_model=TriggerResponse)
 async def trigger_attack():
-    """Triggers the demo phishing attack simulation by sending the initial alert to Threat Intel."""
-    # Self-heal a stale lock: a previous run that died mid-chain (e.g. the
-    # process lost its LLM provider) must not brick the Simulate button.
+    """Compatibility wrapper that triggers the FUSION deal review."""
+    res = await trigger_deal()
+    return TriggerResponse(
+        status=res.get("status", "error"),
+        message=res.get("message", ""),
+        mode=res.get("mode", "mock")
+    )
+
+@app.post("/api/trigger-deal")
+async def trigger_deal(company: str = "NovaPay Inc", raise_amount: str = "$10M"):
+    """Triggers the FUSION investment committee on a deal."""
     if sim_state.is_stale(max_idle_seconds=90):
-        logger.warning("FastAPI: Stale simulation lock (no agent events >90s) — auto-resetting.")
         sim_state.reset()
         _clear_agent_busy_flags()
 
     if sim_state.running:
-        logger.warning("FastAPI: Simulation already running — ignoring duplicate trigger.")
-        return {
-            "status": "already_running",
-            "message": "Simulation is already in progress. Please wait for it to complete.",
-            "mode": "mock" if is_mock_mode() else "real"
-        }
+        return {"status": "already_running", "message": "Committee already in session.", "mode": "mock" if is_mock_mode() else "real"}
+
     sim_state.running = True
     sim_state.touch()
-    logger.info("FastAPI: Attack trigger requested.")
 
-    # Open a shared-memory incident so every agent finding is recorded
-    from datetime import datetime, timezone
-    incident_id = f"INC-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-    memory_graph.create_incident(incident_id, {"trigger": "phishing_email", "threat_level": 7})
-    sim_state.active_incident_id = incident_id
+    if sim_state.active_incident_id:
+        deal_id = sim_state.active_incident_id
+        inc = memory_graph.get_incident(deal_id)
+        if inc:
+            company = inc["metadata"].get("company", company)
+    else:
+        from datetime import datetime, timezone
+        deal_id = f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+        memory_graph.create_incident(deal_id, {"trigger": "pitch_submission", "company": company})
+        sim_state.active_incident_id = deal_id
 
-    # Load the phishing email alert trigger data
-    trigger_path = "data/phishing_email.json"
-    if not os.path.exists(trigger_path):
-        return {
-            "status": "error",
-            "message": f"Trigger file not found at {trigger_path}",
-            "mode": "mock" if is_mock_mode() else "real"
-        }
-
-    with open(trigger_path, "r") as f:
-        alert_data = json.load(f)
-
-    alert_text = json.dumps(alert_data, indent=2)
+    brief = f"New deal submitted for committee review: {company} — Series A, {raise_amount} raise. Full pitch data is loaded in the deal brief. Please convene the investment committee and begin due diligence."
 
     if is_mock_mode():
-        # Offline mock mode: Send via local MockBandBus to threat-intel-room
-        logger.info("FastAPI: Mock mode enabled. Sending phishing alert to 'threat-intel-room'...")
-        # Start the chain by mentioning Threat Intel
         await mock_bus.send_message(
-            sender="SOC-Alert-Sensor",
-            target_room="threat-intel-room",
-            message=f"@Threat-Intel Phishing email alert: {alert_text}"
+            sender="Deal-Intake",
+            target_room="managing-partner-room",
+            message=brief
         )
-        return {
-            "status": "success",
-            "message": "Phishing attack alert dispatched to threat-intel-room (Mock Mode).",
-            "mode": "mock"
-        }
+        return {"status": "success", "message": f"Deal '{company}' submitted to committee (Mock Mode).", "deal_id": deal_id, "mode": "mock"}
     else:
-        # Real mode: send via real Band SDK
-        logger.info("FastAPI: Real mode. Sending phishing alert to real Band room...")
-        try:
-            from api.v1 import dispatch_real_band_message
-            success = await dispatch_real_band_message(
-                f"Phishing email alert: {alert_text}",
-                "threat-intel"
-            )
-            if not success:
-                logger.error("Real Band dispatch failed, falling back to local mock bus")
-                await mock_bus.send_message("SOC-Alert-Sensor", "threat-intel-room", f"@Threat-Intel Phishing email alert: {alert_text}")
-        except Exception as e:
-            logger.error(f"Real mode Band trigger error: {e}")
-            await mock_bus.send_message("SOC-Alert-Sensor", "threat-intel-room", f"@Threat-Intel Phishing email alert: {alert_text}")
+        return {"status": "success", "message": f"Deal '{company}' submitted to real Band rooms.", "deal_id": deal_id, "mode": "real"}
 
-        return {
-            "status": "success",
-            "message": "Phishing attack alert dispatched to real Band SDK rooms.",
-            "mode": "real"
-        }
 
 @app.get("/api/status")
 async def get_status():
@@ -207,7 +184,7 @@ async def reset_simulation():
 
 @app.post("/mock-llm/chat/completions")
 async def mock_llm_completions(request: Request):
-    """Offline mock OpenAI LLM server that simulates agent reasoning and handoffs."""
+    """Offline mock OpenAI LLM server that simulates FUSION agent reasoning and boardroom handoffs."""
     body = await request.json()
     messages = body.get("messages", [])
     tools = body.get("tools", [])
@@ -217,52 +194,36 @@ async def mock_llm_completions(request: Request):
     user_msgs = [m.get("content", "") for m in messages if m.get("role") == "user"]
     user_msg = user_msgs[-1] if user_msgs else ""
 
-    # Infer calling agent — prefer the deterministic ARGUS_AGENT marker injected by BaseAgent
+    # Infer calling agent
     import re
     _marker = re.search(r"\[ARGUS_AGENT:\s*([a-z_]+)\]", system_msg)
     agent_name = _marker.group(1) if _marker else ""
     if agent_name:
         pass
-    elif "Threat Intelligence" in system_msg or "ThreatIntelAgent" in system_msg:
-        agent_name = "threat_intel_agent"
-    elif "Reconnaissance Analyst" in system_msg or "ReconAgent" in system_msg:
-        agent_name = "recon_agent"
-    elif "Detection Analyst" in system_msg or "DetectionAgent" in system_msg:
-        agent_name = "detection_agent"
-    elif "Red Team Simulator" in system_msg or "RedTeamAgent" in system_msg:
-        agent_name = "red_team_agent"
-    elif "Attack Path" in system_msg or "AttackPathAgent" in system_msg:
-        agent_name = "attack_path_agent"
-    elif "Malware Investigation" in system_msg or "MalwareAgent" in system_msg:
-        agent_name = "malware_agent"
-    elif "Blue Team" in system_msg or "BlueTeamAgent" in system_msg:
-        agent_name = "blue_team_agent"
-    elif "Incident Commander" in system_msg or "IncidentCommander" in system_msg:
-        agent_name = "incident_commander"
-    elif "Executive Decision" in system_msg or "ExecutiveDecisionAgent" in system_msg:
-        agent_name = "executive_decision"
+    elif "Managing Partner" in system_msg or "managing_partner" in system_msg:
+        agent_name = "managing_partner"
+    elif "Financial Partner" in system_msg or "financial_partner" in system_msg:
+        agent_name = "financial_partner"
+    elif "Legal Partner" in system_msg or "legal_partner" in system_msg:
+        agent_name = "legal_partner"
+    elif "Technical Partner" in system_msg or "technical_partner" in system_msg:
+        agent_name = "technical_partner"
+    elif "Market Partner" in system_msg or "market_partner" in system_msg:
+        agent_name = "market_partner"
 
     if not agent_name:
         # Fallback keyword checks
         all_text = (system_msg + "\n" + user_msg).lower()
-        if "threat" in all_text:
-            agent_name = "threat_intel_agent"
-        elif "recon" in all_text:
-            agent_name = "recon_agent"
-        elif "detection" in all_text:
-            agent_name = "detection_agent"
-        elif "red" in all_text:
-            agent_name = "red_team_agent"
-        elif "path" in all_text:
-            agent_name = "attack_path_agent"
-        elif "malware" in all_text:
-            agent_name = "malware_agent"
-        elif "blue" in all_text:
-            agent_name = "blue_team_agent"
-        elif "executive" in all_text or "board" in all_text:
-            agent_name = "executive_decision"
+        if "financial" in all_text or "finance" in all_text:
+            agent_name = "financial_partner"
+        elif "legal" in all_text or "law" in all_text:
+            agent_name = "legal_partner"
+        elif "technical" in all_text or "tech" in all_text:
+            agent_name = "technical_partner"
+        elif "market" in all_text:
+            agent_name = "market_partner"
         else:
-            agent_name = "incident_commander"
+            agent_name = "managing_partner"
 
     response_content = ""
     tool_calls = []
@@ -273,123 +234,153 @@ async def mock_llm_completions(request: Request):
     has_tool_messages = last_role in ("tool", "function")
 
     # ── Realistic pacing delays ────────────────────────────────────────────────
-    # Stage 1 (planning/tool-dispatch) delays in seconds — how long each agent
-    # appears to "think" before dispatching its first tool calls.
     STAGE1_DELAYS = {
-        "threat_intel_agent":  (2.0, 3.5),
-        "recon_agent":         (1.5, 2.5),
-        "detection_agent":     (1.5, 2.5),
-        "red_team_agent":      (2.5, 4.0),
-        "attack_path_agent":   (2.0, 3.5),
-        "malware_agent":       (2.0, 3.0),
-        "blue_team_agent":     (2.0, 3.5),
-        "incident_commander":  (1.0, 2.0),
-        "executive_decision":  (3.0, 5.0),
+        "managing_partner":    (1.5, 2.5),
+        "financial_partner":   (2.0, 3.5),
+        "legal_partner":       (2.0, 3.5),
+        "technical_partner":   (2.5, 4.0),
+        "market_partner":      (2.0, 3.0),
     }
-    # Stage 2 (analysis/handoff) delays — how long each agent takes to produce
-    # its final report and send the handoff message.
     STAGE2_DELAYS = {
-        "threat_intel_agent":  (1.5, 2.5),
-        "recon_agent":         (1.0, 2.0),
-        "detection_agent":     (1.0, 2.0),
-        "red_team_agent":      (2.0, 3.5),
-        "attack_path_agent":   (1.5, 3.0),
-        "malware_agent":       (1.5, 2.5),
-        "blue_team_agent":     (2.0, 3.5),
-        "incident_commander":  (0.8, 1.5),
-        "executive_decision":  (3.0, 5.0),
+        "managing_partner":    (2.5, 4.0),
+        "financial_partner":   (1.5, 2.5),
+        "legal_partner":       (1.5, 2.5),
+        "technical_partner":   (2.0, 3.0),
+        "market_partner":      (1.5, 2.5),
     }
 
     delay_range = (STAGE2_DELAYS if has_tool_messages else STAGE1_DELAYS).get(
         agent_name, (1.0, 2.0)
     )
-    # ARGUS_MOCK_PACE scales the cinematic delays (0 = instant, 1 = original).
     pace = float(os.getenv("ARGUS_MOCK_PACE", "0.6"))
     await asyncio.sleep(random.uniform(*delay_range) * pace)
     # ──────────────────────────────────────────────────────────────────────────
 
-    # ── Canned specialist reports (returned once a data tool has run) ──
+    # ── Canned FUSION partner reports ──
     final_reports = {
-        "threat_intel_agent": (
-            "---\n"
-            "THREAT INTELLIGENCE REPORT\n"
-            "- Threat Type: Spearphishing Attachment\n"
-            "- Target: CEO Workstation (ceo@techcorp.com, admin privileges)\n"
-            "- MITRE ATT&CK TTPs: T1566, T1566.001, T1204.002\n"
-            "- Associated CVEs: CVE-2024-21378 (CVSS 9.8, CRITICAL)\n"
-            "- Threat Severity Score: 82\n"
-            "- Recommended Containment: Isolate mail server, block sender domain invoices@corp-billing.xyz\n"
-            "---"
+        "financial_partner": (
+            "FINANCIAL DUE DILIGENCE REPORT — NovaPay Inc\n"
+            "Partner: Financial Analysis\n"
+            "Confidence: HIGH\n\n"
+            "REVENUE QUALITY:\n"
+            "- 78% of ARR ($3.9M of $5M ARR) is concentrated in a single customer (Amazon).\n"
+            "- Amazon contract expires in 3 months (post-close cliff-edge).\n"
+            "- Gross margins are 48% (below SaaS benchmark of 70%+).\n\n"
+            "BURN & RUNWAY:\n"
+            "- Cash on hand is $3.0M with a monthly burn rate of $380k.\n"
+            "- Implies only 8 months of runway remaining.\n\n"
+            "UNIT ECONOMICS:\n"
+            "- LTV:CAC ratio is 2.5x, which is below the 3.0x Series A threshold.\n"
+            "- Customer payback period is 16 months.\n\n"
+            "VALUATION:\n"
+            "- 8.0x ARR valuation multiple on a declining fintech sector.\n\n"
+            "🚨 CRITICAL RED FLAGS:\n"
+            "1. Amazon revenue concentration (78% ARR) is a critical point of failure.\n"
+            "2. Amazon contract expires 3 months post-close with high renewal risk.\n"
+            "3. Remaining runway of 8 months is extremely tight.\n\n"
+            "FINANCIAL RISK SCORE: 9/10\n"
+            "RECOMMENDATION: PASS"
         ),
-        "recon_agent": (
-            "RECONNAISSANCE SUMMARY:\n"
-            "- Vulnerable Servers: SRV-01 (Mail, CVE-2024-1234), SRV-03 (DB, Windows)\n"
-            "- Exposed Ports: 25, 443, 1433\n"
-            "- Entry Points: Mail server SMTP, CEO workstation (admin privileges)\n"
-            "- Highest Risk Target: Mail Server SRV-01\n"
-            "- Network Topology Map: 192.168.1.0/24 subnet analyzed."
+        "legal_partner": (
+            "LEGAL DUE DILIGENCE REPORT — NovaPay Inc\n"
+            "Partner: Legal Analysis\n"
+            "Confidence: HIGH\n\n"
+            "LITIGATION:\n"
+            "- Active patent infringement lawsuit by Klarna claiming $8.0M in damages (80% of the proposed $10M raise).\n\n"
+            "COMPLIANCE & LICENSING:\n"
+            "- Non-compliant with new CFPB rules effective January 2026.\n"
+            "- Operating without money transmitter licenses in 4 states (CA, NY, TX, FL).\n\n"
+            "IP & DATA PRIVACY:\n"
+            "- Lacks SOC2 certification, blocking enterprise growth.\n"
+            "- CCPA compliance is unverified.\n\n"
+            "FOUNDER HISTORY:\n"
+            "- CEO's prior startup was under SEC investigation (now closed, but remains a diligence flag).\n\n"
+            "🚨 CRITICAL RED FLAGS:\n"
+            "1. Klarna patent lawsuit ($8.0M damages) is an immediate dealbreaker.\n"
+            "2. Lacking money transmitter licenses in 4 key states of operation.\n"
+            "3. Non-compliant with CFPB rules since January 2026.\n\n"
+            "LEGAL RISK SCORE: 10/10\n"
+            "RECOMMENDATION: PASS"
         ),
-        "detection_agent": (
-            "DETECTION ANALYSIS FINDINGS:\n"
-            "- Confirmed Compromise: True\n"
-            "- Affected Systems: CEO-WORKSTATION-01, SRV-01-MAIL\n"
-            "- IOCs Found: email_sender (invoices@corp-billing.xyz), file_hash (Invoice_2026_0891.exe)\n"
-            "- Breach Timeline: Phishing received at 08:45:00, attachment executed at 08:47:32."
+        "technical_partner": (
+            "TECHNICAL DUE DILIGENCE REPORT — NovaPay Inc\n"
+            "Partner: Technical Audit\n"
+            "Confidence: HIGH\n\n"
+            "TECH STACK:\n"
+            "- Node.js 14 (End-of-Life since Oct 2023) and MongoDB 4.2 in production, exposing critical vulnerabilities.\n\n"
+            "SECURITY POSTURE:\n"
+            "- Plaintext storage of SSNs and PII in database.\n"
+            "- Never conducted a penetration test or external vulnerability audit.\n"
+            "- Undisclosed 2024 data breach (3,200 user records) was not reported to authorities.\n\n"
+            "SCALABILITY & DEBT:\n"
+            "- Monolithic code architecture unable to horizontally scale past 10,000 active users.\n"
+            "- No multi-factor authentication (MFA) enabled on admin panels.\n\n"
+            "🚨 CRITICAL RED FLAGS:\n"
+            "1. Storing SSNs and PII in plaintext MongoDB is a massive liability.\n"
+            "2. Running EOL Node.js 14 and MongoDB 4.2 in a live payment processor.\n"
+            "3. Undisclosed 2024 data breach (3,200 records).\n\n"
+            "TECHNICAL RISK SCORE: 10/10\n"
+            "RECOMMENDATION: PASS"
         ),
-        "red_team_agent": (
-            "RED TEAM ATTACK PATH SIMULATION:\n"
-            "1. Spearphishing email opened, .exe executed (T1566.001)\n"
-            "2. Persistence established via scheduled task (T1053.005)\n"
-            "3. Lateral movement to database server SRV-03 via SMB (T1021.002)\n"
-            "4. Customer DB exfiltration target (T1041)\n"
-            "Likely target: Customer database SRV-03. Est. dwell time: 4-8 hours."
+        "market_partner": (
+            "MARKET DUE DILIGENCE REPORT — NovaPay Inc\n"
+            "Partner: Market Research\n"
+            "Confidence: HIGH\n\n"
+            "TAM & GROWTH:\n"
+            "- TAM claim is top-down and unvalidated.\n"
+            "- US Buy Now Pay Later (BNPL) sector is shrinking at 12% YoY, contradicting the founder's 200% growth claims.\n\n"
+            "COMPETITIVE LANDSCAPE:\n"
+            "- Severe competitive pressure from Affirm ($8B), Klarna ($6.7B), and Block.\n"
+            "- Defensibility score is 8/25 (no real proprietary moat or switching costs).\n\n"
+            "SECTOR TIMING & REGULATION:\n"
+            "- Sector venture funding is down 67% YoY.\n"
+            "- CFPB credit reporting mandate effective Q3 2026 will restrict BNPL usage by 15-25%.\n\n"
+            "🚨 CRITICAL RED FLAGS:\n"
+            "1. Shrinking US BNPL sector (12% decline YoY) contradicts growth claims.\n"
+            "2. High competition with well-capitalized incumbents (Klarna, Affirm).\n"
+            "3. Negative sector timing with VC funding down 67% YoY.\n\n"
+            "MARKET RISK SCORE: 8/10\n"
+            "RECOMMENDATION: PASS"
         ),
-        "attack_path_agent": (
-            "ATTACK PATH ANALYSIS:\n"
-            "- Combined Risk Score: 87/100 (CRITICAL)\n"
-            "- Predicted Next Moves: Credential dumping (94% prob), Data exfiltration (87% prob), Ransomware deployment (61% prob)\n"
-            "- Critical Assets at Risk: Customer database, CEO credentials, financial reports.\n"
-            "- Time to Act: Immediate (estimated 2-4 hours before lateral movement)"
-        ),
-        "malware_agent": (
-            "MALWARE INVESTIGATION REPORT:\n"
-            "- File: Invoice_2026_0891.exe\n"
-            "- Classification: Trojan.Dropper (Emotet variant)\n"
-            "- Risk level: CRITICAL\n"
-            "- IOCs Extracted: C2 domains (update.corp-billing.xyz, c2.fast-delivery.net), registry persistence keys (HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\InvoiceSync)\n"
-            "- Containment Steps: Delete dropped file %TEMP%\\svchost32.exe, block C2 DNS records, quarantine CEO workstation."
-        ),
-        "blue_team_agent": (
-            "BLUE TEAM PLAYBOOK & DEFENSIVE OPERATIONS:\n"
-            "- Immediate Action 1: Isolate CEO workstation (downtime: 0 min)\n"
-            "- Immediate Action 2: Block egress DNS to fast-delivery.net and update.corp-billing.xyz (downtime: 0 min)\n"
-            "- Immediate Action 3: Force C-Suite password resets (downtime: 10 min)\n"
-            "- Short Term: Patch Mail Server CVE-2024-1234 (downtime: 2 hours)\n"
-            "Total estimated system downtime: 2 hours."
-        ),
-        "incident_commander": (
-            "Incident Commander: specialist reports correlated and incident timeline compiled."
-        ),
-        "executive_decision": (
-            "FINAL CEO DECISION: CONTAIN\n"
-            "Justification: Containment cost ($180K) is substantially lower than projected breach cost ($2.4M). Regulatory obligations require disclosure. Customer impact minimized.\n"
-            "Board Communication: Security incident contained. Systems being hardened. No evidence of data exfiltration. Full post-incident report within 48 hours."
+        "managing_partner": (
+            "╔══════════════════════════════════════════════════════════╗\n"
+            "║         FUSION INVESTMENT COMMITTEE DECISION             ║\n"
+            "╠══════════════════════════════════════════════════════════╣\n"
+            "║ Company:    NovaPay Inc                                  ║\n"
+            "║ Deal:       $10,000,000 Series A at $40,000,000 post     ║\n"
+            "╠══════════════════════════════════════════════════════════╣\n"
+            "║  DECISION:    PASS                                       ║\n"
+            "║  CONFIDENCE:  91%                                        ║\n"
+            "╚══════════════════════════════════════════════════════════╝\n\n"
+            "RISK SCORECARD:\n"
+            "  Financial Risk:  9/10  (weight: 30%) → 2.70\n"
+            "  Legal Risk:     10/10  (weight: 25%) → 2.50\n"
+            "  Technical Risk: 10/10  (weight: 25%) → 2.50\n"
+            "  Market Risk:     8/10  (weight: 20%) → 1.60\n"
+            "  ─────────────────────────────────────────────\n"
+            "  WEIGHTED SCORE:  9.3/10\n\n"
+            "PRIMARY REASONS:\n"
+            "1. Klarna patent lawsuit ($8M potential damages = 80% of raise) is an existential risk that must be resolved before any capital is deployed.\n"
+            "2. Amazon client concentration (78% ARR) with contract expiry 3 months post-close creates a cliff-edge revenue scenario.\n"
+            "3. Security posture (no PCI-DSS, plaintext PII, no pentest, undisclosed breach) is pre-catastrophe for a licensed payments processor."
         ),
     }
 
-    # ── Each specialist hands its report back to the Incident Commander once ──
+    # Handoff mappings for mock bus
     next_room_map = {
-        "threat_intel_agent": ("incident-command-room", "@Incident-Commander Threat report ready:\n" + final_reports["threat_intel_agent"]),
-        "recon_agent": ("incident-command-room", "@Incident-Commander Recon topology report:\n" + final_reports["recon_agent"]),
-        "detection_agent": ("incident-command-room", "@Incident-Commander Detection logs scan report:\n" + final_reports["detection_agent"]),
-        "red_team_agent": ("incident-command-room", "@Incident-Commander Red team simulation path:\n" + final_reports["red_team_agent"]),
-        "attack_path_agent": ("incident-command-room", "@Incident-Commander Combined Risk Score: 87. " + final_reports["attack_path_agent"]),
-        "malware_agent": ("incident-command-room", "@Incident-Commander Malware file analysis:\n" + final_reports["malware_agent"]),
-        "blue_team_agent": ("incident-command-room", "@Incident-Commander Blue team playbook:\n" + final_reports["blue_team_agent"]),
-        "executive_decision": ("incident-command-room", "@Incident-Commander Boardroom verdict:\n" + final_reports["executive_decision"]),
+        "financial_partner": ("managing-partner-room", "@managing-partner FINANCIAL ANALYSIS COMPLETE. Risk Score: 9/10. PASS. Amazon client concentration (78% ARR) with contract expiry in 3 months."),
+        "legal_partner": ("managing-partner-room", "@managing-partner LEGAL ANALYSIS COMPLETE. Risk Score: 10/10. PASS. Klarna patent lawsuit ($8M damages) and missing money transmitter licenses in 4 states."),
+        "technical_partner": ("managing-partner-room", "@managing-partner TECHNICAL ANALYSIS COMPLETE. Risk Score: 10/10. PASS. SSNs stored in plaintext, EOL software in production, and undisclosed 2024 data breach."),
+        "market_partner": ("managing-partner-room", "@managing-partner MARKET ANALYSIS COMPLETE. Risk Score: 8/10. PASS. Sector shrinking 12% YoY, and upcoming CFPB mandate will restrict BNPL usage."),
     }
 
-    # Check if the caller expects the real SDK schema (content, mentions) or mock schema (room, message)
+    # When the user uploaded a different company, let the canned demo narrative
+    # follow that company's name instead of the stock NovaPay storyline.
+    active_co = sim_state.active_company_name
+    if active_co and active_co != "NovaPay Inc":
+        final_reports = {k: v.replace("NovaPay Inc", active_co) for k, v in final_reports.items()}
+        next_room_map = {k: (room, m.replace("NovaPay Inc", active_co)) for k, (room, m) in next_room_map.items()}
+
     expects_real_schema = False
     for t in tools:
         func = t.get("function", {})
@@ -401,27 +392,17 @@ async def mock_llm_completions(request: Request):
 
     def _resolve_mention_handle(msg_text: str) -> str:
         msg_text = msg_text.lower()
-        if "@threat-intel" in msg_text:
-            return "@baljotchohan23/threat-intel"
-        if "@recon" in msg_text:
-            return "@baljotchohan23/recon"
-        if "@red-team" in msg_text:
-            return "@baljotchohan23/red-team"
-        if "@attack-path" in msg_text:
-            return "@baljotchohan23/attack-path"
-        if "@detection" in msg_text:
-            return "@baljotchohan23/detection"
-        if "@malware-investigation" in msg_text or "@malware" in msg_text:
-            return "@baljotchohan23/malware-investigation"
-        if "@blue-team" in msg_text:
-            return "@baljotchohan23/blue-team"
-        if "@incident-commander" in msg_text:
-            return "@baljotchohan23/incident-commander"
-        if "@executive-decision" in msg_text:
-            return "@baljotchohan23/executive-decision"
-        if "@baljot chohan" in msg_text or "@baljotchohan" in msg_text:
-            return "@baljotchohan23"
-        return "@baljotchohan23/incident-commander"  # Default fallback
+        if "@financial-partner" in msg_text:
+            return "@baljotchohan23/financial-partner"
+        if "@legal-partner" in msg_text:
+            return "@baljotchohan23/legal-partner"
+        if "@technical-partner" in msg_text:
+            return "@baljotchohan23/technical-partner"
+        if "@market-partner" in msg_text:
+            return "@baljotchohan23/market-partner"
+        if "@managing-partner" in msg_text:
+            return "@baljotchohan23/managing-partner"
+        return "@baljotchohan23/managing-partner"
 
     def _send(call_id, room, message):
         if expects_real_schema:
@@ -451,8 +432,7 @@ async def mock_llm_completions(request: Request):
             "function": {"name": name, "arguments": arguments},
         })
 
-    # React-loop-aware staging: branch on the LAST message, not "any tool message".
-    # This guarantees every agent terminates after a single handoff (no re-emission storm).
+    # React-loop-aware staging: branch on the LAST message
     last_msg = messages[-1] if messages else {}
     last_role = last_msg.get("role", "")
     last_content = str(last_msg.get("content", "") or "")
@@ -460,111 +440,58 @@ async def mock_llm_completions(request: Request):
     data_tool_result = last_role in ("tool", "function") and not handoff_done
 
     if handoff_done:
-        # Handoff already delivered this turn — return the report as the final
-        # answer (so the dashboard 'done' event carries it) and STOP the loop.
         response_content = final_reports.get(agent_name, "Processing complete.")
     elif data_tool_result:
-        # Stage 2: a data tool just ran -> emit the canned report + one handoff.
         response_content = final_reports.get(agent_name, "Processing complete.")
         next_step = next_room_map.get(agent_name)
         if next_step and "thenvoi_send_message" in available_tool_names:
             room, message = next_step
             _send("call_next_handoff", room, message)
     else:
-        # Stage 1: fresh user stimulus -> issue the agent's initial tool calls.
-        if agent_name == "threat_intel_agent":
-            if "search_ttp" in available_tool_names:
-                _call("call_intel_1", "search_ttp", "{\"keyword\": \"phishing\"}")
-            if "get_cves" in available_tool_names:
-                _call("call_intel_2", "get_cves", "{\"keyword\": \"email\"}")
-        elif agent_name == "recon_agent":
-            if "scan_network" in available_tool_names:
-                _call("call_recon_1", "scan_network", "{}")
-        elif agent_name == "detection_agent":
-            if "scan_email_logs" in available_tool_names:
-                _call("call_det_1", "scan_email_logs", "{\"sender_domain\": \"corp-billing.xyz\"}")
-        elif agent_name == "red_team_agent":
-            if "simulate_attack_path" in available_tool_names:
-                _call("call_red_1", "simulate_attack_path", "{\"recon_data\": \"{}\", \"ttps\": \"[]\"}")
-        elif agent_name == "attack_path_agent":
-            if "calculate_risk_score" in available_tool_names:
-                _call("call_path_1", "calculate_risk_score", "{\"attack_stages\": \"[]\", \"target_system\": \"SRV-03-DB\"}")
-        elif agent_name == "malware_agent":
-            if "analyze_file_metadata" in available_tool_names:
-                _call("call_mal_1", "analyze_file_metadata", "{\"file_name\": \"Invoice_2026_0891.exe\"}")
-        elif agent_name == "blue_team_agent":
-            if "generate_defense_actions" in available_tool_names:
-                _call("call_blue_1", "generate_defense_actions", "{\"incident_details\": \"{}\"}")
-        elif agent_name == "executive_decision":
-            # Convene the boardroom (CFO -> Legal -> Ops -> CEO) so the next turn
-            # reaches the data_tool_result stage and emits the CEO verdict.
-            # Only the ceo_final_decision tool RESULT contains "final_verdict"
-            # (the system prompt names "FINAL CEO DECISION" but not this key), so
-            # this guard fires only on a genuine re-wake after a verdict.
-            already_decided = any(
-                m.get("role") in ("tool", "function")
-                and "final_verdict" in str(m.get("content", "") or "")
-                for m in messages
-            )
-            if already_decided:
-                response_content = "Boardroom already convened; decision on record."
-            else:
-                if "cfo_financial_assessment" in available_tool_names:
-                    _call("call_exec_cfo", "cfo_financial_assessment", "{\"risk_score\": 87}")
-                if "legal_regulatory_assessment" in available_tool_names:
-                    _call("call_exec_legal", "legal_regulatory_assessment", "{\"has_pii\": true}")
-                if "ops_continuity_assessment" in available_tool_names:
-                    _call("call_exec_ops", "ops_continuity_assessment", "{\"downtime_summary\": \"2 hours\"}")
-                if "ceo_final_decision" in available_tool_names:
-                    _call("call_exec_ceo", "ceo_final_decision", "{\"cfo_json\": \"{}\", \"legal_json\": \"{}\", \"ops_json\": \"{}\"}")
-                if not tool_calls:
-                    response_content = "Deliberating C-Suite assessments..."
-        elif agent_name == "incident_commander":
-            # Idempotent phased coordination. Each phase is dispatched exactly once,
-            # keyed off what has arrived (have_*) and what has already been sent
-            # (sent_*), both derived from the full accumulated thread history.
+        # Stage 1: fresh user stimulus
+        if agent_name == "financial_partner":
+            if "load_deal_brief" in available_tool_names:
+                _call("call_fin_1", "load_deal_brief", "{\"section\": \"financials\"}")
+        elif agent_name == "legal_partner":
+            if "load_deal_brief" in available_tool_names:
+                _call("call_leg_1", "load_deal_brief", "{\"section\": \"legal\"}")
+        elif agent_name == "technical_partner":
+            if "load_deal_brief" in available_tool_names:
+                _call("call_tech_1", "load_deal_brief", "{\"section\": \"technical\"}")
+        elif agent_name == "market_partner":
+            if "load_deal_brief" in available_tool_names:
+                _call("call_mkt_1", "load_deal_brief", "{\"section\": \"market\"}")
+        elif agent_name == "managing_partner":
             if "thenvoi_send_message" in available_tool_names:
-                # "have_*" = which reports have ARRIVED (incoming user messages only).
-                # "sent_*" = which rooms WE have already messaged (our own prior
-                # assistant tool calls only). Both are scoped to avoid false
-                # positives from the system prompt, which names every room and
-                # report type.
+                # Scrape messages to see if we've received reports from partners
                 recv_blob = " ".join(
                     str(m.get("content", "") or "")
                     for m in messages if m.get("role") == "user"
                 )
-                sent_blob = json.dumps([
-                    m.get("tool_calls") for m in messages
-                    if m.get("role") == "assistant" and m.get("tool_calls")
-                ])
-                have_threat = "Threat report ready" in recv_blob or "THREAT INTELLIGENCE REPORT" in recv_blob
-                have_recon = "Recon topology" in recv_blob
-                have_detect = "Detection logs scan" in recv_blob or "DETECTION ANALYSIS" in recv_blob
-                have_red = "Red team simulation" in recv_blob or "RED TEAM ATTACK PATH" in recv_blob
-                have_mal = "Malware file analysis" in recv_blob or "MALWARE INVESTIGATION" in recv_blob
-                have_risk = "Combined Risk Score" in recv_blob
-                have_verdict = "Boardroom verdict" in recv_blob or "FINAL CEO DECISION" in recv_blob
-                sent_recon = "recon-room" in sent_blob
-                sent_red = "redteam-room" in sent_blob
-                sent_attack = "attack-path-room" in sent_blob
-                sent_blue = "blueteam-room" in sent_blob
+                have_fin = "FINANCIAL ANALYSIS COMPLETE" in recv_blob
+                have_leg = "LEGAL ANALYSIS COMPLETE" in recv_blob
+                have_tech = "TECHNICAL ANALYSIS COMPLETE" in recv_blob
+                have_mkt = "MARKET ANALYSIS COMPLETE" in recv_blob
 
-                if have_verdict:
-                    response_content = ("Incident Commander: boardroom verdict received. "
-                                        "Response coordinated end-to-end; incident audit log closed.")
-                elif have_risk and not sent_blue:
-                    _send("call_cmd_blue", "blueteam-room", "@Blue-Team Create prioritized defensive playbooks.")
-                    _send("call_cmd_exec", "executive-room", "@Executive-Decision Convene boardroom for critical threat.")
-                elif (have_red or have_mal) and not sent_attack:
-                    _send("call_cmd_attack", "attack-path-room", "@Attack-Path Compute final threat path risk score.")
-                elif (have_recon or have_detect) and not sent_red:
-                    _send("call_cmd_red", "redteam-room", "@Red-Team Run lateral movement simulations for compromise.")
-                    _send("call_cmd_mal", "malware-room", "@Malware-Investigation Analyze compromised endpoint executables.")
-                elif have_threat and not sent_recon:
-                    _send("call_cmd_recon", "recon-room", "@Recon Map topology for systems.")
-                    _send("call_cmd_detect", "detection-room", "@Detection Scan email logs for indicators.")
+                if have_fin and have_leg and have_tech and have_mkt:
+                    # All reports are in, deliver final synthesized decision
+                    response_content = final_reports["managing_partner"]
                 else:
-                    response_content = "Incident Commander: awaiting specialist reports..."
+                    # Fresh trigger or partial reports: dispatch brief to partners
+                    deal_id = sim_state.active_incident_id
+                    sent_brief = deal_id in sim_state.dispatched_deals if deal_id else False
+
+                    if not sent_brief:
+                        # Dispatch parallel requests to all 4 partners
+                        brief_co = sim_state.active_company_name or "NovaPay Inc"
+                        _send("call_mp_fin", "finance-partner-room", f"@financial-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your financial due diligence now and report back to managing-partner-room.")
+                        _send("call_mp_leg", "legal-partner-room", f"@legal-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your legal due diligence now and report back to managing-partner-room.")
+                        _send("call_mp_tech", "tech-partner-room", f"@technical-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your technical due diligence now and report back to managing-partner-room.")
+                        _send("call_mp_mkt", "market-partner-room", f"@market-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your market due diligence now and report back to managing-partner-room.")
+                        if deal_id:
+                            sim_state.dispatched_deals.add(deal_id)
+                    else:
+                        response_content = "Managing Partner: awaiting specialist findings..."
 
     if body.get("stream"):
         import time
