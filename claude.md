@@ -1,13 +1,15 @@
-# ARGUS — Project Memory & Agent Guide
-This file serves as the persistent, single-source-of-truth project memory for **argus** (formerly ACDCC). It contains the complete system architecture, data models, developer guidelines, and hackathon win-conditions so that any developer or AI coding agent can immediately understand the project and build features.
+# VERDICT — AI Investment Committee | Project Memory & Agent Guide
+This file is the persistent, single-source-of-truth for **VERDICT** — the pivot from ARGUS.
+Contains complete architecture, agent roles, Band room mapping, and hackathon win-conditions.
 
 ---
 
 ## 1. System Overview & Core Goal
-**argus** is an Autonomous Cyber Defense Command Center built for the Band of Agents Hackathon (June 2026).
-* **The Problem:** Modern Security Operations Centers (SOCs) can detect threats, but responding to a live incident requires manual human coordination across Security, IT, Legal, Finance, and the C-Suite, taking hours or days.
-* **The Solution:** argus automates this entire response chain using 9 specialized AI agents coordinating in real time through **Band** chat rooms, reducing response and business-decision time to under 3 minutes.
-* **The Payoff:** The system scales from technical detection up to a business-level CEO decision (e.g., Contain, Shutdown, or Escalate) backed by financial, legal, and operational assessments with a full audit log.
+**VERDICT** is an AI-Powered Venture Capital Investment Committee built for the Band of Agents Hackathon (June 2026).
+* **The Problem:** M&A due diligence and startup investment decisions take weeks, cost hundreds of thousands of dollars, and still fail — because human specialists work in silos and miss cross-domain risks.
+* **The Solution:** VERDICT deploys 5 specialized AI partner agents that independently investigate a startup pitch across Finance, Legal, Technical, and Market domains — then debate findings through **Band** chat rooms — and deliver a final INVEST / PASS / CONDITIONAL verdict with confidence score.
+* **The Payoff:** VC-grade due diligence in under 5 minutes. Visible agent debate. From pitch upload to committee decision — fully autonomous.
+* **Demo:** Upload NovaPay Inc pitch → 5 agents discover 12 hidden red flags → Managing Partner delivers PASS at 91% confidence.
 
 ---
 
@@ -75,20 +77,35 @@ argus/
 
 ---
 
-## 3. The 9 Security & Executive Agents
-Each agent has a specific room in the Band workspace and maps to a LangGraph `StateGraph` flow:
+## 3. The 5 VERDICT Partner Agents
+Each agent has a dedicated Band room and independently investigates one domain of the pitch:
 
-| # | Agent Name | Band Room | Key Responsibility / Logic Nodes |
-|---|---|---|---|
-| 1 | **Threat Intelligence** | `threat-intel-room` | Analyzes trigger alerts; queries MITRE ATT&CK & NVD CVE; outputs threat severity score. |
-| 2 | **Recon** | `recon-room` | Inspects target systems in `company.json` digital twin; maps vulnerable systems & open ports. |
-| 3 | **Red Team** | `redteam-room` | Simulates attacker's next lateral moves; outputs an attack path tree. |
-| 4 | **Attack Path Analysis** | `attack-path-room` | Evaluates likelihood of lateral movement; outputs weighted risk score (1-100). |
-| 5 | **Detection** | `detection-room` | Scans corporate logs/emails for Indicators of Compromise (IOCs) to confirm active compromise. |
-| 6 | **Malware Investigation** | `malware-room` | Analyzes file hashes, metadata, entropy, and recommends containment steps. |
-| 7 | **Blue Team Defense** | `blueteam-room` | Creates mitigation playbooks mapped to MITRE mitigations; calculates downtime. |
-| 8 | **Incident Commander** | `incident-command-room` | Coordinates the workflow; monitors all rooms; routes messages; recruits agents dynamically. |
-| 9 | **Executive Decision** | `executive-room` | Sequential sub-agents (CFO $\rightarrow$ Legal $\rightarrow$ Ops $\rightarrow$ CEO) debate and output final containment decision. |
+| # | Agent | File | Band Room | Core Responsibility |
+|---|---|---|---|---|
+| 1 | **Managing Partner** | `agents/managing_partner.py` | `managing-partner-room` | Orchestrator — convenes committee, briefs all partners, synthesizes debate, delivers final verdict. |
+| 2 | **Financial Partner** | `agents/financial_partner.py` | `finance-partner-room` | Revenue quality, burn rate, unit economics, customer concentration, valuation math. |
+| 3 | **Legal Partner** | `agents/legal_partner.py` | `legal-partner-room` | Litigation exposure, IP status, regulatory compliance, founder background, data privacy. |
+| 4 | **Technical Partner** | `agents/technical_partner.py` | `tech-partner-room` | Tech stack health, security posture, PCI-DSS, scalability, tech debt assessment. |
+| 5 | **Market Partner** | `agents/market_partner.py` | `market-partner-room` | TAM validation, competitive landscape, sector timing, regulatory headwinds, defensibility. |
+
+### Decision Flow
+```
+User submits deal → Managing Partner convenes committee
+         ↓ (sends pitch brief to all 4 partner rooms simultaneously)
+Financial Partner    Legal Partner    Technical Partner    Market Partner
+         ↓                ↓                  ↓                   ↓
+    findings ──────────────────────────────────────── findings
+         ↓
+Managing Partner synthesizes → INVEST / PASS / CONDITIONAL + confidence score
+```
+
+### Demo Company: NovaPay Inc (data/novapay_pitch.json)
+Fake Series A fintech startup with 5 hidden red flags baked in:
+1. **Financial**: 78% ARR from single Amazon client; contract expires 3 months post-close
+2. **Legal**: Klarna patent lawsuit — $8M potential damages = 80% of the raise
+3. **Technical**: Node.js 14 + MongoDB EOL, PII in plaintext, never had a pentest
+4. **Market**: BNPL sector declining 12% YoY vs company's 200% growth claim
+5. **Team**: CEO's prior startup investigated by SEC (case closed, no charges)
 
 ---
 
