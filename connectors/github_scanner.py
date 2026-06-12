@@ -19,7 +19,7 @@ from typing import List, Dict, Optional
 
 import httpx
 
-logger = logging.getLogger("argus.connectors.github")
+logger = logging.getLogger("fusion.connectors.github")
 
 MANIFEST_FILES = [
     ("package.json", "javascript"),
