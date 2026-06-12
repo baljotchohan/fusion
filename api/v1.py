@@ -977,7 +977,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     co_start, co_end = -1, -1
     co_evidence = "Filename derivation"
     
-    co_match = re.search(r"(?:company\s*name|company|startup|name):\s*([A-Za-z0-9_\-\s]{2,30})", text, re.IGNORECASE)
+    co_match = re.search(r"(?:company\s*name|company|startup|name):\s*([A-Za-z0-9_\- ]{2,30})", text, re.IGNORECASE)
     if co_match:
         val = co_match.group(1).strip().strip('"*#')
         if val:
@@ -1016,7 +1016,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
         }
 
     stage = find_pattern(
-        [r"(?:stage|round):\s*([A-Za-z0-9_\-\s]{2,20})", r"\b(Series [A-D]|Seed|Pre-seed)\b"],
+        [r"(?:stage|round):\s*([A-Za-z0-9_\- ]{2,20})", r"\b(Series [A-D]|Seed|Pre-seed)\b"],
         text,
         "Series B" if is_snaphire else "Series A",
         "Default assignment based on company profile",
@@ -1024,7 +1024,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     )
     
     industry = find_pattern(
-        [r"(?:industry|sector):\s*([A-Za-z0-9_\-\s\/&]{3,40})"],
+        [r"(?:industry|sector):\s*([A-Za-z0-9_\- \/&]{3,40})"],
         text,
         "AI Recruiting / HR Tech platform" if is_snaphire else ("Fintech / Buy Now Pay Later (BNPL)" if is_novapay else "SaaS / Technology"),
         "Default industry classification",
