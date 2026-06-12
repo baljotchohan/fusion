@@ -31,7 +31,10 @@ OPENAI_COMPAT_ENDPOINTS = {
     "aimlapi": ("https://api.aimlapi.com/v1/chat/completions", "gpt-4o"),
 }
 
-SYSTEM_PROMPT = "You are a cybersecurity expert AI agent on the ARGUS SOC team."
+SYSTEM_PROMPT = (
+    "You are an expert AI investment partner on the FUSION VC committee. "
+    "You evaluate startups with precision, cite evidence, and give decisive recommendations."
+)
 
 
 def _is_placeholder(key: Optional[str]) -> bool:
