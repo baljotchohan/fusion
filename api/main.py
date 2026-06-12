@@ -311,8 +311,25 @@ async def mock_llm_completions(request: Request):
         f"- Runway: {get_citation(runway, 'Financials')}\n"
         f"- Gross Margin: {get_citation(gross_margin, 'Financials')}\n\n"
         f"CUSTOMER CONCENTRATION:\n"
-        f"- {get_citation(customers, 'Financials')}\n\n"
-        f"🚨 CRITICAL RED FLAGS:\n"
+        f"- {get_citation(customers, 'Financials')}\n"
+    )
+    if calc.get("scenario"):
+        sc = calc["scenario"]
+        fin_report += (
+            f"\n📊 SCENARIO ENGINE: CLIENT CHURN SENSITIVITY (ESTIMATE)\n"
+            f"If primary customer '{sc['client_name']}' churns (representing {sc['concentration_pct']:.0f}% concentration):\n"
+            f"- Revenue Loss: -${sc['churn_revenue_loss']:,.0f} ARR\n"
+            f"- New Projected ARR: ${sc['new_arr']:,.0f} ARR\n"
+            f"- Burn Rate Impact: ${sc['current_monthly_burn']:,.0f}/mo → ${sc['new_monthly_burn']:,.0f}/mo\n"
+            f"- Estimated Compressed Runway: {sc['new_runway']:.1f} months\n"
+            f"- Valuation Markdown ({sc['multiple']:.1f}x multiple): {valuation} → ${sc['new_valuation']:,.0f}\n"
+        )
+    if calc.get("questions") and calc["questions"].get("ceo"):
+        qs = "\n".join(f"- {q}" for q in calc["questions"]["ceo"])
+        fin_report += f"\n❓ AUTO-GENERATED VC DILIGENCE QUESTIONS (CEO):\n{qs}\n"
+    
+    fin_report += (
+        f"\n🚨 CRITICAL RED FLAGS:\n"
         f"{format_red_flags(fin_flags)}\n\n"
         f"FINANCIAL RISK SCORE: {fin_score:.1f}/10\n"
         f"RECOMMENDATION: {fin_rec}"
@@ -325,8 +342,14 @@ async def mock_llm_completions(request: Request):
         f"LITIGATION STATUS:\n"
         f"- {get_citation(litigation, 'Legal')}\n\n"
         f"REGULATORY COMPLIANCE:\n"
-        f"- Compliance: {get_citation(compliance, 'Legal')}\n\n"
-        f"🚨 CRITICAL RED FLAGS:\n"
+        f"- Compliance: {get_citation(compliance, 'Legal')}\n"
+    )
+    if calc.get("questions") and calc["questions"].get("legal"):
+        qs = "\n".join(f"- {q}" for q in calc["questions"]["legal"])
+        leg_report += f"\n❓ AUTO-GENERATED VC DILIGENCE QUESTIONS (Legal Counsel):\n{qs}\n"
+        
+    leg_report += (
+        f"\n🚨 CRITICAL RED FLAGS:\n"
         f"{format_red_flags(leg_flags)}\n\n"
         f"LEGAL RISK SCORE: {leg_score:.1f}/10\n"
         f"RECOMMENDATION: {leg_rec}"
@@ -339,8 +362,14 @@ async def mock_llm_completions(request: Request):
         f"TECHNOLOGY STACK:\n"
         f"- Core stack: {get_citation(stack, 'Technical')}\n\n"
         f"SECURITY POSTURE:\n"
-        f"- Security state: {get_citation(security, 'Technical')}\n\n"
-        f"🚨 CRITICAL RED FLAGS:\n"
+        f"- Security state: {get_citation(security, 'Technical')}\n"
+    )
+    if calc.get("questions") and calc["questions"].get("cto"):
+        qs = "\n".join(f"- {q}" for q in calc["questions"]["cto"])
+        tech_report += f"\n❓ AUTO-GENERATED VC DILIGENCE QUESTIONS (CTO):\n{qs}\n"
+        
+    tech_report += (
+        f"\n🚨 CRITICAL RED FLAGS:\n"
         f"{format_red_flags(tech_flags)}\n\n"
         f"TECHNICAL RISK SCORE: {tech_score:.1f}/10\n"
         f"RECOMMENDATION: {tech_rec}"
@@ -383,7 +412,16 @@ async def mock_llm_completions(request: Request):
     co_text = company_name[:44]
     deal_text = f"{raise_amount} at {valuation} post"[:44]
     decision_text = verdict[:42]
-    confidence_text = f"{coverage_score}%"[:42]
+    
+    confidence_val_pct = calc.get("verdict_confidence", coverage_score)
+    confidence_text = f"{confidence_val_pct:.1f}%"[:42]
+    
+    quality_val_pct = calc.get("evidence_quality_score", 80.0)
+    quality_text = f"{quality_val_pct:.1f}%"[:42]
+    
+    readiness_score = calc.get("deal_readiness_score", 80.0)
+    readiness_status = calc.get("deal_readiness_status", "Ready for IC Review")
+    readiness_text = f"{readiness_score:.1f}/100 ({readiness_status})"[:42]
     
     card = (
         "╔══════════════════════════════════════════════════════════╗\n"
@@ -394,6 +432,8 @@ async def mock_llm_completions(request: Request):
         "╠══════════════════════════════════════════════════════════╣\n"
         f"║  DECISION:    {decision_text:<42} ║\n"
         f"║  CONFIDENCE:  {confidence_text:<42} ║\n"
+        f"║  EVI QUALITY: {quality_text:<42} ║\n"
+        f"║  READINESS:   {readiness_text:<42} ║\n"
         "╚══════════════════════════════════════════════════════════╝\n\n"
         "RISK SCORECARD:\n"
         f"  Financial Risk:  {fin_score:>2.0f}/10  (weight: 30%) → {0.3*fin_score:>4.2f}\n"
@@ -406,6 +446,20 @@ async def mock_llm_completions(request: Request):
         f"{reasons_str}"
     )
     
+    if calc.get("missing_gaps"):
+        gaps_str = ", ".join(calc["missing_gaps"])
+        card += f"\n\nMISSING DILIGENCE GAPS:\n- {gaps_str}"
+        
+    warnings_str = ""
+    if calc.get("contradictions"):
+        for contra in calc["contradictions"]:
+            warnings_str += f"{contra['message']}\n"
+    if calc.get("validation_warnings"):
+        for warn in calc["validation_warnings"]:
+            warnings_str += f"{warn}\n"
+    if warnings_str:
+        card = warnings_str + "\n" + card
+        
     final_reports = {
         "financial_partner": fin_report,
         "legal_partner": leg_report,

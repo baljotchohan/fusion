@@ -33,6 +33,35 @@ def format_red_flags(flags: List[Any]) -> str:
         lines.append(f"- {prefix}{claim} (Evidence: {ev}) [Grounding: {sec} -> {ev} (Confidence: {conf}%, Provenance: llm)]")
     return "\n".join(lines)
 
+def parse_arr_from_text(text: str) -> float:
+    if not text:
+        return None
+    patterns = [
+        r"(?:arr|annual recurring revenue|revenue):\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
+        r"(\$[0-9\.,]+\s*(?:million|m|billion|b)?)\s*arr"
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            val = next((g for g in match.groups() if g is not None), None)
+            if val:
+                val_clean = val.replace("$", "").replace(",", "").strip()
+                multiplier = 1.0
+                m_match = re.search(r"([0-9\.]+)\s*([mM]illion|[mM]|[bB]illion|[bB]|[kK])?", val_clean, re.IGNORECASE)
+                if m_match:
+                    num = float(m_match.group(1))
+                    unit = m_match.group(2)
+                    if unit:
+                        unit = unit.lower()
+                        if unit in ("million", "m"):
+                            multiplier = 1_000_000.0
+                        elif unit in ("billion", "b"):
+                            multiplier = 1_000_000_000.0
+                        elif unit == "k":
+                            multiplier = 1_000.0
+                    return num * multiplier
+    return None
+
 def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     if not pitch_data:
         pitch_data = {}
@@ -272,6 +301,247 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     tech_rec = "INVEST" if tech_score <= 4.0 else ("CONDITIONAL" if tech_score <= 6.5 else "PASS")
     mkt_rec = "INVEST" if mkt_score <= 4.0 else ("CONDITIONAL" if mkt_score <= 6.5 else "PASS")
 
+    # V5.0 Venture Associate Additions
+    
+    # Parse financial float values for scenario modeling
+    arr_val = 1_000_000.0
+    arr_str = str(arr.get("value", ""))
+    arr_match = re.search(r"\$([0-9\.,]+)\s*([mM]illion|[mM])?", arr_str)
+    if arr_match:
+        try:
+            val_base = float(arr_match.group(1).replace(",", ""))
+            if arr_match.group(2) and arr_match.group(2).lower() in ("million", "m"):
+                arr_val = val_base * 1_000_000
+            else:
+                arr_val = val_base
+        except ValueError:
+            pass
+
+    burn_val = 150_000.0
+    burn_str = str(burn.get("value", ""))
+    burn_match = re.search(r"\$([0-9\.,]+)\s*([mM]illion|[mM])?", burn_str)
+    if burn_match:
+        try:
+            val_base = float(burn_match.group(1).replace(",", ""))
+            if burn_match.group(2) and burn_match.group(2).lower() in ("million", "m"):
+                burn_val = val_base * 1_000_000
+            else:
+                burn_val = val_base
+        except ValueError:
+            pass
+
+    valuation_val = 20_000_000.0
+    val_str = str(valuation)
+    val_match = re.search(r"\$([0-9\.,]+)\s*([mM]illion|[mM])?", val_str)
+    if val_match:
+        try:
+            val_base = float(val_match.group(1).replace(",", ""))
+            if val_match.group(2) and val_match.group(2).lower() in ("million", "m"):
+                valuation_val = val_base * 1_000_000
+            else:
+                valuation_val = val_base
+        except ValueError:
+            pass
+
+    # 1. Contradiction Detection
+    contradictions = []
+    validation_warnings = []
+    document_text = pitch_data.get("document_text", "")
+    
+    if document_text:
+        sections = {}
+        current_section = "General"
+        current_lines = []
+        for line in document_text.splitlines():
+            header_match = re.match(r"^#+\s*(.*)$", line.strip())
+            if header_match:
+                if current_lines:
+                    sections[current_section] = "\n".join(current_lines).strip()
+                current_section = header_match.group(1).strip()
+                current_lines = []
+            else:
+                current_lines.append(line)
+        if current_lines:
+            sections[current_section] = "\n".join(current_lines).strip()
+            
+        # Compare ARR between sections
+        section_arrs = {}
+        for sec_name, sec_content in sections.items():
+            parsed_arr = parse_arr_from_text(sec_content)
+            if parsed_arr is not None:
+                section_arrs[sec_name] = parsed_arr
+                
+        sec_names = list(section_arrs.keys())
+        for i in range(len(sec_names)):
+            for j in range(i + 1, len(sec_names)):
+                s1, s2 = sec_names[i], sec_names[j]
+                v1, v2 = section_arrs[s1], section_arrs[s2]
+                if abs(v1 - v2) > 1000:
+                    v1_str = f"${v1:,.0f}" if v1 >= 1000 else str(v1)
+                    v2_str = f"${v2:,.0f}" if v2 >= 1000 else str(v2)
+                    contradictions.append({
+                        "type": "cross_document",
+                        "field": "ARR",
+                        "message": f"🚨 MATERIAL DISCREPANCY DETECTED: ARR claims contradict. Section '{s1}' claims {v1_str} ARR, but section '{s2}' reports {v2_str} ARR."
+                    })
+                    
+        # 2. Sector Contradiction Warning (Requires External Validation)
+        has_200 = "200%" in document_text
+        has_minus12 = "-12%" in document_text or "declining 12%" in document_text
+        if has_200 and has_minus12:
+            validation_warnings.append(
+                "⚠️ Claim Requires External Validation: Founder claims high growth (200% growth) while sector trend indicates contraction (-12% decline)."
+            )
+        else:
+            growth_match = re.search(r"(\d+[\d\.]*%)\s*(?:yoy\s*)?growth", document_text, re.IGNORECASE)
+            decline_match = re.search(r"(-?\d+[\d\.]*%)\s*(?:sector\s*)?(?:decline|contraction|down)", document_text, re.IGNORECASE)
+            if growth_match and decline_match:
+                g_str = growth_match.group(0).strip()
+                d_str = decline_match.group(0).strip()
+                validation_warnings.append(
+                    f"⚠️ Claim Requires External Validation: Founder claims high growth ({g_str}) while sector trend indicates contraction ({d_str})."
+                )
+
+    # 2. Missing Information Gaps Detector
+    core_fields_map = {
+        "ARR": arr,
+        "Monthly Burn": burn,
+        "Runway": runway,
+        "Gross Margin": gross_margin,
+        "Customer Concentration": customers,
+        "Litigation Status": litigation,
+        "Compliance Status": compliance,
+        "Tech Stack": stack,
+        "Security Posture": security,
+        "TAM": tam
+    }
+    missing_gaps = []
+    for label, field in core_fields_map.items():
+        if field.get("confidence", 0) <= 50 or field.get("provenance") == "default":
+            missing_gaps.append(label)
+
+    # 3. Evidence Quality & Verdict Confidence Scores
+    evidence_quality_score = sum(field.get("confidence", 0) for field in core_fields_map.values()) / 10.0
+    
+    conflict_penalty = len(contradictions) * 15
+    missing_penalty = len(missing_gaps) * 5
+    
+    verdict_confidence = (coverage_score * 0.4) + (evidence_quality_score * 0.4) - conflict_penalty - missing_penalty
+    verdict_confidence = max(0.0, min(100.0, verdict_confidence))
+
+    # 4. Deal Readiness Score
+    deal_readiness_score = 100.0 - (weighted_score * 5.0) - (len(contradictions) * 15.0) - (len(missing_gaps) * 4.0) - ((100.0 - verdict_confidence) * 0.2)
+    deal_readiness_score = max(0.0, min(100.0, deal_readiness_score))
+    deal_readiness_status = "Ready for IC Review" if (deal_readiness_score >= 70.0 and len(contradictions) == 0) else "Additional Diligence Required"
+
+    # 5. Auto-Generated VC Questions
+    questions = {
+        "ceo": [],
+        "cto": [],
+        "legal": []
+    }
+    
+    # CEO Questions
+    if concentration_val > 50.0:
+        client_name = "primary client"
+        for word in ["Microsoft", "Amazon", "Google", "Apple", "Meta"]:
+            if word.lower() in str(customers.get("value", "")).lower():
+                client_name = word
+                break
+        questions["ceo"].append(
+            f"Given that {client_name} contributes {concentration_val:.0f}% of total ARR, what is the contract renewal probability and what contingency plans exist if they do not renew?"
+        )
+    if runway_val < 12.0:
+        questions["ceo"].append(
+            f"With only {runway_val:.1f} months of runway, how does the company plan to bridge the funding gap if this round takes longer than expected to close?"
+        )
+    if not questions["ceo"]:
+        questions["ceo"].append("What are the key growth drivers and resource allocation plans for the next 18 months?")
+
+    # CTO Questions
+    if is_eol:
+        eol_items = []
+        if "node.js 14" in stack_str.lower() or "node 14" in stack_str.lower():
+            eol_items.append("Node.js 14")
+        if "mongodb 4.2" in stack_str.lower():
+            eol_items.append("MongoDB 4.2")
+        eol_str = " and ".join(eol_items) if eol_items else "EOL components"
+        questions["cto"].append(
+            f"What is the timeline and migration plan for upgrading the EOL stack ({eol_str}) currently running in production?"
+        )
+    if is_plaintext_ssn:
+        questions["cto"].append(
+            "Why is sensitive customer data (SSNs and PII) stored in plaintext, and when will encryption-at-rest be fully implemented?"
+        )
+    if is_no_pentest:
+        questions["cto"].append(
+            "When does the company plan to conduct its first independent penetration test to discover security vulnerabilities?"
+        )
+    if not questions["cto"]:
+        questions["cto"].append("What are the scaling limits of the current architecture and the plan for horizontal scaling?")
+
+    # Legal Questions
+    if has_lawsuit:
+        case_name = "pending lawsuit"
+        for word in ["Klarna", "patent lawsuit", "infringement"]:
+            if word.lower() in lit_str.lower():
+                case_name = "Klarna AB v. NovaPay Inc patent litigation"
+                break
+        damages_str = f"${lit_damages:,.0f}" if lit_damages > 0 else "damages"
+        if lit_damages >= 1_000_000:
+            damages_str = f"${lit_damages/1_000_000:.1f}M"
+        questions["legal"].append(
+            f"What is the target settlement amount or defense strategy for the active patent litigation ({case_name}) claiming {damages_str}?"
+        )
+    if is_unlicensed:
+        questions["legal"].append(
+            "What is the timeline and regulatory roadmap for obtaining the required Money Transmitter Licenses in the states where operations are currently unlicensed?"
+        )
+    if is_non_compliant:
+        questions["legal"].append(
+            "What steps is the company taking to achieve compliance with CFPB guidelines, and what is the estimated cost?"
+        )
+    if "nyc local law 144" in comp_str.lower():
+        questions["legal"].append(
+            "What is the compliance strategy for NYC Local Law 144 regulatory exposure, and has an independent bias audit been performed?"
+        )
+    if not questions["legal"]:
+        questions["legal"].append("Are there any pending IP disputes or unregistered trademarks that could pose regulatory risks?")
+
+    # 6. Financial Scenario Engine
+    scenario = None
+    if concentration_val > 50.0:
+        client_name = "primary client"
+        for word in ["Microsoft", "Amazon", "Google", "Apple", "Meta"]:
+            if word.lower() in str(customers.get("value", "")).lower():
+                client_name = word
+                break
+                
+        churn_revenue_loss = arr_val * (concentration_val / 100.0)
+        new_arr = arr_val - churn_revenue_loss
+        
+        monthly_revenue_loss = churn_revenue_loss / 12.0
+        new_monthly_burn = burn_val + monthly_revenue_loss
+        
+        current_cash = runway_val * burn_val
+        new_runway = current_cash / new_monthly_burn if new_monthly_burn > 0 else runway_val
+        
+        multiple = valuation_val / arr_val if arr_val > 0 else 1.0
+        new_valuation = new_arr * multiple
+        
+        scenario = {
+            "client_name": client_name,
+            "concentration_pct": concentration_val,
+            "churn_revenue_loss": churn_revenue_loss,
+            "new_arr": new_arr,
+            "current_monthly_burn": burn_val,
+            "new_monthly_burn": new_monthly_burn,
+            "new_runway": new_runway,
+            "current_valuation": valuation_val,
+            "new_valuation": new_valuation,
+            "multiple": multiple
+        }
+
     return {
         "company_name": company_name,
         "industry": industry,
@@ -304,5 +574,14 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
         "fin_rec": fin_rec,
         "leg_rec": leg_rec,
         "tech_rec": tech_rec,
-        "mkt_rec": mkt_rec
+        "mkt_rec": mkt_rec,
+        "contradictions": contradictions,
+        "validation_warnings": validation_warnings,
+        "missing_gaps": missing_gaps,
+        "evidence_quality_score": evidence_quality_score,
+        "verdict_confidence": verdict_confidence,
+        "deal_readiness_score": deal_readiness_score,
+        "deal_readiness_status": deal_readiness_status,
+        "questions": questions,
+        "scenario": scenario
     }

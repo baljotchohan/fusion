@@ -326,14 +326,40 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
         if pitch_data:
             reasons_list = calc["override_reasons"] if calc["override_reasons"] else [f.get("claim") if isinstance(f, dict) else str(f) for f in (calc["fin_flags"] + calc["leg_flags"] + calc["tech_flags"])[:2]]
             reasons_str = "\n".join(f"  - ⚠️ {r}" for r in reasons_list) if reasons_list else "  - No major flags identified."
+            
+            # Contradictions
+            contradictions_str = ""
+            if calc.get("contradictions"):
+                contradictions_str = "\n\n**🚨 MATERIAL DISCREPANCIES DETECTED**:\n" + "\n".join(f"• {c['message']}" for c in calc["contradictions"])
+            if calc.get("validation_warnings"):
+                if not contradictions_str:
+                    contradictions_str = "\n\n**⚠️ VALIDATION WARNINGS**:\n"
+                else:
+                    contradictions_str += "\n"
+                contradictions_str += "\n".join(f"• {w}" for w in calc["validation_warnings"])
+                
+            # Missing Gaps
+            gaps_str = ""
+            if calc.get("missing_gaps"):
+                gaps_str = "\n\n**📋 MISSING DILIGENCE GAPS**:\n" + "\n".join(f"• Missing {g}" for g in calc["missing_gaps"])
+                
+            confidence_val_pct = calc.get("verdict_confidence", coverage_score)
+            quality_val_pct = calc.get("evidence_quality_score", 80.0)
+            readiness_score = calc.get("deal_readiness_score", 80.0)
+            readiness_status = calc.get("deal_readiness_status", "Ready for IC Review")
+            
             return (
                 f"📊 **Active Diligence Record — {company_name}**\n\n"
                 f"- 🏢 **Target Name**: {company_name}\n"
                 f"- 💼 **Stage & Deal**: {stage} | {raise_amount} raise at {valuation} post-money valuation\n"
                 f"- 💵 **Financials**: {arr} ARR | {burn} burn | {runway} runway\n"
-                f"- ⚖️ **Roundtable Verdict**: **{verdict}** (Risk Score: **{weighted_score:.1f}/10**)\n"
-                f"- 🎯 **Fact Coverage**: {coverage_score}%\n\n"
-                f"**Key Focus Areas / Flags**:\n{reasons_str}\n\n"
+                f"- ⚖️ **Verdict & Risk**: **{verdict}** (Risk Score: **{weighted_score:.1f}/10**)\n"
+                f"- 🎯 **Coverage & Quality**: Fact Coverage **{coverage_score}%** | Evidence Quality **{quality_val_pct:.1f}%**\n"
+                f"- 🛡️ **Verdict Confidence**: **{confidence_val_pct:.1f}%**\n"
+                f"- 🚦 **Deal Readiness**: **{readiness_score:.1f}/100** ({readiness_status})\n\n"
+                f"**Key Focus Areas / Flags**:\n{reasons_str}"
+                f"{contradictions_str}"
+                f"{gaps_str}\n\n"
                 f"You can view the full minute-by-minute timeline in the **History** tab, or ask me for details on a specific partner (e.g. \"@financial-partner what did you find?\")."
             )
         else:
@@ -902,6 +928,25 @@ CRITICAL INSTRUCTIONS:
         score = calc["fin_score"]
         rec = calc["fin_rec"]
         flags_text = "\n".join(f"- ⚠️ {f.get('claim')}" for f in fin_flags) if fin_flags else "- No major flags identified."
+        
+        scenario_text = ""
+        if calc.get("scenario"):
+            sc = calc["scenario"]
+            scenario_text = (
+                f"\n📊 **Scenario Engine: Client Churn Sensitivity (Estimate)**\n"
+                f"If primary customer '{sc['client_name']}' churns (representing {sc['concentration_pct']:.0f}% concentration):\n"
+                f"- Revenue Loss: -${sc['churn_revenue_loss']:,.0f} ARR\n"
+                f"- New Projected ARR: ${sc['new_arr']:,.0f} ARR\n"
+                f"- Burn Rate Impact: ${sc['current_monthly_burn']:,.0f}/mo → ${sc['new_monthly_burn']:,.0f}/mo\n"
+                f"- Estimated Compressed Runway: {sc['new_runway']:.1f} months\n"
+                f"- Valuation Markdown ({sc['multiple']:.1f}x multiple): {valuation} → ${sc['new_valuation']:,.0f}\n"
+            )
+            
+        questions_text = ""
+        if calc.get("questions") and calc["questions"].get("ceo"):
+            qs = "\n".join(f"- {q}" for q in calc["questions"]["ceo"])
+            questions_text = f"\n❓ **Auto-Generated VC Diligence Questions (CEO)**:\n{qs}\n"
+
         return (
             f"💵 **Financial Partner Swarm Report — {company_name}**\n\n"
             f"I have audited the financials for **{company_name}**:\n"
@@ -909,7 +954,9 @@ CRITICAL INSTRUCTIONS:
             f"- 💸 **Monthly Burn**: {get_citation(burn, 'Financials')}\n"
             f"- ⏳ **Runway**: {get_citation(runway, 'Financials')}\n"
             f"- 📊 **Gross Margin**: {get_citation(gross_margin, 'Financials')}\n"
-            f"- 👥 **Client Concentration**: {get_citation(customers, 'Financials')}\n\n"
+            f"- 👥 **Client Concentration**: {get_citation(customers, 'Financials')}\n"
+            f"{scenario_text}"
+            f"{questions_text}\n"
             f"**Identified Red Flags**:\n{flags_text}\n\n"
             f"**Domain Risk Score**: {score:.1f}/10 | **Recommendation**: **{rec}**"
         )
@@ -921,11 +968,18 @@ CRITICAL INSTRUCTIONS:
         score = calc["leg_score"]
         rec = calc["leg_rec"]
         flags_text = "\n".join(f"- ⚠️ {f.get('claim')}" for f in leg_flags) if leg_flags else "- No major flags identified."
+        
+        questions_text = ""
+        if calc.get("questions") and calc["questions"].get("legal"):
+            qs = "\n".join(f"- {q}" for q in calc["questions"]["legal"])
+            questions_text = f"\n❓ **Auto-Generated VC Diligence Questions (Legal Counsel)**:\n{qs}\n"
+
         return (
             f"⚖️ **Legal Partner Swarm Report — {company_name}**\n\n"
             f"I have audited the legal status for **{company_name}**:\n"
             f"- ⚖️ **Pending Litigation**: {get_citation(litigation, 'Legal')}\n"
-            f"- 🛡️ **Compliance Profile**: {get_citation(compliance, 'Legal')}\n\n"
+            f"- 🛡️ **Compliance Profile**: {get_citation(compliance, 'Legal')}\n"
+            f"{questions_text}\n"
             f"**Identified Red Flags**:\n{flags_text}\n\n"
             f"**Domain Risk Score**: {score:.1f}/10 | **Recommendation**: **{rec}**"
         )
@@ -937,11 +991,18 @@ CRITICAL INSTRUCTIONS:
         score = calc["tech_score"]
         rec = calc["tech_rec"]
         flags_text = "\n".join(f"- ⚠️ {f.get('claim')}" for f in tech_flags) if tech_flags else "- No major flags identified."
+        
+        questions_text = ""
+        if calc.get("questions") and calc["questions"].get("cto"):
+            qs = "\n".join(f"- {q}" for q in calc["questions"]["cto"])
+            questions_text = f"\n❓ **Auto-Generated VC Diligence Questions (CTO)**:\n{qs}\n"
+
         return (
             f"🛠️ **Technical Partner Swarm Report — {company_name}**\n\n"
             f"I have completed the technical audit of **{company_name}**:\n"
             f"- 💻 **Tech Stack**: {get_citation(stack, 'Technical')}\n"
-            f"- 🔒 **Security Posture**: {get_citation(security, 'Technical')}\n\n"
+            f"- 🔒 **Security Posture**: {get_citation(security, 'Technical')}\n"
+            f"{questions_text}\n"
             f"**Identified Red Flags**:\n{flags_text}\n\n"
             f"**Domain Risk Score**: {score:.1f}/10 | **Recommendation**: **{rec}**"
         )
@@ -1398,7 +1459,8 @@ def extract_facts_regex(text: str, filename: str) -> dict:
             },
             "red_flags": mkt_flags
         },
-        "coverage_score": coverage_score
+        "coverage_score": coverage_score,
+        "document_text": text
     }
 
 
