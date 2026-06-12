@@ -1,6 +1,6 @@
 // components/AgentCard.tsx
 import React from 'react'
-import { AgentStatus } from '../hooks/useAgentWebSocket'
+import { AgentStatus } from '@/hooks/useAgentWebSocket'
 
 const STATUS_CONFIGS = {
   idle: {
@@ -44,7 +44,7 @@ function plainEnglish(status: AgentStatus, lastOutput?: Record<string, any> | nu
     return report ? report.replace(/[-—#*`]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 110) + '…' : 'Finished — report delivered to the team.'
   }
   if (status === 'alert') return 'Needs attention — something went wrong.'
-  return 'Waiting for an incident…'
+  return 'Waiting for deal briefing…'
 }
 
 export function AgentCard({ name, displayName, status, description, llm, room, devMode = false, lastOutput = null }: AgentCardProps) {
