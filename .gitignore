@@ -238,4 +238,10 @@ data/enterprise-attack.json
 
 
 # Shared incident memory graph (runtime data, never commit)
+argus_memory/
 fusion_memory/
+
+# Local demo screenshots, generated pitch artifacts, scratch notes
+Screenshot*.png
+data/pitch_DEAL-*.json
+scratch/
