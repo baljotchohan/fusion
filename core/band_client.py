@@ -9,7 +9,7 @@ import asyncio
 import logging
 from typing import Dict, List, Callable, Any
 
-logger = logging.getLogger("argus.band_client")
+logger = logging.getLogger("fusion.band_client")
 
 # Mock message bus for in-memory agent communication
 class MockBandBus:
@@ -26,7 +26,30 @@ class MockBandBus:
     async def send_message(self, sender: str, target_room: str, message: str):
         # Resolve target room name to map handles and variants to registered rooms
         ROOM_MAPPING = {
-            # handles
+            # ── FUSION rooms ──────────────────────────────────────
+            "@managing-partner": "managing-partner-room",
+            "@managing-partner-agent": "managing-partner-room",
+            "@financial-partner": "finance-partner-room",
+            "@financial-partner-agent": "finance-partner-room",
+            "@legal-partner": "legal-partner-room",
+            "@legal-partner-agent": "legal-partner-room",
+            "@technical-partner": "tech-partner-room",
+            "@technical-partner-agent": "tech-partner-room",
+            "@market-partner": "market-partner-room",
+            "@market-partner-agent": "market-partner-room",
+            "managing-partner-room": "managing-partner-room",
+            "managing-partner": "managing-partner-room",
+            "finance-partner-room": "finance-partner-room",
+            "finance-partner": "finance-partner-room",
+            "financial-partner": "finance-partner-room",
+            "legal-partner-room": "legal-partner-room",
+            "legal-partner": "legal-partner-room",
+            "tech-partner-room": "tech-partner-room",
+            "tech-partner": "tech-partner-room",
+            "technical-partner": "tech-partner-room",
+            "market-partner-room": "market-partner-room",
+            "market-partner": "market-partner-room",
+            # ── Legacy ARGUS rooms (kept for backward compat) ─────
             "@threat-intel": "threat-intel-room",
             "@threat-intel-agent": "threat-intel-room",
             "@recon": "recon-room",
@@ -50,7 +73,6 @@ class MockBandBus:
             "@executive-decision": "executive-room",
             "@executive-decision-agent": "executive-room",
             "@executive": "executive-room",
-            # room variations
             "threat-intel": "threat-intel-room",
             "recon": "recon-room",
             "redteam": "redteam-room",
@@ -71,7 +93,19 @@ class MockBandBus:
         
         # Fuzzy checks as fallback
         if resolved not in self.rooms:
-            if "intel" in cleaned:
+            # FUSION fuzzy matches
+            if "managing" in cleaned or "chair" in cleaned:
+                resolved = "managing-partner-room"
+            elif "financ" in cleaned:
+                resolved = "finance-partner-room"
+            elif "legal" in cleaned:
+                resolved = "legal-partner-room"
+            elif "tech" in cleaned:
+                resolved = "tech-partner-room"
+            elif "market" in cleaned:
+                resolved = "market-partner-room"
+            # Legacy ARGUS fuzzy matches
+            elif "intel" in cleaned:
                 resolved = "threat-intel-room"
             elif "recon" in cleaned:
                 resolved = "recon-room"
