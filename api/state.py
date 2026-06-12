@@ -4,7 +4,7 @@ Shared mutable API state, split out so api.main and api.v1 can both use it
 without circular imports.
 """
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 
 
 class SimulationState:
@@ -14,9 +14,17 @@ class SimulationState:
         self.agent_statuses: Dict[str, str] = {}
         # Incident currently being worked by the swarm
         self.active_incident_id: Optional[str] = None
+        # Pitch file (in data/) the committee should evaluate
+        self.active_pitch_file: str = "novapay_pitch.json"
+        # Deals that have already had their partner notifications dispatched
+        self.dispatched_deals: Set[str] = set()
         # Wall-clock time of the last agent event — used to detect a stalled
         # run so the trigger lock can never stay stuck forever.
         self.last_event_at: float = 0.0
+        # SaaS upload limit
+        self.max_file_size_mb: int = 10
+        # Active company name for current analysis
+        self.active_company_name: Optional[str] = None
 
     def touch(self):
         self.last_event_at = time.time()
@@ -29,6 +37,9 @@ class SimulationState:
     def reset(self):
         self.running = False
         self.agent_statuses = {}
+        self.dispatched_deals.clear()
+        self.active_company_name = None
+        self.active_pitch_file = "novapay_pitch.json"
 
 
 sim_state = SimulationState()
