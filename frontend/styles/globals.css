@@ -1,93 +1,230 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/* ─── LIGHT MODE (default) ─────────────────────────────── */
 :root {
-  --background: #f5f5f7; /* Apple style light background */
-  --foreground: #1d1d1f; /* Apple style dark charcoal text */
-  --panel-bg: rgba(255, 255, 255, 0.75);
-  --panel-border: rgba(0, 0, 0, 0.08);
-  --accent: #0071e3;
-  --accent-glow: rgba(0, 113, 227, 0.15);
-  
-  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  /* Backgrounds */
+  --bg-base: #ffffff;
+  --bg-subtle: #f7f7f5;
+  --bg-muted: #efefed;
+  --bg-card: #ffffff;
+
+  /* Borders */
+  --border: #e9e9e7;
+  --border-strong: #c7c7c5;
+
+  /* Text */
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+
+  /* Accent — Fusion blue */
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+  --accent-hover: #1d4ed8;
+
+  /* Semantic colors */
+  --accent-green: #16a34a;
+  --accent-green-soft: #f0fdf4;
+  --accent-purple: #7c3aed;
+  --accent-purple-soft: #f5f3ff;
+  --accent-amber: #d97706;
+  --accent-amber-soft: #fffbeb;
+  --accent-cyan: #0891b2;
+  --accent-cyan-soft: #ecfeff;
+
+  --success: #16a34a;
+  --success-soft: #f0fdf4;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --warning: #d97706;
+  --warning-soft: #fffbeb;
+  --info: #2563eb;
+  --info-soft: #eff6ff;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.10);
+  --shadow-pulse-glow-start: 0 0 8px rgba(37, 99, 235, 0.2);
+  --shadow-pulse-glow-end: 0 0 24px rgba(37, 99, 235, 0.5);
+
+  /* Fonts */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'Space Grotesk', SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
 }
 
+/* ─── DARK MODE ─────────────────────────────────────────── */
 .dark {
-  --background: #09090b; /* Zinc-950 style slate */
-  --foreground: #f4f4f5; /* Zinc-100 */
-  --panel-bg: rgba(18, 18, 20, 0.75);
-  --panel-border: rgba(255, 255, 255, 0.06);
-  --accent: #2997ff;
-  --accent-glow: rgba(41, 151, 255, 0.25);
+  /* Backgrounds */
+  --bg-base: #0d1117;
+  --bg-subtle: #161b22;
+  --bg-muted: #1c2333;
+  --bg-card: #161b22;
+
+  /* Borders */
+  --border: #30363d;
+  --border-strong: #484f58;
+
+  /* Text */
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+
+  /* Accent */
+  --accent: #58a6ff;
+  --accent-soft: #0c1929;
+  --accent-hover: #79c0ff;
+
+  /* Semantic */
+  --accent-green: #3fb950;
+  --accent-green-soft: #0d2118;
+  --accent-purple: #bc8cff;
+  --accent-purple-soft: #1a1040;
+  --accent-amber: #d29922;
+  --accent-amber-soft: #1f1700;
+  --accent-cyan: #39d0d8;
+  --accent-cyan-soft: #0c2425;
+
+  --success: #3fb950;
+  --success-soft: #0d2118;
+  --danger: #f85149;
+  --danger-soft: #2c0b0b;
+  --warning: #d29922;
+  --warning-soft: #1f1700;
+  --info: #58a6ff;
+  --info-soft: #0c1929;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-pulse-glow-start: 0 0 8px rgba(88, 166, 255, 0.2);
+  --shadow-pulse-glow-end: 0 0 24px rgba(88, 166, 255, 0.5);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg-base: var(--bg-base);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-bg-muted: var(--bg-muted);
+  --color-bg-card: var(--bg-card);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-green: var(--accent-green);
+  --color-accent-green-soft: var(--accent-green-soft);
+  --color-accent-purple: var(--accent-purple);
+  --color-accent-purple-soft: var(--accent-purple-soft);
+  --color-accent-amber: var(--accent-amber);
+  --color-accent-amber-soft: var(--accent-amber-soft);
+  --color-accent-cyan: var(--accent-cyan);
+  --color-accent-cyan-soft: var(--accent-cyan-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 }
 
+/* ─── BASE STYLES ───────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
   font-family: var(--font-sans);
-  transition: background-color 0.4s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  line-height: 1.6;
+  margin: 0;
+  padding: 0;
 }
 
-/* Glassmorphism utility */
-.glassmorphic {
-  background-color: var(--panel-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--panel-border);
+/* ─── SCROLLBAR ─────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
-/* Custom scrollbars */
-::-webkit-scrollbar {
+*::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 9999px;
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+/* ─── FOCUS ──────────────────────────────────────────────── */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+/* ─── SELECTION ─────────────────────────────────────────── */
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
-/* ── ARGUS War Room animations (ThreatGauge / PhaseTracker / agent chain) ── */
-.threat-critical {
-  animation: threatPulse 1.5s ease-in-out infinite;
+/* ─── ANIMATIONS ────────────────────────────────────────── */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: var(--shadow-pulse-glow-start); }
+  50% { box-shadow: var(--shadow-pulse-glow-end); }
 }
 
-@keyframes threatPulse {
-  0%, 100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.3); }
-  50% { box-shadow: 0 0 40px rgba(239, 68, 68, 0.8); }
+@keyframes seat-active {
+  0%, 100% { box-shadow: 0 0 12px var(--accent-amber); }
+  50% { box-shadow: 0 0 28px var(--accent-amber); }
 }
 
-.agent-chain-line {
-  stroke: rgba(59, 130, 246, 0.4);
-  stroke-dasharray: 6 3;
-  animation: dashFlow 2s linear infinite;
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes dashFlow {
-  from { stroke-dashoffset: 18; }
-  to { stroke-dashoffset: 0; }
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease-out both;
 }
+
+@keyframes slideInFromLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-left {
+  animation: slideInFromLeft 0.4s ease-out both;
+}
+
+/* No-scrollbar utility */
+.noscrollbar::-webkit-scrollbar { display: none; }
+.noscrollbar { -ms-overflow-style: none; scrollbar-width: none; }
