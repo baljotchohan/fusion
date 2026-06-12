@@ -133,7 +133,7 @@ export function ChatPanel({ devMode, onIncident }: ChatPanelProps) {
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '⚠ Cannot reach the Incident Commander — is the ARGUS backend running on port 8000?',
+        content: '⚠ Cannot reach the Incident Commander — is the Fusion backend running on port 8000?',
       }])
     } finally {
       stagedTimers.forEach(clearTimeout)

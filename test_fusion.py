@@ -1,6 +1,6 @@
 """
-ARGUS — Complete Test Suite
-Run from repo root: python test_argus.py
+Fusion — Complete Test Suite
+Run from repo root: python test_fusion.py
 Tests every angle: env, data, imports, agents, API, chain, WebSocket, Band readiness.
 """
 
@@ -926,7 +926,7 @@ if os.path.exists("README.md"):
 # FINAL SUMMARY
 # ═════════════════════════════════════════════════════════════════════════════
 print(f"\n{BLD}{'═'*60}{RST}")
-print(f"{BLD}  ARGUS TEST SUMMARY{RST}")
+print(f"{BLD}  Fusion TEST SUMMARY{RST}")
 print(f"{BLD}{'═'*60}{RST}")
 total = results["pass"] + results["fail"] + results["warn"]
 pct = int(results["pass"] / total * 100) if total > 0 else 0
@@ -937,7 +937,7 @@ print(f"  Score: {pct}% ({results['pass']}/{total})")
 print()
 
 if results["fail"] == 0 and results["warn"] <= 5:
-    print(f"  {GRN}{BLD}🏆 ARGUS IS READY TO WIN{RST}")
+    print(f"  {GRN}{BLD}🏆 Fusion IS READY TO WIN{RST}")
 elif results["fail"] == 0:
     print(f"  {YLW}{BLD}⚠️  FIX WARNINGS THEN YOU'RE GOOD{RST}")
 elif results["fail"] <= 3:

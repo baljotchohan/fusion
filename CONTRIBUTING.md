@@ -1,6 +1,6 @@
-# Contributing to ARGUS
+# Contributing to Fusion
 
-Thanks for your interest in ARGUS. This project was built for the Band of Agents Hackathon 2026 by Team Agent Core.
+Thanks for your interest in Fusion. This project was built for the Band of Agents Hackathon 2026 by Team Agent Core.
 
 ## Development Setup
 

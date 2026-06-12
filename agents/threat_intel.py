@@ -9,7 +9,7 @@ from core.base_agent import BaseAgent
 from core.mitre_lookup import search_ttp, get_technique
 from core.cve_lookup import get_cves
 
-logger = logging.getLogger("argus.agents.threat_intel")
+logger = logging.getLogger("fusion.agents.threat_intel")
 
 SYSTEM_PROMPT = """You are a Senior Threat Intelligence Analyst at a Tier-1 SOC.
 You have 12 years of experience tracking APT groups, analyzing phishing campaigns,
@@ -55,7 +55,7 @@ STEP 6 — REPORT AND HANDOFF
 Format your report as:
 ---
 THREAT INTELLIGENCE REPORT
-- Event ID: ARGUS-TI-[timestamp]
+- Event ID: Fusion-TI-[timestamp]
 - Threat Classification: Spearphishing Attachment (T1566.001) leading to Trojan Execution (T1204.002)
 - Threat Actor Profile: FIN7/Emotet-style campaign — financial lure, C-Suite targeting
 - Target: [role] [email] — [admin_status] — HIGH VALUE TARGET

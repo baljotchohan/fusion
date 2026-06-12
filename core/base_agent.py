@@ -31,7 +31,7 @@ from core.band_client import mock_bus, is_mock_mode
 from core.event_bus import event_bus
 from core.memory_graph import memory_graph
 
-logger = logging.getLogger("argus.base_agent")
+logger = logging.getLogger("fusion.base_agent")
 
 import re as _re
 
@@ -39,7 +39,7 @@ import re as _re
 # When any agent hits an unrecoverable provider error (daily quota exhausted,
 # request too large, invalid key), ALL agents skip the dead provider and run on
 # the local simulation engine for this window instead of burning retries.
-_LLM_COOLDOWN_SECONDS = float(os.getenv("ARGUS_LLM_COOLDOWN", "900"))
+_LLM_COOLDOWN_SECONDS = float(os.getenv("FUSION_LLM_COOLDOWN", "900"))
 _llm_degraded_until: float = 0.0
 
 # Provider error fragments that can NEVER succeed on retry within a demo window
@@ -69,7 +69,7 @@ def degrade_llm(reason: str):
             f"local simulation engine for {int(_LLM_COOLDOWN_SECONDS / 60)} min."
         )
 
-ARGUS_DOCTRINE = """You operate inside ARGUS, an autonomous Security Operations Center (SOC).
+FUSION_DOCTRINE = """You operate inside Fusion, an autonomous Security Operations Center (SOC).
 You are an elite, real-world cyber operator — not a chatbot. Hold yourself to
 Tier-1 SOC / DFIR professional standards at all times.
 
@@ -215,10 +215,10 @@ from thenvoi.adapters.langgraph import LangGraphAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.core.protocols import AgentToolsProtocol
 
-class ArgusLangGraphAdapter(LangGraphAdapter):
+class FusionLangGraphAdapter(LangGraphAdapter):
     def __init__(self, agent_name: str, agent_id: str, *args, **kwargs):
-        self._argus_agent_name = agent_name
-        self._argus_agent_id = agent_id
+        self._fusion_agent_name = agent_name
+        self._fusion_agent_id = agent_id
         super().__init__(*args, **kwargs)
 
     async def on_message(
@@ -232,8 +232,8 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
         is_session_bootstrap: bool,
         room_id: str,
     ) -> None:
-        if msg.sender_id == self._argus_agent_id:
-            logger.debug(f"[{self._argus_agent_name}] Skipping own message")
+        if msg.sender_id == self._fusion_agent_id:
+            logger.debug(f"[{self._fusion_agent_name}] Skipping own message")
             return
 
         is_mentioned = False
@@ -258,11 +258,11 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                 m_handle = getattr(m, "handle", None)
                 m_username = getattr(m, "username", None)
 
-            if m_id == self._argus_agent_id:
+            if m_id == self._fusion_agent_id:
                 is_mentioned = True
                 break
 
-            agent_name_clean = self._argus_agent_name.replace("_", "-").replace("-agent", "").lower()
+            agent_name_clean = self._fusion_agent_name.replace("_", "-").replace("-agent", "").lower()
             if m_handle:
                 m_handle_clean = m_handle.lstrip("@").lower()
                 if agent_name_clean in m_handle_clean:
@@ -274,7 +274,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                     is_mentioned = True
                     break
 
-        is_ic = self._argus_agent_name == "incident_commander"
+        is_ic = self._fusion_agent_name == "incident_commander"
         is_from_user = msg.sender_type == "User"
 
         # If any other agent is mentioned in the message, the Incident Commander should
@@ -283,12 +283,12 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
         if is_ic and is_from_user and raw_mentions:
             for m in raw_mentions:
                 m_id = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
-                if m_id != self._argus_agent_id:
+                if m_id != self._fusion_agent_id:
                     is_other_agent_mentioned = True
                     break
 
         if is_mentioned or (is_ic and is_from_user and not is_other_agent_mentioned):
-            logger.info(f"[{self._argus_agent_name}] Triggered! Processing message: '{msg.content[:100]}'")
+            logger.info(f"[{self._fusion_agent_name}] Triggered! Processing message: '{msg.content[:100]}'")
             await super().on_message(
                 msg,
                 tools,
@@ -299,7 +299,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                 room_id=room_id,
             )
         else:
-            logger.debug(f"[{self._argus_agent_name}] Ignoring message (not mentioned): '{msg.content[:60]}'")
+            logger.debug(f"[{self._fusion_agent_name}] Ignoring message (not mentioned): '{msg.content[:60]}'")
 
 class BaseAgent:
     def __init__(
@@ -314,7 +314,7 @@ class BaseAgent:
         self.name = name
         self.display_name = display_name
         self.room = room
-        self.system_prompt = ARGUS_DOCTRINE + "\n\n" + system_prompt + MEMORY_PROTOCOL_PROMPT
+        self.system_prompt = FUSION_DOCTRINE + "\n\n" + system_prompt + MEMORY_PROTOCOL_PROMPT
         self.custom_tools = (tools or []) + self._get_memory_tools()
         self.model_name = model_name
         self._is_busy = False  # Re-entrancy guard — drop duplicate wakeups
@@ -388,7 +388,7 @@ class BaseAgent:
             )
         # 5. Fallback to AI/ML API
         elif (aimlapi_key := os.getenv("AIMLAPI_KEY")) and "your-" not in aimlapi_key:
-            aiml_model = os.getenv("ARGUS_AIMLAPI_MODEL", "gpt-4o")
+            aiml_model = os.getenv("FUSION_AIMLAPI_MODEL", "gpt-4o")
             logger.info(f"[{self.display_name}] Using AI/ML API model: {aiml_model}")
             self.llm = ChatOpenAI(
                 base_url="https://api.aimlapi.com/v1",
@@ -532,7 +532,7 @@ class BaseAgent:
         # Stable agent-id marker so the offline mock-LLM endpoint can route
         # deterministically by id instead of fragile system-prompt keyword matching.
         # Harmless metadata for real LLMs (Groq/Gemini/Featherless).
-        prompt = f"{self.system_prompt}\n\n[ARGUS_AGENT: {self.name}]"
+        prompt = f"{self.system_prompt}\n\n[FUSION_AGENT: {self.name}]"
         is_groq = False
         if hasattr(self.llm, "primary_llm"):
             is_groq = self.llm.primary_llm.__class__.__name__ == "ChatGroq"
@@ -564,7 +564,7 @@ class BaseAgent:
             from thenvoi.runtime.platform_runtime import PlatformRuntime
             agent_id, api_key = self.load_credentials()
 
-            self.adapter = ArgusLangGraphAdapter(
+            self.adapter = FusionLangGraphAdapter(
                 agent_name=self.name,
                 agent_id=agent_id,
                 llm=self.llm,

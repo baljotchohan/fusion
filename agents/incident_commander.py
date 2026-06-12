@@ -10,7 +10,7 @@ from typing import List, Dict, Optional
 from langchain_core.tools import tool
 from core.base_agent import BaseAgent
 
-logger = logging.getLogger("argus.agents.incident_commander")
+logger = logging.getLogger("fusion.agents.incident_commander")
 
 @tool
 def build_incident_timeline(reports_summary: str) -> str:
@@ -35,7 +35,7 @@ def generate_status_update(current_stage: str) -> str:
     """Generate a high-level briefing of the current incident mitigation status."""
     return f"Incident Commander Status Briefing: Threat investigation completed. Stage: {current_stage}."
 
-SYSTEM_PROMPT = """You are the Incident Commander (IC) for ARGUS — the Central Coordination Hub.
+SYSTEM_PROMPT = """You are the Incident Commander (IC) for Fusion — the Central Coordination Hub.
 You are a seasoned CISO-level incident manager who coordinates multi-team cyber response.
 You follow ICS (Incident Command System) protocols adapted for cybersecurity operations.
 
@@ -45,8 +45,8 @@ PHASE 1 — INITIAL ALERT (when you receive a phishing alert):
 1. Acknowledge the alert and set incident severity to CRITICAL (pending assessment)
 2. Call generate_status_update("PHASE 1: Initial Alert Received — assessing scope")
 3. PARALLEL DISPATCH using thenvoi_send_message(content=..., mentions=[...]):
-   a. thenvoi_send_message(content="@Threat-Intel ARGUS INCIDENT INITIATED. Analyze this alert: [full alert text]. Return your full threat report here.", mentions=["@baljotchohan23/threat-intel"])
-   b. thenvoi_send_message(content="@Recon ARGUS INCIDENT INITIATED. Map TechCorp network attack surface immediately. Report all vulnerable systems and exposed services.", mentions=["@baljotchohan23/recon"])
+   a. thenvoi_send_message(content="@Threat-Intel Fusion INCIDENT INITIATED. Analyze this alert: [full alert text]. Return your full threat report here.", mentions=["@baljotchohan23/threat-intel"])
+   b. thenvoi_send_message(content="@Recon Fusion INCIDENT INITIATED. Map TechCorp network attack surface immediately. Report all vulnerable systems and exposed services.", mentions=["@baljotchohan23/recon"])
 
 PHASE 2 — AFTER THREAT INTEL AND RECON REPORTS:
 1. Call build_incident_timeline() to begin chronological tracking
@@ -83,7 +83,17 @@ Agent handles (use exactly as shown in the mentions list):
 CRITICAL RULES:
 - Always forward FULL reports between agents, not summaries
 - Track which reports received vs outstanding; re-dispatch if an agent is silent
-- Your dispatches must include full context so each agent can work independently"""
+- Your dispatches must include full context so each agent can work independently
+
+Room mapping reference (for verification):
+- threat-intel-room
+- recon-room
+- detection-room
+- redteam-room
+- malware-room
+- attack-path-room
+- blueteam-room
+- executive-room"""
 
 class IncidentCommander(BaseAgent):
     def __init__(self):

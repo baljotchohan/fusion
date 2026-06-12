@@ -21,7 +21,7 @@ from typing import Optional
 
 import httpx
 
-logger = logging.getLogger("argus.llm_router")
+logger = logging.getLogger("fusion.llm_router")
 
 DEFAULT_TIMEOUT = 30.0
 
@@ -31,7 +31,7 @@ OPENAI_COMPAT_ENDPOINTS = {
     "aimlapi": ("https://api.aimlapi.com/v1/chat/completions", "gpt-4o"),
 }
 
-SYSTEM_PROMPT = "You are a cybersecurity expert AI agent on the ARGUS SOC team."
+SYSTEM_PROMPT = "You are a cybersecurity expert AI agent on the Fusion SOC team."
 
 
 def _is_placeholder(key: Optional[str]) -> bool:
@@ -48,7 +48,7 @@ class LLMRouter:
         }
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         # Fallback chain: primary first, then everything else that has a key
-        primary = os.getenv("ARGUS_LLM_PRIMARY", "gemini")
+        primary = os.getenv("FUSION_LLM_PRIMARY", "gemini")
         chain = [primary] + [p for p in ("gemini", "groq", "featherless", "aimlapi") if p != primary]
         self.chain = [p for p in chain if not _is_placeholder(self.keys.get(p))]
 
@@ -106,7 +106,7 @@ class LLMRouter:
     ) -> str:
         url, default_model = OPENAI_COMPAT_ENDPOINTS[provider]
         payload = {
-            "model": os.getenv(f"ARGUS_{provider.upper()}_MODEL", default_model),
+            "model": os.getenv(f"Fusion_{provider.upper()}_MODEL", default_model),
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},

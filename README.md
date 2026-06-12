@@ -1,4 +1,4 @@
-# ⚡ ARGUS
+# ⚡ Fusion
 ### Autonomous Cyber Defense Command Center
 
 > **9 AI agents coordinating through Band to autonomously defend against cyberattacks — from threat detection all the way to CEO-level business decision.**
@@ -11,13 +11,13 @@
 
 ---
 
-## What is ARGUS?
+## What is Fusion?
 
 Modern companies can detect cyberattacks. The real bottleneck is the **human coordination** required to respond — pulling in IT, Legal, Finance, and the CEO during a live incident takes precious hours.
 
-**ARGUS eliminates that bottleneck.**
+**Fusion eliminates that bottleneck.**
 
-When a threat is detected, ARGUS deploys 9 specialized AI agents that coordinate in real time through Band — triaging the threat, simulating the attack, building defenses, and delivering a final CEO-level business decision with a full audit trail. All autonomous. All in minutes.
+When a threat is detected, Fusion deploys 9 specialized AI agents that coordinate in real time through Band — triaging the threat, simulating the attack, building defenses, and delivering a final CEO-level business decision with a full audit trail. All autonomous. All in minutes.
 
 ```
 Employee clicks phishing email
@@ -59,7 +59,7 @@ Full audit trail exported. Incident closed.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        ARGUS Platform                           │
+│                        Fusion Platform                           │
 │                                                                 │
 │  ┌─────────────────┐      ┌──────────────────┐                 │
 │  │  Web UI (Next)  │◄────►│  REST API        │                 │
@@ -103,7 +103,7 @@ Full audit trail exported. Incident closed.
 | Agent Coordination | [Band SDK](https://docs.thenvoi.com) |
 | Agent Framework | [LangGraph](https://langchain-ai.github.io/langgraph) |
 | LLMs (BYO keys) | Gemini (primary) · Groq · Featherless · AI/ML API — auto-fallback router |
-| Shared Memory | Graphify incident graph (`argus_memory/`) — agents learn across incidents |
+| Shared Memory | Graphify incident graph (`fusion_memory/`) — agents learn across incidents |
 | Backend | Python 3.11 + FastAPI + WebSocket |
 | Agent Recruitment | MCP server (`mcp_server.py`) for external AI apps |
 | Real Connectors | GitHub API (secrets, Dependabot), NVD CVE API, MITRE ATT&CK |
@@ -118,7 +118,7 @@ Full audit trail exported. Incident closed.
 **Phishing attack on the CEO → full autonomous response in under 3 minutes**
 
 1. Employee receives spearphishing email with malicious `.exe` attachment
-2. ARGUS detects the event and deploys all 9 agents via Band coordination
+2. Fusion detects the event and deploys all 9 agents via Band coordination
 3. Threat Intel identifies `T1566.001` (Spearphishing Attachment) — CVSS 9.8 CVE found
 4. Recon maps 3 vulnerable servers on the internal network
 5. Red Team simulates lateral movement — attack path to database server identified
@@ -133,24 +133,24 @@ Full audit trail exported. Incident closed.
 
 ## 🚀 Deployment
 
-You can deploy the ARGUS system completely live for free:
+You can deploy the Fusion system completely live for free:
 
 ### 1. Backend (Render)
 Deploy the FastAPI backend + all 9 background agents to Render using the one-click button below:
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/baljotchohan/argus)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/baljotchohan/fusion)
 
 **Configuration on Render:**
-- Render will automatically parse the [render.yaml](file:///Users/baljotchohan/Desktop/argus/render.yaml) blueprint.
+- Render will automatically parse the [render.yaml](file:///Users/baljotchohan/Desktop/fusion/render.yaml) blueprint.
 - During deployment, Render will prompt you to enter your LLM API keys (`GOOGLE_API_KEY`, etc.).
 - Render will boot up the persistent server using `python run.py`.
-- Once deployed, copy your Render service URL (e.g., `https://argus-backend.onrender.com`).
+- Once deployed, copy your Render service URL (e.g., `https://fusion-backend.onrender.com`).
 
 ### 2. Frontend (Vercel)
 Deploy the Next.js War Room Dashboard to Vercel:
 1. Push your repository to GitHub.
 2. Log into [vercel.com](https://vercel.com) and click **Add New Project**.
-3. Select your `argus` repository and specify `frontend` as the **Root Directory** of the project.
+3. Select your `fusion` repository and specify `frontend` as the **Root Directory** of the project.
 4. Add the following **Environment Variables** in Vercel:
    - `NEXT_PUBLIC_API_URL` = `https://your-render-url.onrender.com` (your Render backend URL)
    - `NEXT_PUBLIC_WS_URL` = `wss://your-render-url.onrender.com/ws` (your Render WebSocket URL)
@@ -170,8 +170,8 @@ Deploy the Next.js War Room Dashboard to Vercel:
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/argus.git
-cd argus
+git clone https://github.com/YOUR_USERNAME/fusion.git
+cd fusion
 
 # Python backend
 uv venv && source .venv/bin/activate
@@ -194,7 +194,7 @@ cp .env.example .env
 python scripts/download_mitre.py
 ```
 
-### 4. Run ARGUS
+### 4. Run Fusion
 
 ```bash
 # Terminal 1 — Backend + all agents
@@ -213,7 +213,7 @@ cd frontend && npm run dev
 
 ## 🧠 Shared Memory Graph
 
-Agents don't work in isolation. Every incident is logged to a shared memory graph (`argus_memory/`) that all 9 agents read and write:
+Agents don't work in isolation. Every incident is logged to a shared memory graph (`fusion_memory/`) that all 9 agents read and write:
 
 ```json
 {
@@ -275,7 +275,7 @@ curl http://localhost:8000/api/v1/memory/similar/T1566.001  # similar past incid
 
 ---
 
-## 🔌 MCP Server — Recruit ARGUS from Any AI App
+## 🔌 MCP Server — Recruit Fusion from Any AI App
 
 Expose the 9-agent team as tools to Claude (or any MCP client):
 
@@ -288,7 +288,7 @@ Claude Desktop config:
 ```json
 {
   "mcpServers": {
-    "argus": {"command": "python", "args": ["/path/to/argus/mcp_server.py"]}
+    "fusion": {"command": "python", "args": ["/path/to/fusion/mcp_server.py"]}
   }
 }
 ```
@@ -310,7 +310,7 @@ Tools exposed: `run_security_scan`, `analyze_threat`, `chat_with_commander`, `ge
 ## Project Structure
 
 ```
-argus/
+fusion/
 ├── README.md
 ├── AGENTS.md               ← Detailed agent documentation
 ├── SETUP.md                ← Full setup guide
@@ -376,7 +376,7 @@ argus/
 
 ## Band AI Integration
 
-ARGUS uses Band as the real coordination layer. Each agent connects to a dedicated
+Fusion uses Band as the real coordination layer. Each agent connects to a dedicated
 Band room and communicates exclusively via @mentions and message handoffs.
 
 ```
@@ -417,4 +417,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-*ARGUS — 9 agents. All seeing. Never sleeps.*
+*Fusion — 9 agents. All seeing. Never sleeps.*

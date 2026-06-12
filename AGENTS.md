@@ -1,12 +1,12 @@
-# ARGUS — Agent Documentation
+# Fusion — Agent Documentation
 
-> Detailed specifications for all 9 agents in the ARGUS Autonomous Cyber Defense Command Center.
+> Detailed specifications for all 9 agents in the Fusion Autonomous Cyber Defense Command Center.
 
 ---
 
 ## Agent Architecture
 
-Every agent in ARGUS follows the same pattern:
+Every agent in Fusion follows the same pattern:
 
 ```
 External Trigger / @mention from Band
@@ -456,7 +456,7 @@ Output:
     }
   },
   "decision_timestamp": "2026-06-19T08:52:33Z",
-  "audit_trail_id": "ARGUS-INC-2026-001"
+  "audit_trail_id": "FUSION-INC-2026-001"
 }
 ```
 
@@ -467,7 +467,7 @@ Final step in the chain. Sends complete decision to Incident Commander for archi
 
 ## Adding New Agents
 
-To add a new agent to ARGUS:
+To add a new agent to Fusion:
 
 1. Create `/agents/your_agent.py` extending `BaseAgent`
 2. Define your LangGraph `StateGraph` with typed state
@@ -478,4 +478,4 @@ To add a new agent to ARGUS:
 
 ---
 
-*ARGUS — 9 agents. All seeing. Never sleeps.*
+*Fusion — 9 agents. All seeing. Never sleeps.*

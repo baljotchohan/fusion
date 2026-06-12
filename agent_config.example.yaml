@@ -1,4 +1,4 @@
-# ARGUS — Band Agent Configuration
+# Fusion — Band Agent Configuration
 # Copy this file to agent_config.yaml and fill in your Band credentials.
 # At kickoff (Jun 12): export BAND_API_KEY, then run
 #   python scripts/setup_band_rooms.py

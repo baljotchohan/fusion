@@ -1,6 +1,6 @@
 # run.py
 """
-Entry point for the ARGUS Autonomous Cyber Defense Command Center.
+Entry point for the Fusion Autonomous Cyber Defense Command Center.
 Launches the FastAPI backend and all 9 specialized AI agents concurrently.
 """
 import os
@@ -22,7 +22,7 @@ from agents.incident_commander import IncidentCommander
 from agents.executive_decision import ExecutiveDecisionAgent
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("argus.run")
+logger = logging.getLogger("fusion.run")
 
 def _check_port(port: int) -> None:
     """Raise a clear error if the port is already in use."""
@@ -32,7 +32,7 @@ def _check_port(port: int) -> None:
             s.bind(("0.0.0.0", port))
         except OSError:
             raise RuntimeError(
-                f"\n\n[ARGUS] Port {port} is already in use.\n"
+                f"\n\n[Fusion] Port {port} is already in use.\n"
                 f"  → Kill the old process with:  lsof -ti :{port} | xargs kill -9\n"
                 f"  → Or set a different port:    PORT={port + 1} python run.py\n"
             )
@@ -40,7 +40,7 @@ def _check_port(port: int) -> None:
 
 async def main():
     load_dotenv()
-    logger.info("Initializing ARGUS System...")
+    logger.info("Initializing Fusion System...")
 
     port = int(os.getenv("PORT", 8000))
 
@@ -78,20 +78,20 @@ async def main():
     try:
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
-        logger.info("ARGUS tasks cancelled. Shutting down...")
+        logger.info("Fusion tasks cancelled. Shutting down...")
     except (SystemExit, OSError) as e:
         logger.error(
-            f"[ARGUS] Server failed to start — port {port} may be in use.\n"
+            f"[Fusion] Server failed to start — port {port} may be in use.\n"
             f"  Run:  lsof -ti :{port} | xargs kill -9  then retry.\n"
             f"  Original error: {e}"
         )
         raise
     except Exception as e:
-        logger.error(f"ARGUS run encountered an error: {e}")
+        logger.error(f"Fusion run encountered an error: {e}")
         raise
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("ARGUS stopped by user.")
+        logger.info("Fusion stopped by user.")

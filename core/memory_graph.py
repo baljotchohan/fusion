@@ -3,7 +3,7 @@
 Graphify-backed shared incident memory for all 9 agents.
 
 Every incident is logged to a shared on-disk graph (JSON namespace under
-./argus_memory). Agents query past incidents and learned defense recipes
+./fusion_memory). Agents query past incidents and learned defense recipes
 before acting, so the team gets measurably faster on repeat attacks.
 
 Files:
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 
-logger = logging.getLogger("argus.memory_graph")
+logger = logging.getLogger("fusion.memory_graph")
 
 # Single process-wide lock: the JSON namespace is small and write
 # contention only happens during agent fan-out, so coarse locking is fine.
@@ -30,9 +30,9 @@ def _utcnow() -> str:
 
 
 class MemoryGraph:
-    """Shared incident memory graph used by every ARGUS agent."""
+    """Shared incident memory graph used by every Fusion agent."""
 
-    def __init__(self, graphify_dir: str = "./argus_memory"):
+    def __init__(self, graphify_dir: str = "./fusion_memory"):
         self.base_path = Path(graphify_dir)
         self.base_path.mkdir(exist_ok=True)
         self.incidents_file = self.base_path / "incidents.json"

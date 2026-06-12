@@ -29,7 +29,7 @@ export function ExecutivePanel({ decision, threatScore }: ExecutivePanelProps) {
         <div className="flex items-center justify-between pb-3 border-b border-slate-200/50 dark:border-slate-800/80">
           <div>
             <h3 className="font-bold text-xs font-mono text-amber-600 dark:text-amber-400 tracking-wider">👔 EXECUTIVE BOARDROOM CONVENED</h3>
-            <p className="text-[9.5px] text-slate-400 dark:text-slate-500 font-mono">Incident ID: ARGUS-INC-2026-001 • ESCALATED RISK: {threatScore}/100</p>
+            <p className="text-[9.5px] text-slate-400 dark:text-slate-500 font-mono">Incident ID: FUSION-INC-2026-001 • ESCALATED RISK: {threatScore}/100</p>
           </div>
           <div className="flex items-center gap-2 bg-amber-100/50 dark:bg-amber-950/40 border border-amber-200/40 dark:border-amber-900/50 px-2.5 py-0.5 rounded-full">
             <span className="relative flex h-1.5 w-1.5">
@@ -104,7 +104,7 @@ export function ExecutivePanel({ decision, threatScore }: ExecutivePanelProps) {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3.5 border-b border-slate-200/50 dark:border-slate-800/80">
         <div>
           <h3 className="font-bold text-xs font-mono text-slate-800 dark:text-slate-200 tracking-wider">👔 EXECUTIVE BOARDROOM REPORT</h3>
-          <p className="text-[9.5px] text-slate-400 dark:text-slate-500 font-mono">Incident ID: ARGUS-INC-2026-001 • TOTAL RISK SCORE: {threatScore}/100</p>
+          <p className="text-[9.5px] text-slate-400 dark:text-slate-500 font-mono">Incident ID: FUSION-INC-2026-001 • TOTAL RISK SCORE: {threatScore}/100</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-mono font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">VERDICT:</span>

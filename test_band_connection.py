@@ -60,7 +60,7 @@ async def main():
             sender_handle = str(raw_sender) if raw_sender else "baljotchohan23"
 
             # Echo back — send_message requires at least one mention
-            reply = f"[ARGUS echo] Got your message: {content[:120]}"
+            reply = f"[Fusion echo] Got your message: {content[:120]}"
             try:
                 await tools.send_message(content=reply, mentions=[sender_handle])
                 logger.info(f"✉️  Reply sent → @{sender_handle}")

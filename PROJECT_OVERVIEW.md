@@ -1,11 +1,11 @@
-# ARGUS — Full Project Overview & Architecture Guide
+# Fusion — Full Project Overview & Architecture Guide
 
-Welcome to **ARGUS**, the Autonomous Cyber Defense Command Center. This document explains what ARGUS is, how it is structured, its key features, and how the 9 specialized AI agents collaborate to defend a company against attacks in plain, easy-to-understand language.
+Welcome to **Fusion**, the Autonomous Cyber Defense Command Center. This document explains what Fusion is, how it is structured, its key features, and how the 9 specialized AI agents collaborate to defend a company against attacks in plain, easy-to-understand language.
 
 ---
 
-## 1. What is ARGUS? (The Big Picture)
-Think of ARGUS as a **digital cybersecurity war room** run entirely by AI. Instead of a single AI trying to do everything, ARGUS uses a **swarm of 9 specialized AI agents** (like Threat Intel, Recon, Red Team, and Blue Team). 
+## 1. What is Fusion? (The Big Picture)
+Think of Fusion as a **digital cybersecurity war room** run entirely by AI. Instead of a single AI trying to do everything, Fusion uses a **swarm of 9 specialized AI agents** (like Threat Intel, Recon, Red Team, and Blue Team). 
 
 When an alert comes in (like a phishing email), the agents talk to each other in real-time over the **Band AI Platform** (app.thenvoi.com) using `@mentions` to investigate, simulate, analyze, and defend the network, culminating in a boardroom decision by a CEO agent.
 
@@ -78,7 +78,7 @@ Here is a summary of the 9 agents, their roles, and what tools they use:
 Here is a breakdown of the repository's folders and files:
 
 ```
-argus/
+fusion/
 ├── agents/                     # 📂 Individual Agent Implementations
 │   ├── incident_commander.py   # Orchestrator agent
 │   ├── threat_intel.py         # Threat Intel agent

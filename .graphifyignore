@@ -14,4 +14,4 @@ node_modules/
 env/
 venv/
 __pycache__/
-argus_memory/
+fusion_memory/

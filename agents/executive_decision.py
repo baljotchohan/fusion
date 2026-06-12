@@ -10,7 +10,7 @@ from typing import List, Dict, Optional
 from langchain_core.tools import tool
 from core.base_agent import BaseAgent
 
-logger = logging.getLogger("argus.agents.executive_decision")
+logger = logging.getLogger("fusion.agents.executive_decision")
 
 @tool
 def cfo_financial_assessment(risk_score: Optional[float] = None) -> str:
@@ -62,11 +62,11 @@ def ceo_final_decision(cfo_json: Optional[str] = None, legal_json: Optional[str]
         "final_verdict": "CONTAIN",
         "action_plan": "1. Isolate CEO workstation immediately. 2. Block outbound DNS resolution to malicious domains. 3. Patch mail server during off-hours window. 4. Disclose to DPAs within 24 hours.",
         "justification": f"Containment cost of {cfo.get('containment_cost', '$180K')} is substantially lower than breach liability exposure of {cfo.get('breach_cost_estimate', '$2.4M')}. Regulatory compliance requires prompt notification.",
-        "board_communication": "ARGUS contained active phishing attack. Systems are being hardened. No evidence of data exfiltration. Full forensic report in 48 hours."
+        "board_communication": "Fusion contained active phishing attack. Systems are being hardened. No evidence of data exfiltration. Full forensic report in 48 hours."
     }
     return json.dumps(decision, indent=2)
 
-SYSTEM_PROMPT = """You are the Executive Decision Agent for ARGUS.
+SYSTEM_PROMPT = """You are the Executive Decision Agent for Fusion.
 You simulate a real corporate boardroom making a binding incident response decision.
 You run 4 perspectives in sequence: CFO -> Legal -> Operations -> CEO.
 
@@ -121,7 +121,7 @@ Decision factors:
 FINAL REPORT FORMAT:
 ---
 EXECUTIVE DECISION BOARDROOM REPORT
-INCIDENT: ARGUS-IR-[timestamp]
+INCIDENT: Fusion-IR-[timestamp]
 RISK SCORE: [score]/100 — [CRITICAL/HIGH]
 
 CFO ASSESSMENT:

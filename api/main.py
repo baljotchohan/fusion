@@ -21,9 +21,9 @@ from api.state import sim_state
 from api.v1 import router as v1_router
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("argus.api")
+logger = logging.getLogger("fusion.api")
 
-app = FastAPI(title="ARGUS API", version="2.0.0")
+app = FastAPI(title="Fusion API", version="2.0.0")
 app.include_router(v1_router)
 
 # Enable CORS for the Next.js War Room dashboard
@@ -217,9 +217,9 @@ async def mock_llm_completions(request: Request):
     user_msgs = [m.get("content", "") for m in messages if m.get("role") == "user"]
     user_msg = user_msgs[-1] if user_msgs else ""
 
-    # Infer calling agent — prefer the deterministic ARGUS_AGENT marker injected by BaseAgent
+    # Infer calling agent — prefer the deterministic Fusion_AGENT marker injected by BaseAgent
     import re
-    _marker = re.search(r"\[ARGUS_AGENT:\s*([a-z_]+)\]", system_msg)
+    _marker = re.search(r"\[FUSION_AGENT:\s*([a-z_]+)\]", system_msg)
     agent_name = _marker.group(1) if _marker else ""
     if agent_name:
         pass
@@ -303,8 +303,8 @@ async def mock_llm_completions(request: Request):
     delay_range = (STAGE2_DELAYS if has_tool_messages else STAGE1_DELAYS).get(
         agent_name, (1.0, 2.0)
     )
-    # ARGUS_MOCK_PACE scales the cinematic delays (0 = instant, 1 = original).
-    pace = float(os.getenv("ARGUS_MOCK_PACE", "0.6"))
+    # FUSION_MOCK_PACE scales the cinematic delays (0 = instant, 1 = original).
+    pace = float(os.getenv("FUSION_MOCK_PACE", "0.6"))
     await asyncio.sleep(random.uniform(*delay_range) * pace)
     # ──────────────────────────────────────────────────────────────────────────
 

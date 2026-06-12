@@ -1,6 +1,6 @@
 # api/v1.py
 """
-ARGUS v1 REST API — chat with the Incident Commander, repository scanning,
+Fusion v1 REST API — chat with the Incident Commander, repository scanning,
 IoC analysis, and shared-memory incident retrieval.
 
 These are the product-facing endpoints (used by the Web UI, external
@@ -25,7 +25,7 @@ from core.cve_lookup import get_cves_async
 from connectors.github_scanner import GitHubScanner, parse_repo_url
 from api.state import sim_state
 
-logger = logging.getLogger("argus.api.v1")
+logger = logging.getLogger("fusion.api.v1")
 
 router = APIRouter(prefix="/api/v1")
 
@@ -72,7 +72,7 @@ _STATUS_WORDS = ("status", "safe", "under attack", "right now", "happening",
                  "current", "going on", "are we", "threat level", "risk")
 _MEMORY_WORDS = ("learn", "learned", "remember", "memory", "past", "history",
                  "before", "previous", "seen this", "recipe", "pattern", "how many")
-_DOCS_WORDS = ("how do you work", "how does this work", "explain", "what is argus",
+_DOCS_WORDS = ("how do you work", "how does this work", "explain", "what is fusion",
                "who are you", "what can you do", "help", "documentation", "architecture")
 _GREETING_WORDS = ("hi", "hii", "hiya", "hello", "helo", "hallo", "hey", "heyy",
                    "yo", "sup", "greetings", "howdy", "good", "gm", "morning")
@@ -103,11 +103,11 @@ def _classify_intent(text: str) -> str:
 def _suggestions_for(intent: str) -> List[str]:
     base = {
         "attack_report": ["What's the risk score?", "What does Blue Team recommend?", "Show me the CEO decision"],
-        "status": ["Report a phishing email", "What has the team learned?", "How does ARGUS work?"],
+        "status": ["Report a phishing email", "What has the team learned?", "How does Fusion work?"],
         "memory": ["Report a new incident", "What's our current status?", "Which attack patterns repeat?"],
         "docs": ["Simulate a phishing attack", "What are the 9 agents?", "What is the MITRE mapping?"],
         "greeting": ["We got a phishing email", "Are we under attack?", "What did the team learn?"],
-        "thanks": ["Report an incident", "What's our status?", "How does ARGUS work?"],
+        "thanks": ["Report an incident", "What's our status?", "How does Fusion work?"],
         "general": ["Report an incident", "What's our status?", "What has the team learned?"],
     }
     return base.get(intent, base["general"])
@@ -301,7 +301,7 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
         )
     if intent == "docs":
         return (
-            "**ARGUS** is an Autonomous Cyber Defense Command Center. Nine specialist AI agents — Threat "
+            "**Fusion** is an Autonomous Cyber Defense Command Center. Nine specialist AI agents — Threat "
             "Intelligence, Recon, Detection, Red Team, Malware, Attack Path, Blue Team, the Incident Commander "
             "(me), and the Executive Board — coordinate to take a raw security alert all the way to a boarded "
             "business decision (Contain / Shutdown / Escalate) in under three minutes.\n\n"
@@ -311,7 +311,7 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
     if intent == "greeting":
         state = "responding to a live incident" if sim_state.running else "stable and standing by"
         return (
-            "Hi — I'm the **ARGUS Incident Commander**. I coordinate nine security specialists for you, and right "
+            "Hi — I'm the **Fusion Incident Commander**. I coordinate nine security specialists for you, and right "
             f"now the system is **{state}**.\n\n"
             "You can **report something suspicious**, ask **\"what's our status?\"**, or query **what we've learned**. "
             "What would you like to do?"
@@ -350,7 +350,7 @@ async def _commander_reply(intent: str, user_message: str, incident_id: str,
         recent = memory_graph.get_chat_history(limit=6)
         convo = "\n".join(f"{t['role']}: {t['content'][:200]}" for t in recent)
         prompt = (
-            "You are the ARGUS Incident Commander — a calm, sharp SOC lead — talking to a user in plain English.\n"
+            "You are the Fusion Incident Commander — a calm, sharp SOC lead — talking to a user in plain English.\n"
             f"Detected intent: {intent}.\n"
             f"Recent conversation:\n{convo}\n\n"
             f"New user message: {user_message}\n\n"
@@ -731,7 +731,7 @@ async def get_system_settings():
         "mode": "mock" if is_mock_mode() else "real",
         "band_mock": is_mock_mode(),
         "llm": {
-            "primary": os.getenv("ARGUS_LLM_PRIMARY", "gemini"),
+            "primary": os.getenv("FUSION_LLM_PRIMARY", "gemini"),
             "degraded": llm_degraded(),
             "providers": _provider_status(),
             "active_provider": (get_router().available_providers() or ["local-engine"])[0]
@@ -740,12 +740,12 @@ async def get_system_settings():
         "simulation": {
             "running": sim_state.running,
             "active_incident_id": sim_state.active_incident_id,
-            "mock_pace": float(os.getenv("ARGUS_MOCK_PACE", "0.6")),
+            "mock_pace": float(os.getenv("FUSION_MOCK_PACE", "0.6")),
         },
         "rooms": list(mock_bus.rooms.keys()) if is_mock_mode() else [],
         "agents": AGENT_NAMES,
         "mcp": {
-            "server": "argus-mcp",
+            "server": "fusion-mcp",
             "transport": "stdio",
             "tool_count": len(MCP_TOOLS),
             "tools": MCP_TOOLS,
@@ -761,10 +761,10 @@ async def update_system_settings(patch: SettingsPatch):
     applied = {}
     if patch.mock_pace is not None:
         pace = max(0.0, min(3.0, patch.mock_pace))
-        os.environ["ARGUS_MOCK_PACE"] = str(pace)
+        os.environ["FUSION_MOCK_PACE"] = str(pace)
         applied["mock_pace"] = pace
     if patch.primary_provider:
-        os.environ["ARGUS_LLM_PRIMARY"] = patch.primary_provider
+        os.environ["FUSION_LLM_PRIMARY"] = patch.primary_provider
         # Rebuild the router so the new primary takes effect immediately
         import core.llm_router as _lr
         _lr._router = None
@@ -779,4 +779,4 @@ async def update_system_settings(patch: SettingsPatch):
 @router.get("/system/mcp")
 async def get_mcp_registry():
     """The MCP tool surface external AI apps can call."""
-    return {"server": "argus-mcp", "transport": "stdio", "tools": MCP_TOOLS}
+    return {"server": "fusion-mcp", "transport": "stdio", "tools": MCP_TOOLS}

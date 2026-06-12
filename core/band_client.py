@@ -9,7 +9,7 @@ import asyncio
 import logging
 from typing import Dict, List, Callable, Any
 
-logger = logging.getLogger("argus.band_client")
+logger = logging.getLogger("fusion.band_client")
 
 # Mock message bus for in-memory agent communication
 class MockBandBus:

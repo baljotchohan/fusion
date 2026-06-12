@@ -10,7 +10,7 @@ from typing import List, Dict, Optional
 from langchain_core.tools import tool
 from core.base_agent import BaseAgent
 
-logger = logging.getLogger("argus.agents.blue_team")
+logger = logging.getLogger("fusion.agents.blue_team")
 
 @tool
 def generate_defense_actions(incident_details: Optional[str] = None) -> str:

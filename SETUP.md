@@ -1,6 +1,6 @@
-# ARGUS — Full Setup Guide
+# Fusion — Full Setup Guide
 
-> Step-by-step setup from zero to running ARGUS locally.
+> Step-by-step setup from zero to running Fusion locally.
 
 ---
 
@@ -19,8 +19,8 @@
 ## Step 1 — Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/argus.git
-cd argus
+git clone https://github.com/YOUR_USERNAME/fusion.git
+cd fusion
 ```
 
 ---
@@ -75,7 +75,7 @@ cp agent_config.example.yaml agent_config.yaml
 
 After getting your Band API key on June 12:
 1. Go to **band.ai** → Developer Settings
-2. Create 9 agents (one per ARGUS agent)
+2. Create 9 agents (one per Fusion agent)
 3. Copy each agent's `agent_id` and `api_key` into `agent_config.yaml`
 
 ---
@@ -124,7 +124,7 @@ cd ..
 
 ---
 
-## Step 8 — Run ARGUS
+## Step 8 — Run Fusion
 
 ```bash
 # Option A: Run everything at once
@@ -223,4 +223,4 @@ pyyaml
 
 ---
 
-*ARGUS — 9 agents. All seeing. Never sleeps.*
+*Fusion — 9 agents. All seeing. Never sleeps.*

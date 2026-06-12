@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Callable, List, Dict
 
-logger = logging.getLogger("argus.event_bus")
+logger = logging.getLogger("fusion.event_bus")
 
 class EventBus:
     def __init__(self):

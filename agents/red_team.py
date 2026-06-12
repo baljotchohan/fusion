@@ -11,7 +11,7 @@ from langchain_core.tools import tool
 from core.base_agent import BaseAgent
 from core.mitre_lookup import search_ttp
 
-logger = logging.getLogger("argus.agents.red_team")
+logger = logging.getLogger("fusion.agents.red_team")
 
 @tool
 def simulate_attack_path(recon_data: Optional[str] = None, ttps: Optional[str] = None) -> str:

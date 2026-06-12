@@ -75,7 +75,7 @@ export function LiveLog({ events }: LiveLogProps) {
           <span className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e] border border-[#dea123]"></span>
           <span className="w-2.5 h-2.5 rounded-full bg-[#27c93f] border border-[#1aab29]"></span>
         </div>
-        <span className="text-[10px] font-mono text-slate-400 font-medium">bash - telemetry@argus</span>
+        <span className="text-[10px] font-mono text-slate-400 font-medium">bash - telemetry@fusion</span>
         <div className="flex items-center gap-2">
           <button 
             onClick={handleCopy}

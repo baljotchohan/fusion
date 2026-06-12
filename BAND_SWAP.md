@@ -4,7 +4,7 @@
 
 ### Step 1: Get credentials (5 min)
 1. Login to band.ai
-2. Create 9 Band agents — one per ARGUS agent
+2. Create 9 Band agents — one per Fusion agent
 3. Name them exactly: Threat-Intel, Recon, Red-Team, Attack-Path,
    Detection, Malware-Investigation, Blue-Team, Incident-Commander, Executive-Decision
 4. Copy agent_id and api_key for each into agent_config.yaml

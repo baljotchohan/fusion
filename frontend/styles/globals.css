@@ -71,7 +71,7 @@ body {
   background: rgba(255, 255, 255, 0.25);
 }
 
-/* ── ARGUS War Room animations (ThreatGauge / PhaseTracker / agent chain) ── */
+/* ── Fusion War Room animations (ThreatGauge / PhaseTracker / agent chain) ── */
 .threat-critical {
   animation: threatPulse 1.5s ease-in-out infinite;
 }

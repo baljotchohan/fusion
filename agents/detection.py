@@ -10,7 +10,7 @@ from typing import List, Dict, Optional
 from langchain_core.tools import tool
 from core.base_agent import BaseAgent
 
-logger = logging.getLogger("argus.agents.detection")
+logger = logging.getLogger("fusion.agents.detection")
 
 @tool
 def scan_email_logs(sender_domain: str, file_hash: Optional[str] = None) -> str:

@@ -1,12 +1,12 @@
-# ARGUS — Project Memory & Agent Guide
-This file serves as the persistent, single-source-of-truth project memory for **argus** (formerly ACDCC). It contains the complete system architecture, data models, developer guidelines, and hackathon win-conditions so that any developer or AI coding agent can immediately understand the project and build features.
+# Fusion — Project Memory & Agent Guide
+This file serves as the persistent, single-source-of-truth project memory for **fusion** (formerly ACDCC). It contains the complete system architecture, data models, developer guidelines, and hackathon win-conditions so that any developer or AI coding agent can immediately understand the project and build features.
 
 ---
 
 ## 1. System Overview & Core Goal
-**argus** is an Autonomous Cyber Defense Command Center built for the Band of Agents Hackathon (June 2026).
+**fusion** is an Autonomous Cyber Defense Command Center built for the Band of Agents Hackathon (June 2026).
 * **The Problem:** Modern Security Operations Centers (SOCs) can detect threats, but responding to a live incident requires manual human coordination across Security, IT, Legal, Finance, and the C-Suite, taking hours or days.
-* **The Solution:** argus automates this entire response chain using 9 specialized AI agents coordinating in real time through **Band** chat rooms, reducing response and business-decision time to under 3 minutes.
+* **The Solution:** fusion automates this entire response chain using 9 specialized AI agents coordinating in real time through **Band** chat rooms, reducing response and business-decision time to under 3 minutes.
 * **The Payoff:** The system scales from technical detection up to a business-level CEO decision (e.g., Contain, Shutdown, or Escalate) backed by financial, legal, and operational assessments with a full audit log.
 
 ---
@@ -24,7 +24,7 @@ This file serves as the persistent, single-source-of-truth project memory for **
 
 ### Directory Structure
 ```
-argus/
+fusion/
 ├── README.md               ← High-level project readme
 ├── AGENTS.md               ← Detailed agent documentation
 ├── SETUP.md                ← Step-by-step setup guide
@@ -101,7 +101,7 @@ Each agent has a specific room in the Band workspace and maps to a LangGraph `St
 
 ## 5. Development Guidelines
 1. **Always Use Async/Await:** Network and API operations must be non-blocking. Use `aiohttp` instead of `requests`.
-2. **Strict Project Naming:** Use the name **argus** (all lowercase in folders/configs, or **ARGUS** in documentation). Do not use the old name "ACDCC".
+2. **Strict Project Naming:** Use the name **fusion** (all lowercase in folders/configs, or **Fusion** in documentation). Do not use the old name "ACDCC".
 3. **Mock Mode (`BAND_MOCK=true`):** For offline testing, configure an in-memory mock bus in `core/band_client.py` so agents can communicate locally without connecting to real Band WebSocket servers.
 4. **Data Sources:** 
    * Maintain the downloaded `data/enterprise-attack.json` file.

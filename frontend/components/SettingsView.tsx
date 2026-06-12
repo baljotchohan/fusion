@@ -87,7 +87,7 @@ export function SettingsView({ theme, onToggleTheme }: { theme: 'dark' | 'light'
           ))}
         </div>
         <p className="mt-3 text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
-          Add a key to <span className="font-mono">.env</span> and restart to enable a provider. ARGUS auto-falls back down the
+          Add a key to <span className="font-mono">.env</span> and restart to enable a provider. Fusion auto-falls back down the
           chain, and drops to the built-in local engine if every provider is rate-limited — so a demo never stalls.
         </p>
         {s.llm.degraded && (

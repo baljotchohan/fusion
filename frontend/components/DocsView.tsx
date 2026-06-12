@@ -6,7 +6,7 @@ type Section = 'overview' | 'quickstart' | 'agents' | 'scenario' | 'chat' | 'mem
   | 'mcp' | 'connectors' | 'api' | 'providers' | 'architecture' | 'glossary'
 
 const NAV: { id: Section; label: string; icon: string; group: string }[] = [
-  { id: 'overview', label: 'What is ARGUS', icon: '🛡️', group: 'Start here' },
+  { id: 'overview', label: 'What is Fusion', icon: '🛡️', group: 'Start here' },
   { id: 'quickstart', label: 'Quick start', icon: '🚀', group: 'Start here' },
   { id: 'agents', label: 'The 9 agents', icon: '🤖', group: 'Concepts' },
   { id: 'scenario', label: 'Attack scenario', icon: '🎯', group: 'Concepts' },
@@ -125,9 +125,9 @@ export function DocsView() {
       <div className="lg:col-span-3 glassmorphic border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-6 shadow-sm">
         {section === 'overview' && (
           <div>
-            <H>What is ARGUS?</H>
-            <P><B>ARGUS</B> is an Autonomous Cyber Defense Command Center. When a security alert fires, responding to it
-            normally means a human scramble across Security, IT, Legal, Finance and the C-Suite that takes hours. ARGUS
+            <H>What is Fusion?</H>
+            <P><B>Fusion</B> is an Autonomous Cyber Defense Command Center. When a security alert fires, responding to it
+            normally means a human scramble across Security, IT, Legal, Finance and the C-Suite that takes hours. Fusion
             collapses that into under three minutes using <B>nine specialized AI agents</B> that coordinate in real time.</P>
             <P>Each agent is a focused expert — one classifies the threat, one maps your network, one predicts the
             attacker next move, one builds the defense, and a final boardroom makes the <B>business decision</B>
@@ -144,7 +144,7 @@ export function DocsView() {
         {section === 'quickstart' && (
           <div>
             <H>Quick start</H>
-            <P>ARGUS is a Python backend plus a Next.js dashboard. Two commands and you are live.</P>
+            <P>Fusion is a Python backend plus a Next.js dashboard. Two commands and you are live.</P>
             <Step n={1} title="Start the backend (9 agents + API)">Runs FastAPI on port 8000 and registers all nine agents on the Band mock bus.</Step>
             <Code label="backend">{`pip install -r requirements.txt
 python run.py`}</Code>
@@ -153,7 +153,7 @@ python run.py`}</Code>
 npm install
 npm run dev`}</Code>
             <Step n={3} title="Run a response">Open the War Room tab and click Simulate Attack, or tell the Commander &ldquo;we got a phishing email.&rdquo;</Step>
-            <P>No API keys required — ARGUS ships a built-in local engine so the full chain runs offline. Add a provider
+            <P>No API keys required — Fusion ships a built-in local engine so the full chain runs offline. Add a provider
             key in <span className="font-mono">.env</span> for live LLM reasoning (see the AI providers section).</P>
           </div>
         )}
@@ -193,7 +193,7 @@ npm run dev`}</Code>
             <Step n={2} title="Exploitation">The CEO opens the attachment. It executes at 08:47, infecting the workstation (which has admin rights — a high-value foothold).</Step>
             <Step n={3} title="Installation & C2">The trojan (an Emotet variant) installs persistence and phones home to attacker-controlled command-and-control domains.</Step>
             <Step n={4} title="Objective">The attacker goal is the customer database (full of PII) — reachable from the CEO machine within hours.</Step>
-            <P>ARGUS detects this, predicts the path, builds containment, and the board decides — all before the attacker reaches the database.</P>
+            <P>Fusion detects this, predicts the path, builds containment, and the board decides — all before the attacker reaches the database.</P>
           </div>
         )}
 
@@ -205,7 +205,7 @@ npm run dev`}</Code>
             <Step n={1} title="Report an attack">Words like phishing, breach, ransomware, or &ldquo;we got hacked&rdquo; mobilize the full 9-agent swarm and open an incident.</Step>
             <Step n={2} title="Ask for status">&ldquo;Are we safe?&rdquo; reads live agent states and gives a tight verdict + risk summary of the current incident.</Step>
             <Step n={3} title="Query memory">&ldquo;What have we learned?&rdquo; pulls incident history and learned defense recipes from the shared memory graph.</Step>
-            <Step n={4} title="Ask how it works">&ldquo;How does ARGUS work?&rdquo; explains the system. There is deeper detail right here in Docs.</Step>
+            <Step n={4} title="Ask how it works">&ldquo;How does Fusion work?&rdquo; explains the system. There is deeper detail right here in Docs.</Step>
             <P>Every reply shows a <B>Commander reasoning</B> trace — the actual background steps it took (classify intent,
             check memory, dispatch swarm, stream findings) so nothing feels like a black box.</P>
           </div>
@@ -220,14 +220,14 @@ npm run dev`}</Code>
             <P>On the next attack, agents <B>query memory first</B>. If they have seen the technique before, they say
             &ldquo;we have handled this&rdquo; and reuse what worked — so the team measurably speeds up on repeat attacks.
             The Memory tab shows every incident, learned recipe, and your full Commander chat history.</P>
-            <P>This is what turns ARGUS from a one-shot script into a system that <B>learns</B>.</P>
+            <P>This is what turns Fusion from a one-shot script into a system that <B>learns</B>.</P>
           </div>
         )}
 
         {section === 'mcp' && (
           <div>
             <H>MCP integration</H>
-            <P>ARGUS ships a <B>Model Context Protocol (MCP) server</B> so any MCP-aware app — Claude Desktop, IDE
+            <P>Fusion ships a <B>Model Context Protocol (MCP) server</B> so any MCP-aware app — Claude Desktop, IDE
             assistants, or your own agents — can drive the entire nine-agent security team as a set of callable tools.</P>
             <P><B>1. Start the MCP server</B> (stdio transport):</P>
             <Code label="shell">{`python mcp_server.py`}</Code>
@@ -235,10 +235,10 @@ npm run dev`}</Code>
             <span className="font-mono"> claude_desktop_config.json</span>:</P>
             <Code label="claude_desktop_config.json">{`{
   "mcpServers": {
-    "argus": {
+    "fusion": {
       "command": "python",
-      "args": ["/path/to/argus/mcp_server.py"],
-      "env": { "ARGUS_API_URL": "http://localhost:8000" }
+      "args": ["/path/to/fusion/mcp_server.py"],
+      "env": { "FUSION_API_URL": "http://localhost:8000" }
     }
   }
 }`}</Code>
@@ -258,7 +258,7 @@ npm run dev`}</Code>
         {section === 'connectors' && (
           <div>
             <H>Connectors</H>
-            <P>Connectors pull <B>real-world signal</B> into ARGUS so the team works on live data, not just the demo
+            <P>Connectors pull <B>real-world signal</B> into Fusion so the team works on live data, not just the demo
             scenario. Findings flow into the same shared memory graph every agent reads.</P>
 
             <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/60 p-4 mb-3">
@@ -334,9 +334,9 @@ npm run dev`}</Code>
           <div>
             <H>AI providers & automatic fallback</H>
             <P>Agents can run on <B>Gemini, Groq, Featherless, or AI/ML API</B> — whichever keys you set in
-            <span className="font-mono"> .env</span>. ARGUS tries your primary provider first and walks down the chain on
+            <span className="font-mono"> .env</span>. Fusion tries your primary provider first and walks down the chain on
             any error.</P>
-            <P>If <B>every</B> provider is rate-limited or down, ARGUS does not stall: the whole swarm drops to a built-in
+            <P>If <B>every</B> provider is rate-limited or down, Fusion does not stall: the whole swarm drops to a built-in
             <B> local simulation engine</B> for a cooldown window, so a live demo always completes with a clean CEO verdict.
             You can change the primary provider or retry live providers from the Settings tab.</P>
             <Code label=".env">{`# any one of these enables live LLM reasoning
@@ -344,7 +344,7 @@ GROQ_API_KEY=...
 GOOGLE_API_KEY=...
 FEATHERLESS_API_KEY=...
 AIMLAPI_KEY=...
-ARGUS_LLM_PRIMARY=gemini   # which to try first`}</Code>
+FUSION_LLM_PRIMARY=gemini   # which to try first`}</Code>
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 mt-2">
               <p className="text-[12px] text-slate-600 dark:text-slate-300"><B>Note:</B> free tiers have daily token caps —
               roughly one full real-LLM run per day on a free Groq key. The local engine is the safety net for everything after that.</p>
@@ -355,7 +355,7 @@ ARGUS_LLM_PRIMARY=gemini   # which to try first`}</Code>
         {section === 'architecture' && (
           <div>
             <H>Architecture</H>
-            <P>ARGUS is a Python backend plus a Next.js dashboard:</P>
+            <P>Fusion is a Python backend plus a Next.js dashboard:</P>
             <ul className="space-y-2 text-[12px] text-slate-600 dark:text-slate-300 mb-3">
               <li>• <B>FastAPI + Uvicorn</B> — REST + WebSocket server (<span className="font-mono">api/</span>).</li>
               <li>• <B>LangGraph React agents</B> — each specialist is a tool-using agent (<span className="font-mono">agents/</span>).</li>

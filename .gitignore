@@ -238,4 +238,4 @@ data/enterprise-attack.json
 
 
 # Shared incident memory graph (runtime data, never commit)
-argus_memory/
+fusion_memory/

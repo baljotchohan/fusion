@@ -10,7 +10,7 @@ from typing import List, Dict, Optional
 from langchain_core.tools import tool
 from core.base_agent import BaseAgent
 
-logger = logging.getLogger("argus.agents.attack_path")
+logger = logging.getLogger("fusion.agents.attack_path")
 
 @tool
 def calculate_risk_score(attack_stages: Optional[str] = None, target_system: Optional[str] = None) -> str:

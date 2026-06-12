@@ -46,7 +46,7 @@ export function CommanderChat({ devMode }: CommanderChatProps) {
     } catch (e) {
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: '⚠ Cannot reach the Incident Commander — is the ARGUS backend running?' },
+        { role: 'assistant', content: '⚠ Cannot reach the Incident Commander — is the Fusion backend running?' },
       ])
     } finally {
       setThinking(false)

@@ -9,7 +9,7 @@ import logging
 from typing import List, Dict
 from langchain_core.tools import tool
 
-logger = logging.getLogger("argus.mitre")
+logger = logging.getLogger("fusion.mitre")
 
 class MITREDatabase:
     def __init__(self, json_path: str = "data/enterprise-attack.json"):

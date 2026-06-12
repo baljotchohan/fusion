@@ -1,4 +1,4 @@
-// pages/index.tsx — ARGUS command center shell.
+// pages/index.tsx — Fusion command center shell.
 import React, { useState, useEffect } from 'react'
 import Head from 'next/head'
 import { useAgentWebSocket } from '../hooks/useAgentWebSocket'
@@ -23,7 +23,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'docs', label: 'Docs', icon: '📖' },
 ]
 
-export default function ARGUS() {
+export default function Fusion() {
   const {
     agentStates, agentOutputs, logEvents, storyFeed, threatScore, ceoDecision, isConnected, resetAll,
   } = useAgentWebSocket()
@@ -76,7 +76,7 @@ export default function ARGUS() {
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors duration-300 font-sans antialiased">
       <Head>
-        <title>ARGUS — Autonomous Cyber Defense Command Center</title>
+        <title>Fusion — Autonomous Cyber Defense Command Center</title>
         <meta name="description" content="Nine autonomous AI agents that detect, analyze, and respond to cyber threats — and make the business call." />
         <link rel="icon" href="/favicon.ico" />
       </Head>
@@ -88,7 +88,7 @@ export default function ARGUS() {
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-sm shadow-md">🛡️</div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-[15px] tracking-tight text-slate-900 dark:text-white">ARGUS</span>
+                <span className="font-extrabold text-[15px] tracking-tight text-slate-900 dark:text-white">Fusion</span>
                 <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-bold font-mono tracking-wider ${isConnected ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
                   <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
                   {isConnected ? 'ONLINE' : 'OFFLINE'}

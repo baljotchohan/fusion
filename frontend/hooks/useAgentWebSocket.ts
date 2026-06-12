@@ -59,7 +59,7 @@ export function useAgentWebSocket() {
       ws = new WebSocket(wsUrl)
 
       ws.onopen = () => {
-        console.log('[ARGUS WS] connected')
+        console.log('[Fusion WS] connected')
         setIsConnected(true)
       }
 
@@ -104,7 +104,7 @@ export function useAgentWebSocket() {
             }
           }
         } catch (e) {
-          console.error('[ARGUS WS] parse error', e)
+          console.error('[Fusion WS] parse error', e)
         }
       }
 

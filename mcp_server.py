@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # mcp_server.py
 """
-ARGUS MCP Server — expose the 9-agent SOC team as tools for external AI apps.
+Fusion MCP Server — expose the 9-agent SOC team as tools for external AI apps.
 
 Any MCP-capable client (Claude Desktop, Claude Code, custom agents) can
-recruit ARGUS agents:
+recruit Fusion agents:
 
   - run_security_scan(repo_url, scan_type)   -> Recon + Detection + Threat Intel
   - analyze_threat(indicator, ioc_type)      -> Threat Intel IoC analysis
@@ -14,16 +14,16 @@ recruit ARGUS agents:
   - query_team_memory(attack_technique)      -> similar past incidents
   - learn_attack_pattern(mitre_id, defense)  -> teach the team a defense
 
-The tools proxy to the running ARGUS REST API (start it with `python run.py`).
+The tools proxy to the running Fusion REST API (start it with `python run.py`).
 
 Install:  pip install mcp
 Run:      python mcp_server.py            (stdio transport)
-Config:   ARGUS_API_URL (default http://localhost:8000)
+Config:   FUSION_API_URL (default http://localhost:8000)
 
 Claude Desktop config (claude_desktop_config.json):
   {
     "mcpServers": {
-      "argus": {"command": "python", "args": ["/path/to/argus/mcp_server.py"]}
+      "fusion": {"command": "python", "args": ["/path/to/fusion/mcp_server.py"]}
     }
   }
 """
@@ -39,16 +39,16 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("argus.mcp")
+logger = logging.getLogger("fusion.mcp")
 
-ARGUS_API_URL = os.getenv("ARGUS_API_URL", "http://localhost:8000")
+FUSION_API_URL = os.getenv("FUSION_API_URL", "http://localhost:8000")
 
-server = Server("argus-mcp")
+server = Server("fusion-mcp")
 
 TOOLS = [
     Tool(
         name="run_security_scan",
-        description="Recruit ARGUS Recon + Detection + Threat Intel agents to scan a GitHub repository for exposed secrets, vulnerable dependencies, and Dependabot alerts. Returns findings, a 1-10 threat level, and recommendations.",
+        description="Recruit Fusion Recon + Detection + Threat Intel agents to scan a GitHub repository for exposed secrets, vulnerable dependencies, and Dependabot alerts. Returns findings, a 1-10 threat level, and recommendations.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -60,7 +60,7 @@ TOOLS = [
     ),
     Tool(
         name="analyze_threat",
-        description="Recruit the ARGUS Threat Intel agent to analyze an indicator of compromise (IP, domain, file hash, or keyword) against live NVD CVE data and the team's shared incident memory.",
+        description="Recruit the Fusion Threat Intel agent to analyze an indicator of compromise (IP, domain, file hash, or keyword) against live NVD CVE data and the team's shared incident memory.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -72,7 +72,7 @@ TOOLS = [
     ),
     Tool(
         name="chat_with_commander",
-        description="Talk to the ARGUS Incident Commander in plain English. Reporting an attack activates the full 9-agent response team via Band coordination.",
+        description="Talk to the Fusion Incident Commander in plain English. Reporting an attack activates the full 9-agent response team via Band coordination.",
         inputSchema={
             "type": "object",
             "properties": {"message": {"type": "string"}},
@@ -111,7 +111,7 @@ TOOLS = [
     ),
     Tool(
         name="learn_attack_pattern",
-        description="Teach the ARGUS team a defense recipe for a MITRE technique so future incidents are handled faster.",
+        description="Teach the Fusion team a defense recipe for a MITRE technique so future incidents are handled faster.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -133,9 +133,9 @@ async def list_tools() -> list:
 async def _api(method: str, path: str, payload: dict = None) -> dict:
     async with httpx.AsyncClient(timeout=120.0) as client:
         if method == "GET":
-            resp = await client.get(f"{ARGUS_API_URL}{path}")
+            resp = await client.get(f"{FUSION_API_URL}{path}")
         else:
-            resp = await client.post(f"{ARGUS_API_URL}{path}", json=payload)
+            resp = await client.post(f"{FUSION_API_URL}{path}", json=payload)
         resp.raise_for_status()
         return resp.json()
 
@@ -180,8 +180,8 @@ async def call_tool(name: str, arguments: dict) -> list:
             result = {"error": f"Unknown tool: {name}"}
     except httpx.ConnectError:
         result = {
-            "error": f"ARGUS API not reachable at {ARGUS_API_URL}. "
-                     "Start it with `python run.py` or set ARGUS_API_URL."
+            "error": f"Fusion API not reachable at {FUSION_API_URL}. "
+                     "Start it with `python run.py` or set FUSION_API_URL."
         }
     except Exception as e:
         result = {"error": str(e)}
@@ -190,7 +190,7 @@ async def call_tool(name: str, arguments: dict) -> list:
 
 
 async def main():
-    logger.info("ARGUS MCP Server running on stdio...")
+    logger.info("Fusion MCP Server running on stdio...")
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 
