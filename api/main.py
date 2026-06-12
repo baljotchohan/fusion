@@ -19,6 +19,7 @@ from core.band_client import mock_bus, is_mock_mode
 from core.memory_graph import memory_graph
 from api.state import sim_state
 from api.v1 import router as v1_router
+from core.pitch_loader import _load_pitch_file
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fusion.api")
@@ -256,130 +257,169 @@ async def mock_llm_completions(request: Request):
     await asyncio.sleep(random.uniform(*delay_range) * pace)
     # ──────────────────────────────────────────────────────────────────────────
 
-    # ── Canned FUSION partner reports ──
+    # ── Dynamic evidence-backed reports ──
+    from core.pitch_loader import _load_pitch_file
+    from core.diligence_engine import (
+        run_diligence_calculations, get_citation, format_red_flags
+    )
+    
+    pitch_data = _load_pitch_file()
+    calc = run_diligence_calculations(pitch_data)
+    
+    company_name = calc["company_name"]
+    raise_amount = calc["raise_amount"]
+    valuation = calc["valuation"]
+    
+    arr = calc["arr"]
+    burn = calc["burn"]
+    runway = calc["runway"]
+    gross_margin = calc["gross_margin"]
+    customers = calc["customers"]
+    
+    litigation = calc["litigation"]
+    compliance = calc["compliance"]
+    
+    stack = calc["stack"]
+    security = calc["security"]
+    
+    tam = calc["tam"]
+    competition = calc["competition"]
+    
+    fin_flags = calc["fin_flags"]
+    leg_flags = calc["leg_flags"]
+    tech_flags = calc["tech_flags"]
+    mkt_flags = calc["mkt_flags"]
+    
+    fin_score = calc["fin_score"]
+    leg_score = calc["leg_score"]
+    tech_score = calc["tech_score"]
+    mkt_score = calc["mkt_score"]
+    
+    fin_rec = calc["fin_rec"]
+    leg_rec = calc["leg_rec"]
+    tech_rec = calc["tech_rec"]
+    mkt_rec = calc["mkt_rec"]
+    
+    # Generate dynamic partner reports
+    fin_report = (
+        f"FINANCIAL DUE DILIGENCE REPORT — {company_name}\n"
+        f"Partner: Financial Analysis\n"
+        f"Confidence: {arr.get('confidence', 80)}%\n\n"
+        f"REVENUE & RUNWAY:\n"
+        f"- ARR: {get_citation(arr, 'Financials')}\n"
+        f"- Burn Rate: {get_citation(burn, 'Financials')}\n"
+        f"- Runway: {get_citation(runway, 'Financials')}\n"
+        f"- Gross Margin: {get_citation(gross_margin, 'Financials')}\n\n"
+        f"CUSTOMER CONCENTRATION:\n"
+        f"- {get_citation(customers, 'Financials')}\n\n"
+        f"🚨 CRITICAL RED FLAGS:\n"
+        f"{format_red_flags(fin_flags)}\n\n"
+        f"FINANCIAL RISK SCORE: {fin_score:.1f}/10\n"
+        f"RECOMMENDATION: {fin_rec}"
+    )
+    
+    leg_report = (
+        f"LEGAL DUE DILIGENCE REPORT — {company_name}\n"
+        f"Partner: Legal Analysis\n"
+        f"Confidence: {litigation.get('confidence', 80)}%\n\n"
+        f"LITIGATION STATUS:\n"
+        f"- {get_citation(litigation, 'Legal')}\n\n"
+        f"REGULATORY COMPLIANCE:\n"
+        f"- Compliance: {get_citation(compliance, 'Legal')}\n\n"
+        f"🚨 CRITICAL RED FLAGS:\n"
+        f"{format_red_flags(leg_flags)}\n\n"
+        f"LEGAL RISK SCORE: {leg_score:.1f}/10\n"
+        f"RECOMMENDATION: {leg_rec}"
+    )
+    
+    tech_report = (
+        f"TECHNICAL DUE DILIGENCE REPORT — {company_name}\n"
+        f"Partner: Technical Audit\n"
+        f"Confidence: {stack.get('confidence', 80)}%\n\n"
+        f"TECHNOLOGY STACK:\n"
+        f"- Core stack: {get_citation(stack, 'Technical')}\n\n"
+        f"SECURITY POSTURE:\n"
+        f"- Security state: {get_citation(security, 'Technical')}\n\n"
+        f"🚨 CRITICAL RED FLAGS:\n"
+        f"{format_red_flags(tech_flags)}\n\n"
+        f"TECHNICAL RISK SCORE: {tech_score:.1f}/10\n"
+        f"RECOMMENDATION: {tech_rec}"
+    )
+    
+    mkt_report = (
+        f"MARKET DUE DILIGENCE REPORT — {company_name}\n"
+        f"Partner: Market Research\n"
+        f"Confidence: {tam.get('confidence', 80)}%\n\n"
+        f"MARKET OPPORTUNITY:\n"
+        f"- TAM: {get_citation(tam, 'Market')}\n\n"
+        f"COMPETITIVE LANDSCAPE:\n"
+        f"- Competition: {get_citation(competition, 'Market')}\n\n"
+        f"🚨 CRITICAL RED FLAGS:\n"
+        f"{format_red_flags(mkt_flags)}\n\n"
+        f"MARKET RISK SCORE: {mkt_score:.1f}/10\n"
+        f"RECOMMENDATION: {mkt_rec}"
+    )
+    
+    weighted_score = calc["weighted_score"]
+    verdict = calc["verdict"]
+    coverage_score = calc["coverage_score"]
+    
+    # build primary reasons list
+    reasons = []
+    if calc["override_reasons"]:
+        reasons = calc["override_reasons"]
+    else:
+        all_flags = fin_flags + leg_flags + tech_flags + mkt_flags
+        for f in all_flags[:3]:
+            if isinstance(f, dict):
+                reasons.append(f.get("claim"))
+            else:
+                reasons.append(str(f))
+        if not reasons:
+            reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", "Compliance and technical audits resolved successfully."]
+            
+    reasons_str = "\n".join(f"{i+1}. {r}" for i, r in enumerate(reasons))
+    
+    co_text = company_name[:44]
+    deal_text = f"{raise_amount} at {valuation} post"[:44]
+    decision_text = verdict[:42]
+    confidence_text = f"{coverage_score}%"[:42]
+    
+    card = (
+        "╔══════════════════════════════════════════════════════════╗\n"
+        "║         FUSION INVESTMENT COMMITTEE DECISION             ║\n"
+        "╠══════════════════════════════════════════════════════════╣\n"
+        f"║ Company:    {co_text:<44} ║\n"
+        f"║ Deal:       {deal_text:<44} ║\n"
+        "╠══════════════════════════════════════════════════════════╣\n"
+        f"║  DECISION:    {decision_text:<42} ║\n"
+        f"║  CONFIDENCE:  {confidence_text:<42} ║\n"
+        "╚══════════════════════════════════════════════════════════╝\n\n"
+        "RISK SCORECARD:\n"
+        f"  Financial Risk:  {fin_score:>2.0f}/10  (weight: 30%) → {0.3*fin_score:>4.2f}\n"
+        f"  Legal Risk:      {leg_score:>2.0f}/10  (weight: 25%) → {0.25*leg_score:>4.2f}\n"
+        f"  Technical Risk:  {tech_score:>2.0f}/10  (weight: 25%) → {0.25*tech_score:>4.2f}\n"
+        f"  Market Risk:     {mkt_score:>2.0f}/10  (weight: 20%) → {0.2*mkt_score:>4.2f}\n"
+        "  ─────────────────────────────────────────────\n"
+        f"  WEIGHTED SCORE:  {weighted_score:>4.1f}/10\n\n"
+        "PRIMARY REASONS:\n"
+        f"{reasons_str}"
+    )
+    
     final_reports = {
-        "financial_partner": (
-            "FINANCIAL DUE DILIGENCE REPORT — NovaPay Inc\n"
-            "Partner: Financial Analysis\n"
-            "Confidence: HIGH\n\n"
-            "REVENUE QUALITY:\n"
-            "- 78% of ARR ($3.9M of $5M ARR) is concentrated in a single customer (Amazon).\n"
-            "- Amazon contract expires in 3 months (post-close cliff-edge).\n"
-            "- Gross margins are 48% (below SaaS benchmark of 70%+).\n\n"
-            "BURN & RUNWAY:\n"
-            "- Cash on hand is $3.0M with a monthly burn rate of $380k.\n"
-            "- Implies only 8 months of runway remaining.\n\n"
-            "UNIT ECONOMICS:\n"
-            "- LTV:CAC ratio is 2.5x, which is below the 3.0x Series A threshold.\n"
-            "- Customer payback period is 16 months.\n\n"
-            "VALUATION:\n"
-            "- 8.0x ARR valuation multiple on a declining fintech sector.\n\n"
-            "🚨 CRITICAL RED FLAGS:\n"
-            "1. Amazon revenue concentration (78% ARR) is a critical point of failure.\n"
-            "2. Amazon contract expires 3 months post-close with high renewal risk.\n"
-            "3. Remaining runway of 8 months is extremely tight.\n\n"
-            "FINANCIAL RISK SCORE: 9/10\n"
-            "RECOMMENDATION: PASS"
-        ),
-        "legal_partner": (
-            "LEGAL DUE DILIGENCE REPORT — NovaPay Inc\n"
-            "Partner: Legal Analysis\n"
-            "Confidence: HIGH\n\n"
-            "LITIGATION:\n"
-            "- Active patent infringement lawsuit by Klarna claiming $8.0M in damages (80% of the proposed $10M raise).\n\n"
-            "COMPLIANCE & LICENSING:\n"
-            "- Non-compliant with new CFPB rules effective January 2026.\n"
-            "- Operating without money transmitter licenses in 4 states (CA, NY, TX, FL).\n\n"
-            "IP & DATA PRIVACY:\n"
-            "- Lacks SOC2 certification, blocking enterprise growth.\n"
-            "- CCPA compliance is unverified.\n\n"
-            "FOUNDER HISTORY:\n"
-            "- CEO's prior startup was under SEC investigation (now closed, but remains a diligence flag).\n\n"
-            "🚨 CRITICAL RED FLAGS:\n"
-            "1. Klarna patent lawsuit ($8.0M damages) is an immediate dealbreaker.\n"
-            "2. Lacking money transmitter licenses in 4 key states of operation.\n"
-            "3. Non-compliant with CFPB rules since January 2026.\n\n"
-            "LEGAL RISK SCORE: 10/10\n"
-            "RECOMMENDATION: PASS"
-        ),
-        "technical_partner": (
-            "TECHNICAL DUE DILIGENCE REPORT — NovaPay Inc\n"
-            "Partner: Technical Audit\n"
-            "Confidence: HIGH\n\n"
-            "TECH STACK:\n"
-            "- Node.js 14 (End-of-Life since Oct 2023) and MongoDB 4.2 in production, exposing critical vulnerabilities.\n\n"
-            "SECURITY POSTURE:\n"
-            "- Plaintext storage of SSNs and PII in database.\n"
-            "- Never conducted a penetration test or external vulnerability audit.\n"
-            "- Undisclosed 2024 data breach (3,200 user records) was not reported to authorities.\n\n"
-            "SCALABILITY & DEBT:\n"
-            "- Monolithic code architecture unable to horizontally scale past 10,000 active users.\n"
-            "- No multi-factor authentication (MFA) enabled on admin panels.\n\n"
-            "🚨 CRITICAL RED FLAGS:\n"
-            "1. Storing SSNs and PII in plaintext MongoDB is a massive liability.\n"
-            "2. Running EOL Node.js 14 and MongoDB 4.2 in a live payment processor.\n"
-            "3. Undisclosed 2024 data breach (3,200 records).\n\n"
-            "TECHNICAL RISK SCORE: 10/10\n"
-            "RECOMMENDATION: PASS"
-        ),
-        "market_partner": (
-            "MARKET DUE DILIGENCE REPORT — NovaPay Inc\n"
-            "Partner: Market Research\n"
-            "Confidence: HIGH\n\n"
-            "TAM & GROWTH:\n"
-            "- TAM claim is top-down and unvalidated.\n"
-            "- US Buy Now Pay Later (BNPL) sector is shrinking at 12% YoY, contradicting the founder's 200% growth claims.\n\n"
-            "COMPETITIVE LANDSCAPE:\n"
-            "- Severe competitive pressure from Affirm ($8B), Klarna ($6.7B), and Block.\n"
-            "- Defensibility score is 8/25 (no real proprietary moat or switching costs).\n\n"
-            "SECTOR TIMING & REGULATION:\n"
-            "- Sector venture funding is down 67% YoY.\n"
-            "- CFPB credit reporting mandate effective Q3 2026 will restrict BNPL usage by 15-25%.\n\n"
-            "🚨 CRITICAL RED FLAGS:\n"
-            "1. Shrinking US BNPL sector (12% decline YoY) contradicts growth claims.\n"
-            "2. High competition with well-capitalized incumbents (Klarna, Affirm).\n"
-            "3. Negative sector timing with VC funding down 67% YoY.\n\n"
-            "MARKET RISK SCORE: 8/10\n"
-            "RECOMMENDATION: PASS"
-        ),
-        "managing_partner": (
-            "╔══════════════════════════════════════════════════════════╗\n"
-            "║         FUSION INVESTMENT COMMITTEE DECISION             ║\n"
-            "╠══════════════════════════════════════════════════════════╣\n"
-            "║ Company:    NovaPay Inc                                  ║\n"
-            "║ Deal:       $10,000,000 Series A at $40,000,000 post     ║\n"
-            "╠══════════════════════════════════════════════════════════╣\n"
-            "║  DECISION:    PASS                                       ║\n"
-            "║  CONFIDENCE:  91%                                        ║\n"
-            "╚══════════════════════════════════════════════════════════╝\n\n"
-            "RISK SCORECARD:\n"
-            "  Financial Risk:  9/10  (weight: 30%) → 2.70\n"
-            "  Legal Risk:     10/10  (weight: 25%) → 2.50\n"
-            "  Technical Risk: 10/10  (weight: 25%) → 2.50\n"
-            "  Market Risk:     8/10  (weight: 20%) → 1.60\n"
-            "  ─────────────────────────────────────────────\n"
-            "  WEIGHTED SCORE:  9.3/10\n\n"
-            "PRIMARY REASONS:\n"
-            "1. Klarna patent lawsuit ($8M potential damages = 80% of raise) is an existential risk that must be resolved before any capital is deployed.\n"
-            "2. Amazon client concentration (78% ARR) with contract expiry 3 months post-close creates a cliff-edge revenue scenario.\n"
-            "3. Security posture (no PCI-DSS, plaintext PII, no pentest, undisclosed breach) is pre-catastrophe for a licensed payments processor."
-        ),
+        "financial_partner": fin_report,
+        "legal_partner": leg_report,
+        "technical_partner": tech_report,
+        "market_partner": mkt_report,
+        "managing_partner": card
     }
-
-    # Handoff mappings for mock bus
+    
     next_room_map = {
-        "financial_partner": ("managing-partner-room", "@managing-partner FINANCIAL ANALYSIS COMPLETE. Risk Score: 9/10. PASS. Amazon client concentration (78% ARR) with contract expiry in 3 months."),
-        "legal_partner": ("managing-partner-room", "@managing-partner LEGAL ANALYSIS COMPLETE. Risk Score: 10/10. PASS. Klarna patent lawsuit ($8M damages) and missing money transmitter licenses in 4 states."),
-        "technical_partner": ("managing-partner-room", "@managing-partner TECHNICAL ANALYSIS COMPLETE. Risk Score: 10/10. PASS. SSNs stored in plaintext, EOL software in production, and undisclosed 2024 data breach."),
-        "market_partner": ("managing-partner-room", "@managing-partner MARKET ANALYSIS COMPLETE. Risk Score: 8/10. PASS. Sector shrinking 12% YoY, and upcoming CFPB mandate will restrict BNPL usage."),
+        "financial_partner": ("managing-partner-room", f"@managing-partner FINANCIAL ANALYSIS COMPLETE. Risk Score: {fin_score:.1f}/10. {fin_rec}."),
+        "legal_partner": ("managing-partner-room", f"@managing-partner LEGAL ANALYSIS COMPLETE. Risk Score: {leg_score:.1f}/10. {leg_rec}."),
+        "technical_partner": ("managing-partner-room", f"@managing-partner TECHNICAL ANALYSIS COMPLETE. Risk Score: {tech_score:.1f}/10. {tech_rec}."),
+        "market_partner": ("managing-partner-room", f"@managing-partner MARKET ANALYSIS COMPLETE. Risk Score: {mkt_score:.1f}/10. {mkt_rec}."),
     }
-
-    # When the user uploaded a different company, let the canned demo narrative
-    # follow that company's name instead of the stock NovaPay storyline.
-    active_co = sim_state.active_company_name
-    if active_co and active_co != "NovaPay Inc":
-        final_reports = {k: v.replace("NovaPay Inc", active_co) for k, v in final_reports.items()}
-        next_room_map = {k: (room, m.replace("NovaPay Inc", active_co)) for k, (room, m) in next_room_map.items()}
 
     expects_real_schema = False
     for t in tools:
