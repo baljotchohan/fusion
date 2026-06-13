@@ -333,7 +333,10 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                 incident_id = sim_state.active_incident_id or memory_graph.get_latest_incident_id() or ""
                 reply = await _agent_reply(self._argus_agent_name, msg.content or "", incident_id)
                 reply = _to_plain_text(reply)
-                await tools.send_message(content=reply)
+                # Band requires ≥1 mention on every message — mention the asker
+                # back. _resolve_mentions accepts an ID, so sender_id works directly.
+                mentions = [msg.sender_id] if msg.sender_id else None
+                await tools.send_message(content=reply, mentions=mentions)
                 self._processed_msg_ids.add(msg.id)
                 await event_bus.broadcast(self._argus_agent_name, "done", {"report": reply[:500]})
             except Exception as e:
