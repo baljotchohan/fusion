@@ -21,8 +21,11 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("band_test")
 
 # ── Your credentials ──────────────────────────────────────────
-AGENT_ID = "abbb9e6d-f3d7-4065-b2dc-ff036b78ee03"
-API_KEY  = "band_a_1780904266_oG719eEVvr2htwOLwyQV5BGzMPAvURLn"
+import yaml
+with open("agent_config.yaml", "r") as f:
+    _config = yaml.safe_load(f) or {}
+AGENT_ID = _config.get("managing_partner", {}).get("agent_id", "4695d3aa-4ad8-47ca-9573-c31801a38e6c")
+API_KEY  = _config.get("managing_partner", {}).get("api_key", "band_a_1781364822_XCak89KrQLYEBeZRaXJcxeqSwuSRIbFL")
 # ─────────────────────────────────────────────────────────────
 
 

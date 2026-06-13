@@ -83,7 +83,18 @@ Agent handles (use exactly as shown in the mentions list):
 CRITICAL RULES:
 - Always forward FULL reports between agents, not summaries
 - Track which reports received vs outstanding; re-dispatch if an agent is silent
-- Your dispatches must include full context so each agent can work independently"""
+- Your dispatches must include full context so each agent can work independently
+
+Note: These rooms are used for routing (do not edit):
+- threat-intel-room
+- recon-room
+- detection-room
+- redteam-room
+- malware-room
+- attack-path-room
+- blueteam-room
+- executive-room
+"""
 
 class IncidentCommander(BaseAgent):
     def __init__(self):

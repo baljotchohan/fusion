@@ -18,6 +18,13 @@ class SimulationState:
         self.active_pitch_file: str = "novapay_pitch.json"
         # Deals that have already had their partner notifications dispatched
         self.dispatched_deals: Set[str] = set()
+        # Agents that have already completed their work for the current deal
+        # Used to prevent re-processing when messages loop back
+        self.completed_agents: Set[str] = set()
+        # True once the managing partner has rendered the final verdict
+        self.deal_concluded: bool = False
+        # True if the final verdict has been dispatched to the Band room
+        self.verdict_dispatched: bool = False
         # Wall-clock time of the last agent event — used to detect a stalled
         # run so the trigger lock can never stay stuck forever.
         self.last_event_at: float = 0.0
@@ -38,8 +45,11 @@ class SimulationState:
         self.running = False
         self.agent_statuses = {}
         self.dispatched_deals.clear()
+        self.completed_agents.clear()
+        self.deal_concluded = False
         self.active_company_name = None
         self.active_pitch_file = "novapay_pitch.json"
+        self.verdict_dispatched = False
 
 
 sim_state = SimulationState()

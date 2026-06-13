@@ -68,32 +68,6 @@ async def learn_risk_pattern(keyword: str, checklist: str, success_rate: float =
 _mcp_http_app = fusion_mcp.streamable_http_app()
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    # The MCP session manager must run for the mounted /mcp app to serve requests.
-    async with fusion_mcp.session_manager.run():
-        logger.info("🔌 FUSION MCP streamable-HTTP transport live at /mcp")
-        yield
-
-
-app = FastAPI(title="FUSION API", version="1.0.0", lifespan=lifespan)
-app.include_router(v1_router)
-app.mount("/mcp", _mcp_http_app)
-
-# Enable CORS for the Next.js War Room dashboard
-ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "http://localhost:3000"
-).split(",")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Active WebSocket dashboard connections
 active_websockets: List[WebSocket] = []
 
@@ -118,6 +92,7 @@ async def broadcast_event_to_websockets(event_data: dict):
         import re
         if re.search(r"DECISION:", report_text, re.I):
             sim_state.running = False
+            sim_state.deal_concluded = True
             # Clear all agent busy flags so the next run starts clean
             _clear_agent_busy_flags()
             logger.info("FastAPI: Simulation complete (verdict rendered) — state auto-reset.")
@@ -145,16 +120,40 @@ async def broadcast_event_to_websockets(event_data: dict):
             logger.error(f"Failed to send to WebSocket: {e}")
             active_websockets.remove(ws)
 
-# Register the event bus listener on application startup
-@app.on_event("startup")
-async def startup_event():
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Register the event bus listener on application startup
     event_bus.register_listener(broadcast_event_to_websockets)
     logger.info("FastAPI: Event bus WebSocket listener registered.")
-
-@app.on_event("shutdown")
-async def shutdown_event():
+    
+    # The MCP session manager must run for the mounted /mcp app to serve requests.
+    async with fusion_mcp.session_manager.run():
+        logger.info("🔌 FUSION MCP streamable-HTTP transport live at /mcp")
+        yield
+        
+    # Unregister the listener on application shutdown
     event_bus.unregister_listener(broadcast_event_to_websockets)
     logger.info("FastAPI: Event bus WebSocket listener unregistered.")
+
+
+app = FastAPI(title="FUSION API", version="1.0.0", lifespan=lifespan)
+app.include_router(v1_router)
+app.mount("/mcp", _mcp_http_app)
+
+# Enable CORS for the Next.js War Room dashboard
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000"
+).split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ─── REST ENDPOINTS ───────────────────────────────────────────
 
@@ -183,23 +182,21 @@ async def trigger_deal(company: str = "NovaPay Inc", raise_amount: str = "$10M")
     if sim_state.running:
         return {"status": "already_running", "message": "Committee already in session.", "mode": "mock" if is_mock_mode() else "real"}
 
+    # Reset simulation state and agent flags for a fresh run
+    sim_state.reset()
+    _clear_agent_busy_flags()
+
     sim_state.running = True
     sim_state.touch()
 
-    if sim_state.active_incident_id:
-        deal_id = sim_state.active_incident_id
-        inc = memory_graph.get_incident(deal_id)
-        if inc:
-            raw_co = inc["metadata"].get("company")
-            if isinstance(raw_co, dict):
-                company = raw_co.get("value") or raw_co.get("name") or company
-            elif raw_co:
-                company = raw_co
-    else:
-        from datetime import datetime, timezone
-        deal_id = f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-        memory_graph.create_incident(deal_id, {"trigger": "pitch_submission", "company": company})
-        sim_state.active_incident_id = deal_id
+    # Always create a fresh deal to avoid stale timeline entries
+    # from previous runs causing false "all partners done" detection.
+    from datetime import datetime, timezone
+    deal_id = f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    memory_graph.create_incident(deal_id, {"trigger": "pitch_submission", "company": company})
+    sim_state.active_incident_id = deal_id
+    sim_state.dispatched_deals.clear()   # fresh run — nothing dispatched yet
+    sim_state.active_company_name = company
 
     brief = f"New deal submitted for committee review: {company} — Series A, {raise_amount} raise. Full pitch data is loaded in the deal brief. Please convene the investment committee and begin due diligence."
 
@@ -211,7 +208,12 @@ async def trigger_deal(company: str = "NovaPay Inc", raise_amount: str = "$10M")
         )
         return {"status": "success", "message": f"Deal '{company}' submitted to committee (Mock Mode).", "deal_id": deal_id, "mode": "mock"}
     else:
-        return {"status": "success", "message": f"Deal '{company}' submitted to real Band rooms.", "deal_id": deal_id, "mode": "real"}
+        from api.v1 import dispatch_real_band_message
+        ok = await dispatch_real_band_message(brief, "managing-partner", sender_agent_name="financial_partner")
+        if ok:
+            return {"status": "success", "message": f"Deal '{company}' submitted to real Band rooms.", "deal_id": deal_id, "mode": "real"}
+        else:
+            return {"status": "error", "message": "Failed to dispatch trigger message to real Band room.", "deal_id": deal_id, "mode": "real"}
 
 
 @app.get("/api/status")
@@ -240,6 +242,28 @@ async def reset_simulation():
 
 # ─── MOCK LLM ENDPOINT ───────────────────────────────────────
 
+def _build_response(body: dict, content: str, tool_calls: list):
+    """Build a mock OpenAI chat completion response (streaming or non-streaming)."""
+    if body.get("stream"):
+        import time as _time
+        from fastapi.responses import StreamingResponse
+
+        async def _gen():
+            chunk = {
+                "id": "chatcmpl-noop",
+                "object": "chat.completion.chunk",
+                "created": int(_time.time()),
+                "model": "mock-model",
+                "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(chunk)}\n\n"
+            chunk["choices"] = [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+            yield f"data: {json.dumps(chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(_gen(), media_type="text/event-stream")
+    return JSONResponse({"choices": [{"message": {"role": "assistant", "content": content, "tool_calls": None}, "finish_reason": "stop"}]})
+
 @app.post("/mock-llm/chat/completions")
 async def mock_llm_completions(request: Request):
     """Offline mock OpenAI LLM server that simulates FUSION agent reasoning and boardroom handoffs."""
@@ -253,21 +277,27 @@ async def mock_llm_completions(request: Request):
     user_msg = user_msgs[-1] if user_msgs else ""
 
     # Infer calling agent
-    import re
-    _marker = re.search(r"\[ARGUS_AGENT:\s*([a-z_]+)\]", system_msg)
-    agent_name = _marker.group(1) if _marker else ""
-    if agent_name:
-        pass
-    elif "Managing Partner" in system_msg or "managing_partner" in system_msg:
-        agent_name = "managing_partner"
-    elif "Financial Partner" in system_msg or "financial_partner" in system_msg:
-        agent_name = "financial_partner"
-    elif "Legal Partner" in system_msg or "legal_partner" in system_msg:
-        agent_name = "legal_partner"
-    elif "Technical Partner" in system_msg or "technical_partner" in system_msg:
-        agent_name = "technical_partner"
-    elif "Market Partner" in system_msg or "market_partner" in system_msg:
-        agent_name = "market_partner"
+    model = body.get("model", "")
+    agent_name = ""
+    if model.startswith("mock-") and model != "mock-model":
+        agent_name = model[5:]
+
+    if not agent_name:
+        import re
+        _marker = re.search(r"\[ARGUS_AGENT:\s*([a-z_]+)\]", system_msg)
+        agent_name = _marker.group(1) if _marker else ""
+        if agent_name:
+            pass
+        elif "Managing Partner" in system_msg or "managing_partner" in system_msg:
+            agent_name = "managing_partner"
+        elif "Financial Partner" in system_msg or "financial_partner" in system_msg:
+            agent_name = "financial_partner"
+        elif "Legal Partner" in system_msg or "legal_partner" in system_msg:
+            agent_name = "legal_partner"
+        elif "Technical Partner" in system_msg or "technical_partner" in system_msg:
+            agent_name = "technical_partner"
+        elif "Market Partner" in system_msg or "market_partner" in system_msg:
+            agent_name = "market_partner"
 
     if not agent_name:
         # Fallback keyword checks
@@ -286,6 +316,24 @@ async def mock_llm_completions(request: Request):
     response_content = ""
     tool_calls = []
     available_tool_names = [t.get("function", {}).get("name", "") for t in tools] if tools else []
+    logger.info(f"[{agent_name}] Mock LLM received tools: {available_tool_names}")
+
+    # ── LOOP PREVENTION ──────────────────────────────────────────
+    # If this agent already completed its work for the current deal,
+    # or the deal has been fully concluded, return a short no-op
+    # response so the LangGraph turn ends without new tool calls.
+    if sim_state.deal_concluded:
+        logger.info(f"[{agent_name}] Deal already concluded — returning no-op")
+        return _build_response(body, f"{agent_name}: Deal already concluded. Standing by.", [])
+    if agent_name in sim_state.completed_agents and agent_name != "managing_partner":
+        logger.info(f"[{agent_name}] Already completed for this deal — returning no-op")
+        return _build_response(body, f"{agent_name}: Analysis already submitted. Standing by.", [])
+    # Managing partner can be called multiple times (once per incoming
+    # specialist report) but should stop once it has rendered its verdict.
+    if agent_name == "managing_partner" and "managing_partner" in sim_state.completed_agents:
+        logger.info(f"[managing_partner] Verdict already rendered — returning no-op")
+        return _build_response(body, "Managing Partner: Final verdict already rendered. Standing by.", [])
+    # ─────────────────────────────────────────────────────────────
 
     last_msg = messages[-1] if messages else {}
     last_role = last_msg.get("role", "")
@@ -563,26 +611,34 @@ async def mock_llm_completions(request: Request):
     def _resolve_mention_handle(msg_text: str) -> str:
         msg_text = msg_text.lower()
         if "@financial-partner" in msg_text:
-            return "@baljotchohan23/financial-partner"
+            return "baljotchohan23/financial-partner"
         if "@legal-partner" in msg_text:
-            return "@baljotchohan23/legal-partner"
+            return "baljotchohan23/legal-partner"
         if "@technical-partner" in msg_text:
-            return "@baljotchohan23/technical-partner"
+            return "baljotchohan23/technical-partner"
         if "@market-partner" in msg_text:
-            return "@baljotchohan23/market-partner"
+            return "baljotchohan23/market-partner"
         if "@managing-partner" in msg_text:
-            return "@baljotchohan23/managing-partner"
-        return "@baljotchohan23/managing-partner"
+            return "baljotchohan23/managing-partner"
+        return "baljotchohan23/managing-partner"
 
     def _send(call_id, room, message):
         if expects_real_schema:
             handle = _resolve_mention_handle(message)
+            # Strip the leading mention handle from the content to prevent double pills in the UI,
+            # as the platform automatically prepends the pill from the mentions parameter.
+            short_handle = message.split()[0] if message.startswith("@") else ""
+            if short_handle and short_handle.startswith("@"):
+                cleaned_message = message[len(short_handle):].lstrip()
+            else:
+                cleaned_message = message
+            logger.info(f"Mock LLM [_send]: {agent_name} sending content='{cleaned_message}', mentions={repr([handle])}")
             tool_calls.append({
                 "id": call_id,
                 "type": "function",
                 "function": {
                     "name": "thenvoi_send_message",
-                    "arguments": json.dumps({"content": message, "mentions": [handle]}),
+                    "arguments": json.dumps({"content": cleaned_message, "mentions": [handle]}),
                 },
             })
         else:
@@ -606,62 +662,141 @@ async def mock_llm_completions(request: Request):
     last_msg = messages[-1] if messages else {}
     last_role = last_msg.get("role", "")
     last_content = str(last_msg.get("content", "") or "")
-    handoff_done = last_role in ("tool", "function") and "Message sent successfully" in last_content
+    
+    handoff_done = False
+    if last_role in ("tool", "function"):
+        # 1. Check if the tool call that produced this result was thenvoi_send_message
+        tool_call_id = last_msg.get("tool_call_id")
+        if len(messages) >= 2:
+            prev_msg = messages[-2]
+            if prev_msg.get("role") == "assistant":
+                for tc in prev_msg.get("tool_calls", []):
+                    if tc.get("id") == tool_call_id and tc.get("function", {}).get("name") == "thenvoi_send_message":
+                        handoff_done = True
+                        break
+        # 2. Check the content or name/function_name for backward compatibility
+        if not handoff_done:
+            handoff_done = (
+                "Message sent successfully" in last_content
+                or last_msg.get("name") == "thenvoi_send_message"
+                or last_msg.get("function_name") == "thenvoi_send_message"
+            )
+            
     data_tool_result = last_role in ("tool", "function") and not handoff_done
 
-    if handoff_done:
-        response_content = final_reports.get(agent_name, "Processing complete.")
-    elif data_tool_result:
-        response_content = final_reports.get(agent_name, "Processing complete.")
-        next_step = next_room_map.get(agent_name)
-        if next_step and "thenvoi_send_message" in available_tool_names:
-            room, message = next_step
-            _send("call_next_handoff", room, message)
-    else:
-        # Stage 1: fresh user stimulus
-        if agent_name == "financial_partner":
-            if "load_deal_brief" in available_tool_names:
-                _call("call_fin_1", "load_deal_brief", "{\"section\": \"financials\"}")
-        elif agent_name == "legal_partner":
-            if "load_deal_brief" in available_tool_names:
-                _call("call_leg_1", "load_deal_brief", "{\"section\": \"legal\"}")
-        elif agent_name == "technical_partner":
-            if "load_deal_brief" in available_tool_names:
-                _call("call_tech_1", "load_deal_brief", "{\"section\": \"technical\"}")
-        elif agent_name == "market_partner":
-            if "load_deal_brief" in available_tool_names:
-                _call("call_mkt_1", "load_deal_brief", "{\"section\": \"market\"}")
-        elif agent_name == "managing_partner":
-            if "thenvoi_send_message" in available_tool_names:
-                # Scrape messages to see if we've received reports from partners
-                recv_blob = " ".join(
-                    str(m.get("content", "") or "")
-                    for m in messages if m.get("role") == "user"
-                )
-                have_fin = "FINANCIAL ANALYSIS COMPLETE" in recv_blob
-                have_leg = "LEGAL ANALYSIS COMPLETE" in recv_blob
-                have_tech = "TECHNICAL ANALYSIS COMPLETE" in recv_blob
-                have_mkt = "MARKET ANALYSIS COMPLETE" in recv_blob
+    if agent_name == "managing_partner":
+        if "thenvoi_send_message" in available_tool_names:
+            # Query memory graph to see which partners have logged their reports
+            deal_id = sim_state.active_incident_id
+            if not deal_id:
+                deal_id = memory_graph.get_latest_incident_id()
+            if not deal_id:
+                # Create a default deal if none exists
+                import uuid
+                deal_id = f"deal_{uuid.uuid4().hex[:8]}"
+                sim_state.active_incident_id = deal_id
+                memory_graph.create_incident(deal_id, {"trigger": "auto_trigger", "company": "NovaPay Inc"})
+            
+            sim_state.active_incident_id = deal_id
+            
+            # Check logged findings in the memory graph — ONLY
+            # use the current deal's timeline. Do NOT scan room chat
+            # history, which contains stale "COMPLETE" strings from
+            # previous runs and causes false all-done detection.
+            logged_agents = set()
+            inc = memory_graph.get_incident(deal_id) or {}
+            for event in inc.get("timeline", []):
+                logged_agents.add(event.get("agent"))
+            
+            # Also include agents tracked by sim_state (set by mock LLM
+            # when their handoff completes — this is the most reliable
+            # source since it updates synchronously in the same process).
+            logged_agents.update(sim_state.completed_agents)
+            
+            # Also check the LATEST user message only (not full history)
+            # to detect a partner that just finished in this turn.
+            latest_user = user_msg  # already extracted above
+            if "FINANCIAL ANALYSIS COMPLETE" in latest_user:
+                logged_agents.add("financial_partner")
+            if "LEGAL ANALYSIS COMPLETE" in latest_user:
+                logged_agents.add("legal_partner")
+            if "TECHNICAL ANALYSIS COMPLETE" in latest_user:
+                logged_agents.add("technical_partner")
+            if "MARKET ANALYSIS COMPLETE" in latest_user:
+                logged_agents.add("market_partner")
+            
+            have_fin = "financial_partner" in logged_agents
+            have_leg = "legal_partner" in logged_agents
+            have_tech = "technical_partner" in logged_agents
+            have_mkt = "market_partner" in logged_agents
 
-                if have_fin and have_leg and have_tech and have_mkt:
-                    # All reports are in, deliver final synthesized decision
-                    response_content = final_reports["managing_partner"]
+            logger.info(f"[managing_partner] have_fin={have_fin}, have_leg={have_leg}, have_tech={have_tech}, have_mkt={have_mkt}")
+            if have_fin and have_leg and have_tech and have_mkt:
+                # All reports are in, deliver final synthesized decision
+                response_content = final_reports["managing_partner"]
+                
+                # Check if verdict was already dispatched as a message
+                sent_verdict = sim_state.verdict_dispatched
+                if not sent_verdict:
+                    # Prepend a mention to financial-partner to satisfy the API requirement
+                    verdict_msg = f"@financial-partner {response_content}"
+                    _send("call_mp_verdict", "finance-partner-room", verdict_msg)
+                    sim_state.verdict_dispatched = True
+                    logger.info("[managing_partner] Dispatched final verdict scorecard to room")
+                    response_content = "Dispatched final verdict scorecard."
                 else:
-                    # Fresh trigger or partial reports: dispatch brief to partners
-                    deal_id = sim_state.active_incident_id
-                    sent_brief = deal_id in sim_state.dispatched_deals if deal_id else False
-
-                    if not sent_brief:
-                        # Dispatch parallel requests to all 4 partners
-                        brief_co = sim_state.active_company_name or "NovaPay Inc"
-                        _send("call_mp_fin", "finance-partner-room", f"@financial-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your financial due diligence now and report back to managing-partner-room.")
-                        _send("call_mp_leg", "legal-partner-room", f"@legal-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your legal due diligence now and report back to managing-partner-room.")
-                        _send("call_mp_tech", "tech-partner-room", f"@technical-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your technical due diligence now and report back to managing-partner-room.")
-                        _send("call_mp_mkt", "market-partner-room", f"@market-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your market due diligence now and report back to managing-partner-room.")
-                        if deal_id:
-                            sim_state.dispatched_deals.add(deal_id)
-                    else:
-                        response_content = "Managing Partner: awaiting specialist findings..."
+                    sim_state.completed_agents.add("managing_partner")
+                    sim_state.deal_concluded = True
+                    sim_state.running = False
+                    logger.info("[managing_partner] ✅ VERDICT RENDERED — deal concluded")
+            else:
+                # Fresh trigger or partial reports
+                sent_brief = deal_id in sim_state.dispatched_deals
+                logger.info(f"[managing_partner] deal_id={deal_id}, sent_brief={sent_brief}, dispatched={sim_state.dispatched_deals}")
+                if not sent_brief:
+                    # Dispatch parallel requests to all 4 partners
+                    brief_co = sim_state.active_company_name or inc.get("metadata", {}).get("company") or "NovaPay Inc"
+                    _send("call_mp_fin", "finance-partner-room", f"@financial-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your financial due diligence now and report back to managing-partner-room.")
+                    _send("call_mp_leg", "legal-partner-room", f"@legal-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your legal due diligence now and report back to managing-partner-room.")
+                    _send("call_mp_tech", "tech-partner-room", f"@technical-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your technical due diligence now and report back to managing-partner-room.")
+                    _send("call_mp_mkt", "market-partner-room", f"@market-partner New deal in committee: {brief_co} — Series A raise. Full pitch loaded in deal brief. Run your market due diligence now and report back to managing-partner-room.")
+                    sim_state.dispatched_deals.add(deal_id)
+                    logger.info(f"[managing_partner] Dispatched briefs. tool_calls={len(tool_calls)}")
+                    response_content = "Dispatched briefs to partners."
+                else:
+                    waiting_for = []
+                    if not have_fin: waiting_for.append("Financial")
+                    if not have_leg: waiting_for.append("Legal")
+                    if not have_tech: waiting_for.append("Technical")
+                    if not have_mkt: waiting_for.append("Market")
+                    response_content = f"Managing Partner: awaiting findings from {', '.join(waiting_for)} Partner..."
+    else:
+        # Specialists
+        if handoff_done:
+            response_content = final_reports.get(agent_name, "Processing complete.")
+            # Mark this specialist as completed so it won't re-process
+            sim_state.completed_agents.add(agent_name)
+            logger.info(f"[{agent_name}] ✅ Marked as completed (handoff done)")
+        elif data_tool_result:
+            response_content = final_reports.get(agent_name, "Processing complete.")
+            next_step = next_room_map.get(agent_name)
+            if next_step and "thenvoi_send_message" in available_tool_names:
+                room, message = next_step
+                _send("call_next_handoff", room, message)
+        else:
+            # Stage 1: fresh user stimulus
+            if agent_name == "financial_partner":
+                if "load_deal_brief" in available_tool_names:
+                    _call("call_fin_1", "load_deal_brief", "{\"section\": \"financials\"}")
+            elif agent_name == "legal_partner":
+                if "load_deal_brief" in available_tool_names:
+                    _call("call_leg_1", "load_deal_brief", "{\"section\": \"legal\"}")
+            elif agent_name == "technical_partner":
+                if "load_deal_brief" in available_tool_names:
+                    _call("call_tech_1", "load_deal_brief", "{\"section\": \"technical\"}")
+            elif agent_name == "market_partner":
+                if "load_deal_brief" in available_tool_names:
+                    _call("call_mkt_1", "load_deal_brief", "{\"section\": \"market\"}")
 
     if body.get("stream"):
         import time
@@ -767,6 +902,36 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_websockets.append(websocket)
     logger.info(f"FastAPI: WebSocket connected. Active connections: {len(active_websockets)}")
+
+    # Send initial status/replay of all completed agent findings upon connection
+    try:
+        deal_id = sim_state.active_incident_id or memory_graph.get_latest_incident_id()
+        if deal_id:
+            inc = memory_graph.get_incident(deal_id) or {}
+            for event in inc.get("timeline", []):
+                agent_name = event.get("agent")
+                finding = event.get("finding")
+                await websocket.send_json({
+                    "type": "agent_update",
+                    "agent": agent_name,
+                    "status": "done",
+                    "output": {"report": finding},
+                    "timestamp": event.get("timestamp", "")
+                })
+            
+            agent_names = ["managing_partner", "financial_partner", "legal_partner", "technical_partner", "market_partner"]
+            for agent_name in agent_names:
+                status = sim_state.agent_statuses.get(agent_name, "idle")
+                if status == "working":
+                    await websocket.send_json({
+                        "type": "agent_update",
+                        "agent": agent_name,
+                        "status": "working",
+                        "output": {},
+                        "timestamp": ""
+                    })
+    except Exception as e:
+        logger.error(f"FastAPI: Error sending initial state to WebSocket: {e}")
 
     try:
         while True:

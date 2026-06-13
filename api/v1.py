@@ -153,7 +153,7 @@ def _suggestions_for(intent: str) -> List[str]:
     return base.get(intent, base["general"])
 
 
-async def dispatch_real_band_message(content: str, target_agent_handle_sub: str) -> bool:
+async def dispatch_real_band_message(content: str, target_agent_handle_sub: str, sender_agent_name: str = "managing_partner") -> bool:
     """Send a message to the real Band platform chat room, resolving and mentioning the target agent."""
     import yaml
     from thenvoi_rest import AsyncRestClient
@@ -166,20 +166,30 @@ async def dispatch_real_band_message(content: str, target_agent_handle_sub: str)
             config_path = "agent_config.example.yaml"
         with open(config_path, "r") as f:
             config = yaml.safe_load(f) or {}
-        agent_conf = config.get("agents", {}).get("managing_partner") or config.get("managing_partner", {})
+        agent_conf = config.get("agents", {}).get(sender_agent_name) or config.get(sender_agent_name, {})
         api_key = agent_conf.get("api_key")
         if not api_key:
-            logger.error("Real Band dispatch: Managing Partner API key not found in config")
+            logger.error(f"Real Band dispatch: {sender_agent_name} API key not found in config")
             return False
-
+        
+        logger.info(f"Real Band dispatch: sender={sender_agent_name}, api_key_prefix={api_key[:15]}...")
         client = AsyncRestClient(api_key=api_key, base_url="https://app.thenvoi.com")
         chats_resp = await client.agent_api_chats.list_agent_chats()
         chats = chats_resp.data or []
         if not chats:
-            logger.error("Real Band dispatch: No active chats found for Managing Partner")
+            logger.error(f"Real Band dispatch: No active chats found for {sender_agent_name}")
             return False
 
-        chat_id = chats[0].id
+        # Prefer the new, clean chat room to avoid message limit issues (403 limit_reached)
+        preferred_chat_id = "4d9d4d00-47ec-4387-81a3-179a6c8a74a6"
+        chat_id = None
+        for c in chats:
+            if c.id == preferred_chat_id:
+                chat_id = c.id
+                break
+        if not chat_id:
+            chat_id = chats[0].id
+        logger.info(f"Real Band dispatch: Available chats: {[c.id for c in chats]}, preferred: {preferred_chat_id}, selected: {chat_id}")
 
         p_resp = await client.agent_api_participants.list_agent_chat_participants(chat_id=chat_id)
         participants = p_resp.data or []
@@ -206,8 +216,11 @@ async def dispatch_real_band_message(content: str, target_agent_handle_sub: str)
             )
         ]
 
-        if not content.startswith(f"@{target_p['handle']}"):
-            content = f"@{target_p['handle']} {content}"
+        # Strip any leading mention from the text since it is already passed in the mentions array
+        # to avoid duplicate mention pills in the UI.
+        if content.startswith("@"):
+            first_word = content.split()[0]
+            content = content[len(first_word):].lstrip()
 
         await client.agent_api_messages.create_agent_chat_message(
             chat_id=chat_id,
@@ -232,7 +245,7 @@ async def _dispatch_incident(incident_id: str, user_message: str):
     if is_mock_mode():
         await mock_bus.send_message("Advisor-Chat", "managing-partner-room", brief)
     else:
-        success = await dispatch_real_band_message(brief, "managing-partner")
+        success = await dispatch_real_band_message(brief, "managing-partner", sender_agent_name="financial_partner")
         if not success:
             logger.warning("Real Band dispatch failed, falling back to local bus")
             await mock_bus.send_message("Advisor-Chat", "managing-partner-room", brief)
@@ -427,7 +440,7 @@ async def _commander_reply(intent: str, user_message: str, incident_id: str,
     from core.base_agent import llm_degraded, degrade_llm
 
     llm_router = get_router()
-    if llm_router.available_providers() and not llm_degraded():
+    if llm_router.available_providers():
         recent = memory_graph.get_chat_history(limit=6)
         convo = "\n".join(f"{t['role']}: {t['content'][:200]}" for t in recent)
         
@@ -500,7 +513,6 @@ Formatting (strict):
             return await llm_router.call_llm(prompt, max_tokens=420)
         except Exception as e:
             logger.warning(f"Managing Partner chat LLM failed, using deterministic reply: {e}")
-            degrade_llm(str(e))
 
     return _deterministic_reply(intent, user_message, incident_id, dispatched,
                                 stats, latest_summary, latest_id)
@@ -564,6 +576,13 @@ async def chat_with_commander(msg: ChatMessage):
     
     dispatched = False
     if not mentioned_agent and intent == "trigger_evaluation" and not sim_state.running:
+        # Reset simulation state and clear agent busy flags for a fresh run
+        sim_state.reset()
+        if is_mock_mode():
+            for room_agents in mock_bus.rooms.values():
+                for agent in room_agents:
+                    agent._is_busy = False
+
         memory_graph.create_incident(incident_id, {
             "trigger": "commander_chat",
             "user_message": msg.user_message[:300],
@@ -1059,7 +1078,7 @@ CRITICAL INSTRUCTIONS:
     
     from core.base_agent import llm_degraded
     llm_router = get_router()
-    if llm_router.available_providers() and not llm_degraded():
+    if llm_router.available_providers():
         try:
             return await llm_router.call_llm(prompt, max_tokens=350)
         except Exception as e:
@@ -1716,7 +1735,7 @@ async def parse_and_structure_file(text: str, filename: str, incident_id: str) -
     
     from core.base_agent import llm_degraded
     llm_router = get_router()
-    if llm_router.available_providers() and not llm_degraded():
+    if llm_router.available_providers():
         try:
             prompt = f"""You are a professional VC investment analyst.
 Ingest the following raw startup pitch text and the pre-extracted facts JSON (Stage 1).

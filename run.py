@@ -35,7 +35,7 @@ def _check_port(port: int) -> None:
 
 
 async def main():
-    load_dotenv()
+    load_dotenv(override=True)
     logger.info("⚖️  Initializing FUSION Investment Committee...")
 
     port = int(os.getenv("PORT", 8000))

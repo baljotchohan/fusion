@@ -143,7 +143,8 @@ class ResilientChatModel(BaseChatModel):
             message = self.fallback_llm.invoke(messages, stop=stop, **kwargs)
             return ChatResult(generations=[ChatGeneration(message=message)])
 
-        for attempt in range(6):
+        max_attempts = 12
+        for attempt in range(max_attempts):
             try:
                 message = self.primary_llm.invoke(messages, stop=stop, **kwargs)
                 return ChatResult(generations=[ChatGeneration(message=message)])
@@ -154,15 +155,16 @@ class ResilientChatModel(BaseChatModel):
                 transient_429 = (
                     "429" in err or "RESOURCE_EXHAUSTED" in err or "rate limit" in err_lower
                 )
-                if not fatal and transient_429 and attempt < 5:
-                    delay = 4 + random.uniform(0, 2)
+                if not fatal and transient_429 and attempt < max_attempts - 1:
+                    delay = 4 + attempt * 2 + random.uniform(0, 2)
                     logger.warning(
                         f"[{self.display_name}] Rate limited (sync) — retrying in {delay:.1f}s... Error: {err[:150]}"
                     )
                     time.sleep(delay)
                     continue
                 logger.error(f"[{self.display_name}] LLM failed (sync): {err[:200]}")
-                degrade_llm(err)
+                if fatal:
+                    degrade_llm(err)
                 break
 
         message = self.fallback_llm.invoke(messages, stop=stop, **kwargs)
@@ -179,7 +181,8 @@ class ResilientChatModel(BaseChatModel):
             message = await self.fallback_llm.ainvoke(messages, stop=stop, **kwargs)
             return ChatResult(generations=[ChatGeneration(message=message)])
 
-        for attempt in range(6):
+        max_attempts = 12
+        for attempt in range(max_attempts):
             try:
                 message = await self.primary_llm.ainvoke(messages, stop=stop, **kwargs)
                 return ChatResult(generations=[ChatGeneration(message=message)])
@@ -190,8 +193,8 @@ class ResilientChatModel(BaseChatModel):
                 transient_429 = (
                     "429" in err or "RESOURCE_EXHAUSTED" in err or "rate limit" in err_lower
                 )
-                if not fatal and transient_429 and attempt < 5:
-                    delay = 4 + random.uniform(0, 2)
+                if not fatal and transient_429 and attempt < max_attempts - 1:
+                    delay = 4 + attempt * 2 + random.uniform(0, 2)
                     logger.warning(
                         f"[{self.display_name}] Rate limited — retrying in {delay:.1f}s... Error: {err[:150]}"
                     )
@@ -201,7 +204,8 @@ class ResilientChatModel(BaseChatModel):
                     await asyncio.sleep(delay)
                     continue
                 logger.error(f"[{self.display_name}] LLM failed: {err[:200]}")
-                degrade_llm(err)
+                if fatal:
+                    degrade_llm(err)
                 break
 
         message = await self.fallback_llm.ainvoke(messages, stop=stop, **kwargs)
@@ -223,9 +227,13 @@ from thenvoi.core.types import PlatformMessage
 from thenvoi.core.protocols import AgentToolsProtocol
 
 class ArgusLangGraphAdapter(LangGraphAdapter):
-    def __init__(self, agent_name: str, agent_id: str, *args, **kwargs):
+    def __init__(self, agent_name: str, agent_id: str, base_agent: 'BaseAgent', *args, **kwargs):
         self._argus_agent_name = agent_name
         self._argus_agent_id = agent_id
+        self._base_agent = base_agent
+        self._processed_msg_ids = set()
+        from datetime import datetime, timezone
+        self._startup_time = datetime.now(timezone.utc)
         super().__init__(*args, **kwargs)
 
     async def on_message(
@@ -242,6 +250,43 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
         if msg.sender_id == self._argus_agent_id:
             logger.debug(f"[{self._argus_agent_name}] Skipping own message")
             return
+
+        if msg.id in self._processed_msg_ids:
+            logger.info(f"[{self._argus_agent_name}] Skipping already processed message (id={msg.id}): '{msg.content[:80]}'")
+            return
+
+        from api.state import sim_state
+
+        if sim_state.deal_concluded:
+            logger.info(f"[{self._argus_agent_name}] Deal already concluded — skipping message: '{msg.content[:80]}'")
+            return
+
+        if self._argus_agent_name in sim_state.completed_agents and self._argus_agent_name != "managing_partner":
+            logger.info(f"[{self._argus_agent_name}] Agent already completed analysis for this deal — skipping message: '{msg.content[:80]}'")
+            return
+
+        # Is this genuinely OLD history (posted before this agent came online)?
+        is_historical = False
+        if hasattr(self, "_startup_time") and msg.created_at:
+            from datetime import datetime, timezone
+            msg_created = msg.created_at
+            if msg_created.tzinfo is None:
+                msg_created = msg_created.replace(tzinfo=timezone.utc)
+            if (self._startup_time - msg_created).total_seconds() > 3:
+                is_historical = True
+
+        # The SDK replays backlog during "session bootstrap". We must skip genuinely
+        # OLD messages — but NOT a freshly-posted brief that happens to land while
+        # this agent is still syncing. That race is exactly why 3 of 4 specialists
+        # used to drop their dispatch ("Skipping backlog message during session
+        # bootstrap") and the committee stalled with only one report in. Process
+        # fresh messages even mid-bootstrap.
+        if is_historical:
+            logger.info(f"[{self._argus_agent_name}] Skipping historical backlog message (created at {msg.created_at}): '{msg.content[:100]}'")
+            return
+        if is_session_bootstrap:
+            logger.info(f"[{self._argus_agent_name}] Fresh message arrived during bootstrap — processing instead of skipping: '{msg.content[:80]}'")
+            is_session_bootstrap = False  # treat as live so the SDK actually runs the agent
 
         is_mentioned = False
         
@@ -296,15 +341,55 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
 
         if is_mentioned or (is_ic and is_from_user and not is_other_agent_mentioned):
             logger.info(f"[{self._argus_agent_name}] Triggered! Processing message: '{msg.content[:100]}'")
-            await super().on_message(
-                msg,
-                tools,
-                history,
-                participants_msg,
-                contacts_msg,
-                is_session_bootstrap=is_session_bootstrap,
-                room_id=room_id,
-            )
+            # Broadcast "working" to the dashboard
+            await event_bus.broadcast(self._argus_agent_name, "working", {
+                "current_action": f"Processing message from Band room"
+            })
+            try:
+                await super().on_message(
+                    msg,
+                    tools,
+                    history,
+                    participants_msg,
+                    contacts_msg,
+                    is_session_bootstrap=is_session_bootstrap,
+                    room_id=room_id,
+                )
+                self._processed_msg_ids.add(msg.id)
+                from api.state import sim_state
+                if self._argus_agent_name != "managing_partner":
+                    sim_state.completed_agents.add(self._argus_agent_name)
+                    logger.info(f"[{self._argus_agent_name}] Added to completed_agents: {sim_state.completed_agents}")
+                # After processing, log the agent's findings to memory_graph
+                # and broadcast "done" to the dashboard.
+                final_thought = msg.content[:500]  # fallback
+                try:
+                    # Try to get the actual final AI response from the graph
+                    graph = None
+                    if self.graph_factory:
+                        from thenvoi.integrations.langgraph.langchain_tools import agent_tools_to_langchain
+                        langchain_tools = agent_tools_to_langchain(tools) + (self.additional_tools or [])
+                        graph = self.graph_factory(langchain_tools)
+                    else:
+                        graph = self._static_graph
+                    if graph:
+                        config = {"configurable": {"thread_id": room_id}}
+                        state = await graph.aget_state(config)
+                        if state and state.values and "messages" in state.values:
+                            msgs = state.values["messages"]
+                            for m_rev in reversed(msgs):
+                                if hasattr(m_rev, "content") and m_rev.content and not hasattr(m_rev, "tool_call_id"):
+                                    final_thought = m_rev.content[:1000]
+                                    break
+                except Exception as e:
+                    logger.debug(f"[{self._argus_agent_name}] Could not extract final thought from graph state: {e}")
+
+                await self._base_agent._log_to_memory(final_thought)
+                await event_bus.broadcast(self._argus_agent_name, "done", {"report": final_thought})
+            except Exception as e:
+                logger.error(f"[{self._argus_agent_name}] Error during on_message: {e}")
+                await event_bus.broadcast(self._argus_agent_name, "alert", {"error": str(e)})
+                raise
         else:
             logger.debug(f"[{self._argus_agent_name}] Ignoring message (not mentioned): '{msg.content[:60]}'")
 
@@ -326,7 +411,7 @@ class BaseAgent:
         self.model_name = model_name
         self._is_busy = False  # Re-entrancy guard — drop duplicate wakeups
         
-        load_dotenv()
+        load_dotenv(override=True)
         try:
             self.loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -425,7 +510,7 @@ class BaseAgent:
         return ChatOpenAI(
             base_url=f"http://localhost:{port}/mock-llm",
             api_key="dummy",
-            model="mock-model"
+            model=f"mock-{self.name}"
         )
 
     def load_credentials(self) -> tuple[str, str]:
@@ -439,7 +524,10 @@ class BaseAgent:
                 config = yaml.safe_load(f) or {}
             # New shape nests agents under 'agents:'; old shape was flat.
             agent_conf = config.get("agents", {}).get(self.name) or config.get(self.name, {})
-            return agent_conf.get("agent_id", "mock-id"), agent_conf.get("api_key", "mock-key")
+            agent_id = agent_conf.get("agent_id", "mock-id")
+            api_key = agent_conf.get("api_key", "mock-key")
+            logger.info(f"[{self.display_name}] Loaded credentials: name={self.name}, agent_id={agent_id}, api_key_prefix={api_key[:25]}...")
+            return agent_id, api_key
         except Exception as e:
             logger.error(f"[{self.display_name}] Error loading configuration: {e}")
             return "mock-id", "mock-key"
@@ -574,6 +662,7 @@ class BaseAgent:
             self.adapter = ArgusLangGraphAdapter(
                 agent_name=self.name,
                 agent_id=agent_id,
+                base_agent=self,
                 llm=self.llm,
                 checkpointer=InMemorySaver(),
                 additional_tools=self.custom_tools,
