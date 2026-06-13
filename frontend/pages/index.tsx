@@ -14,6 +14,7 @@ import SettingsView from '@/components/SettingsView'
 import { IntegrationsView } from '@/components/IntegrationsView'
 import { PartnersView } from '@/components/PartnersView'
 import DocsView from '@/components/DocsView'
+import DemoDeals from '@/components/DemoDeals'
 import {
   LayoutDashboard,
   History,
@@ -598,41 +599,41 @@ export default function FUSION() {
               {tab === 'overview' && (
                 <div className="space-y-6">
                   {!hasActivity ? (
-                    /* Idle: clean uploader */
-                    <div className="flex flex-col items-center justify-center min-h-[50vh] sm:min-h-[62vh] max-w-[560px] mx-auto text-center space-y-4 sm:space-y-5">
-                      <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-accent-soft flex items-center justify-center">
-                        <Logo className="w-5 h-5 sm:w-6 sm:h-6 text-accent" />
-                      </div>
-                      <div>
-                        <h2 className="text-[18px] sm:text-[22px] font-bold tracking-tight text-text-primary">Evaluate a startup</h2>
-                        <p className="text-[12px] sm:text-[13px] text-text-secondary mt-1.5 leading-relaxed max-w-sm mx-auto">
-                          Drop a pitch deck, financials brief, or memo. FUSION mobilizes five partner agents and returns a committee verdict.
-                        </p>
-                      </div>
-                      <div
-                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-                        onDragLeave={() => setIsDragging(false)}
-                        onDrop={handleFileDrop}
-                        onClick={() => fileInputRef.current?.click()}
-                        className={`w-full border border-dashed rounded-2xl p-6 sm:p-9 cursor-pointer transition flex flex-col items-center gap-2 sm:gap-3 ${isDragging ? 'border-accent bg-accent-soft' : 'border-border-strong hover:border-accent/50 hover:bg-bg-subtle'}`}>
-                        <FileText className="w-6 h-6 text-text-muted" />
-                        <p className="text-[12px] sm:text-[13px] font-medium text-text-primary">Drag &amp; drop or click to upload</p>
-                        <div className="flex items-center gap-1.5">
-                          {['JSON', 'TXT', 'PDF', 'MD'].map(ext => (
-                            <span key={ext} className="text-[10px] font-semibold px-2 py-0.5 rounded bg-bg-muted text-text-muted">{ext}</span>
-                          ))}
+                    /* Idle: uploader + demo deals */
+                    <div className="flex flex-col items-center max-w-[860px] mx-auto py-4 sm:py-6 space-y-6">
+                      <div className="flex flex-col items-center text-center space-y-4 sm:space-y-5 w-full max-w-[560px]">
+                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-accent-soft flex items-center justify-center">
+                          <Logo className="w-5 h-5 sm:w-6 sm:h-6 text-accent" />
                         </div>
-                      </div>
-                      {uploadError && (
-                        <div className="w-full rounded-xl bg-danger-soft border border-danger/25 px-4 py-3 flex items-start gap-2.5 text-left">
-                          <AlertCircle className="w-4 h-4 text-danger mt-0.5 shrink-0" />
-                          <p className="text-[12px] text-danger">{uploadError}</p>
+                        <div>
+                          <h2 className="text-[18px] sm:text-[22px] font-bold tracking-tight text-text-primary">Evaluate a startup</h2>
+                          <p className="text-[12px] sm:text-[13px] text-text-secondary mt-1.5 leading-relaxed max-w-sm mx-auto">
+                            Drop your own pitch deck, financials brief, or memo — or explore one of the demo deals below. FUSION mobilizes five partner agents and returns a committee verdict.
+                          </p>
                         </div>
-                      )}
-                      <p className="text-[12px] text-text-muted">
-                        No files?{' '}
-                        <button onClick={triggerMockUpload} className="text-accent font-semibold hover:underline">Load the NovaPay sample</button>{' '}to see a full run.
-                      </p>
+                        <div
+                          onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+                          onDragLeave={() => setIsDragging(false)}
+                          onDrop={handleFileDrop}
+                          onClick={() => fileInputRef.current?.click()}
+                          className={`w-full border border-dashed rounded-2xl p-6 sm:p-9 cursor-pointer transition flex flex-col items-center gap-2 sm:gap-3 ${isDragging ? 'border-accent bg-accent-soft' : 'border-border-strong hover:border-accent/50 hover:bg-bg-subtle'}`}>
+                          <FileText className="w-6 h-6 text-text-muted" />
+                          <p className="text-[12px] sm:text-[13px] font-medium text-text-primary">Drag &amp; drop or click to upload</p>
+                          <div className="flex items-center gap-1.5">
+                            {['JSON', 'TXT', 'PDF', 'MD'].map(ext => (
+                              <span key={ext} className="text-[10px] font-semibold px-2 py-0.5 rounded bg-bg-muted text-text-muted">{ext}</span>
+                            ))}
+                          </div>
+                        </div>
+                        {uploadError && (
+                          <div className="w-full rounded-xl bg-danger-soft border border-danger/25 px-4 py-3 flex items-start gap-2.5 text-left">
+                            <AlertCircle className="w-4 h-4 text-danger mt-0.5 shrink-0" />
+                            <p className="text-[12px] text-danger">{uploadError}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <DemoDeals onRun={(co) => triggerDealSimulation(co)} />
                     </div>
                   ) : (
                     <div className="space-y-6">

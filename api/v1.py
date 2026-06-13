@@ -102,6 +102,32 @@ _SMALLTALK_WORDS = ("how are you", "how r u", "hru", "how are u", "how you doing
 _TRIGGER_KEYWORDS = ("evaluate", "run diligence", "run due diligence", "start simulation", "trigger simulation", "analyze startup", "run evaluation", "test startup", "assess startup")
 
 
+_CASUAL_OPENERS = (
+    "hi", "hii", "hello", "hey", "heyy", "yo", "sup", "howdy", "hola", "gm",
+    "good morning", "good afternoon", "good evening", "namaste", "salam",
+)
+_CASUAL_PHRASES = _SMALLTALK_WORDS + _THANKS_WORDS + (
+    "who are you", "what do you do", "what's your name", "whats your name",
+    "nice to meet", "tell me about yourself", "introduce yourself",
+)
+
+
+def _is_casual_message(text: str) -> bool:
+    """True when the user is just chatting (greeting/thanks/smalltalk/intro),
+    not asking for diligence findings. Lets agents reply like people, not reports."""
+    t = (text or "").lower().strip().rstrip("!?. ")
+    # strip a leading @mention so "@legal hey there" still reads as casual
+    t = re.sub(r"^@[\w\-/]+\s*", "", t).strip()
+    if not t:
+        return True
+    if any(p in t for p in _CASUAL_PHRASES):
+        return True
+    words = t.split()
+    if words and words[0] in _CASUAL_OPENERS and len(words) <= 5:
+        return True
+    return t in _CASUAL_OPENERS
+
+
 def _classify_intent(text: str) -> str:
     """Deterministic intent router so replies are relevant and non-disruptive."""
     t = text.lower().strip().rstrip("!.")
@@ -328,12 +354,15 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
             f"rather than starting a parallel run. Current active record: **{latest_id}**."
         )
     if intent == "greeting":
-        return (
-            f"👋 Welcome! I am the **FUSION Managing Partner**.\n\n"
-            f"I chair the investment committee and coordinate our 5 specialist partners.\n\n"
-            f"How can I assist you today? You can drop a startup pitch deck (PDF/MD/TXT), ask me to "
-            f"\"evaluate a startup\", or query past diligence records."
-        )
+        import random
+        return random.choice([
+            "👋 Hey there! I'm the **FUSION Managing Partner** — I chair our investment committee. "
+            "What can I help you with today?",
+            "👋 Welcome! Good to see you. I run the committee here at FUSION. "
+            "Want to look at a deal together, or is there something on your mind?",
+            "👋 Hi! **Managing Partner** here. I coordinate our five specialist partners on every deal. "
+            "How can I help?",
+        ])
     if intent == "thanks":
         return "🤝 **Pleasure working with you!** Let me know if you need any other startup evaluations."
     if intent == "smalltalk":
@@ -413,12 +442,15 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
         else:
             return "No active deal or past evaluation records were found in the committee database."
         
-    return (
-        f"I'm right here as your **Managing Partner**. 🤝 I can run a full due-diligence review on a startup, "
-        f"unpack a specific risk, or pull up what the committee has learned from past deals.\n\n"
-        f"Just tell me what you need — for example, **“evaluate NovaPay”**, *“what's the financial risk?”*, "
-        f"or drop a pitch deck and I'll take it from there."
-    )
+    import random
+    return random.choice([
+        "🤝 I'm right here as your **Managing Partner**. I can run a full due-diligence review, unpack a "
+        "specific risk, or pull up what the committee has learned. What would you like to dig into?",
+        "🤝 Happy to help. As **Managing Partner** I can walk you through a deal's risks, compare it to past "
+        "ones, or kick off a fresh review. What's on your mind?",
+        "🤝 Tell me what you're after and I'll take it from there — a specific risk, the current verdict, or "
+        "a brand-new evaluation. I'm listening.",
+    ])
 
 
 def _display(agent_key: str) -> str:
@@ -769,6 +801,53 @@ async def similar_deals(keyword: str, limit: int = 5):
     return {"keyword": keyword, "similar_deals": past}
 
 
+# ─── DEMO DEALS (preset companies shown on the dashboard) ─────
+
+@router.get("/demos")
+async def list_demo_deals():
+    """The preset demo companies rendered as cards on the dashboard."""
+    from core.demo_registry import list_demos
+    return {"demos": list_demos()}
+
+
+@router.get("/demos/{demo_id}")
+async def get_demo_deal(demo_id: str):
+    """Full raw pitch data for one demo + a deterministic verdict preview,
+    so the dashboard can show everything before any agent runs."""
+    from core.demo_registry import get_demo, load_demo_pitch
+    meta = get_demo(demo_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Unknown demo deal")
+    pitch = load_demo_pitch(demo_id)
+    if pitch is None:
+        raise HTTPException(status_code=404, detail="Demo pitch file not found")
+
+    preview = None
+    try:
+        from core.diligence_engine import run_diligence_calculations
+        calc = run_diligence_calculations(pitch)
+        preview = {
+            "verdict": calc.get("verdict"),
+            "weighted_score": calc.get("weighted_score"),
+            "coverage_score": calc.get("coverage_score"),
+            "scores": {
+                "financial": calc.get("fin_score"),
+                "legal": calc.get("leg_score"),
+                "technical": calc.get("tech_score"),
+                "market": calc.get("mkt_score"),
+            },
+            "override_reasons": calc.get("override_reasons", []),
+            "company_name": calc.get("company_name"),
+            "raise_amount": calc.get("raise_amount"),
+            "valuation": calc.get("valuation"),
+        }
+    except Exception as e:
+        logger.warning(f"Demo verdict preview failed for {demo_id}: {e}")
+
+    meta_out = {k: v for k, v in meta.items() if k != "pitch_file"}
+    return {"meta": meta_out, "pitch": pitch, "preview": preview}
+
+
 # ─── SYSTEM SETTINGS & MCP REGISTRY ───────────────────────────
 
 MCP_TOOLS = [
@@ -1083,12 +1162,30 @@ CRITICAL INSTRUCTIONS:
             return await llm_router.call_llm(prompt, max_tokens=350)
         except Exception as e:
             logger.warning(f"Persona LLM failed for {agent_name}: {e}")
-            
+
+    # Casual message? Reply in-persona like a person — don't dump a full audit.
+    if _is_casual_message(user_message):
+        import random
+        emoji = {"financial_partner": "💵", "legal_partner": "⚖️",
+                 "technical_partner": "🛠️", "market_partner": "📊",
+                 "managing_partner": "💼"}.get(agent_name, "🤝")
+        openers = [
+            f"{emoji} Hey! I'm the **{p['name']}** on the FUSION committee — {p['role'].lower()}.",
+            f"{emoji} Good to meet you. I'm the **{p['name']}** here at FUSION ({p['role']}).",
+            f"{emoji} Hi there — **{p['name']}** speaking.",
+        ]
+        invites = [
+            "Ask me anything about a deal's risk, or say *\"what did you find?\"* and I'll walk you through my audit.",
+            "Happy to dig into the numbers whenever you want — just point me at a deal or ask about a specific risk.",
+            "When you're ready, ask me about the current deal and I'll give you my honest read.",
+        ]
+        return f"{random.choice(openers)} {random.choice(invites)}"
+
     from core.pitch_loader import _load_pitch_file
     from core.diligence_engine import (
         run_diligence_calculations, get_citation, format_red_flags
     )
-    
+
     pitch_data = _load_pitch_file()
     calc = run_diligence_calculations(pitch_data)
     company_name = calc["company_name"]

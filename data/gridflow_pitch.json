@@ -1,0 +1,148 @@
+{
+  "company": {
+    "name": "GridFlow Energy",
+    "industry": "Climate / Grid Optimization SaaS",
+    "stage": "Series A",
+    "raise_amount": "$15,000,000",
+    "post_money_valuation": "$72,000,000",
+    "founded": "2022",
+    "headquarters": "Austin, TX",
+    "employees": 53,
+    "description": "GridFlow is forecasting and optimization software for electric utilities and large energy buyers. Our models balance renewable supply against demand in real time, cutting curtailment and peak-demand costs. 60 utilities and industrial buyers run GridFlow across 14 states."
+  },
+  "pitch_claims": {
+    "arr": "$9,200,000",
+    "arr_raw": 9200000,
+    "yoy_growth": "140%",
+    "users": 60,
+    "nps_score": 68,
+    "net_revenue_retention": "129%",
+    "market_size_claim": "$30B grid-modernization software market by 2031",
+    "unique_selling_point": "Physics-informed forecasting that ingests SCADA telemetry and beats incumbent load forecasts by 18% MAPE in head-to-head pilots."
+  },
+  "financials": {
+    "monthly_burn_usd": 500000,
+    "runway_months": 20,
+    "gross_margin_pct": 78,
+    "customers": "60 utilities and industrial energy buyers",
+    "customer_revenue_breakdown": [
+      {
+        "customer": "Largest utility customer",
+        "revenue_pct": 22,
+        "note": "5-year contract signed 2025; well-diversified base beyond it."
+      },
+      {
+        "customer": "Top 5 accounts (combined)",
+        "revenue_pct": 51,
+        "note": "Multi-year contracts, average remaining term 38 months."
+      },
+      {
+        "customer": "Long-tail industrial buyers",
+        "revenue_pct": 27
+      }
+    ],
+    "unit_economics": {
+      "cac_usd": 48000,
+      "ltv_usd": 410000,
+      "ltv_cac_ratio": "8.5x",
+      "payback_period_months": 11,
+      "note": "Enterprise utility motion; high contract values and 96% logo retention drive strong LTV:CAC."
+    },
+    "previous_funding": [
+      {"round": "Seed", "amount": "$3,800,000", "investors": "Lowercarbon Capital (lead)", "date": "2023-04"},
+      {"round": "Seed extension", "amount": "$2,500,000", "investors": "Congruent Ventures", "date": "2024-09"}
+    ],
+    "red_flags": []
+  },
+  "legal": {
+    "ip_status": "2 patents granted on physics-informed forecasting; trade-secret protections on telemetry pipeline. All IP assigned to company.",
+    "litigation": {
+      "value": "No active lawsuits, regulatory actions, or pending disputes.",
+      "confidence": 95,
+      "provenance": "direct",
+      "evidence": "Outside counsel legal review, dated 2026-04"
+    },
+    "pending_litigation": [],
+    "regulatory_compliance": {
+      "nerc_cip": "NERC CIP aligned; passed two utility customer security reviews in 2025.",
+      "soc2": "SOC 2 Type II certified (2026).",
+      "data_privacy": "Telemetry data governed by signed data-sharing agreements; encrypted end to end.",
+      "licensing": "Software vendor to utilities — fully compliant; no operating license required."
+    },
+    "cap_table": {
+      "founders_pct": 58,
+      "investors_pct": 30,
+      "employee_options_pool_pct": 12,
+      "note": "Clean. 1x non-participating preferred, standard protective provisions."
+    },
+    "red_flags": []
+  },
+  "technical": {
+    "tech_stack": {
+      "backend": "Rust and Python 3.12 (current, supported)",
+      "database": "PostgreSQL 16 + TimescaleDB for time-series telemetry",
+      "infrastructure": "Kubernetes on GCP, multi-region, Kafka streaming ingestion",
+      "frontend": "React 19 + TypeScript"
+    },
+    "security": {
+      "last_penetration_test": "Independent penetration test completed 2026-01 by Bishop Fox; all findings remediated.",
+      "pii_storage": "Minimal PII; operational telemetry encrypted at rest with AES-256.",
+      "encryption_at_rest": "AES-256; key management via cloud KMS.",
+      "mfa": "MFA and SSO enforced; role-based access controls audited quarterly.",
+      "soc2": "SOC 2 Type II certified.",
+      "incident_history": "No breaches or data-exposure incidents."
+    },
+    "architecture": {
+      "pattern": "Streaming microservices; deterministic backtesting harness.",
+      "scalability": "Processes 1.1M telemetry points/sec at peak; horizontally autoscaled.",
+      "tech_debt_assessment": "LOW — 80% test coverage, clear service ownership.",
+      "uptime_sla": "99.9% contractual SLA; trailing-12-month uptime 99.94%."
+    },
+    "red_flags": []
+  },
+  "market": {
+    "sector": "Grid Modernization / Energy Optimization Software",
+    "tam_claim": "$30B grid-modernization software market by 2031",
+    "actual_market_trends": {
+      "sector_growth": "Grid-software spend grew 27% in 2025 driven by renewable interconnection and electrification.",
+      "policy_tailwinds": "Federal grid-resilience funding and rising renewable penetration expand the buyer base.",
+      "demand": "Utility demand for forecasting tools is accelerating as variable generation grows."
+    },
+    "competitors": [
+      {"name": "AutoGrid (legacy DER platform)", "funding_raised": "$130M", "market_share": "DER management"},
+      {"name": "Uplight", "funding_raised": "$200M", "market_share": "Utility customer engagement"},
+      {"name": "Bidgely", "funding_raised": "$100M", "market_share": "Energy analytics"}
+    ],
+    "positioning": "GridFlow wins on forecast accuracy and SCADA-native integration; incumbents focus on customer engagement, not real-time optimization.",
+    "red_flags": []
+  },
+  "team": {
+    "ceo": {
+      "name": "Marcus Webb",
+      "education": "Stanford MS Energy Systems",
+      "previous_company": "Grid operations lead at a regional ISO (7 years)",
+      "assessment": "Rare combination of utility-operations credibility and software execution."
+    },
+    "cto": {
+      "name": "Lena Hofmann",
+      "education": "ETH Zurich PhD, Power Systems",
+      "previous": "Senior research engineer, national grid lab",
+      "assessment": "Authored the forecasting models; deep domain moat."
+    },
+    "team_gaps": [
+      "Customer-success org scaling behind bookings — two senior hires in progress."
+    ]
+  },
+  "deal_summary": {
+    "raise": "$15M Series A",
+    "valuation_post_money": "$72M",
+    "use_of_funds": {
+      "engineering": "40%",
+      "sales_marketing": "38%",
+      "operations": "22%"
+    },
+    "lead_investor_committed": true,
+    "existing_investor_participation": "Lowercarbon and Congruent both exercising pro-rata.",
+    "timeline": "Targeting close by August 1, 2026"
+  }
+}

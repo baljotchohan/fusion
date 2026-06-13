@@ -198,6 +198,18 @@ async def trigger_deal(company: str = "NovaPay Inc", raise_amount: str = "$10M")
     sim_state.dispatched_deals.clear()   # fresh run — nothing dispatched yet
     sim_state.active_company_name = company
 
+    # Point the pitch loader at THIS company's pitch file so the committee
+    # analyzes the requested deal instead of always falling back to NovaPay.
+    # Manual uploads set active_pitch_file themselves; a demo/known company
+    # resolves here. Unknown companies clear it so the default applies.
+    from core.demo_registry import resolve_pitch_file
+    from core.pitch_loader import clear_pitch_cache
+    resolved_pitch = resolve_pitch_file(company)
+    sim_state.active_pitch_file = resolved_pitch
+    clear_pitch_cache()
+    if resolved_pitch:
+        logger.info(f"trigger-deal: resolved '{company}' → pitch file {resolved_pitch}")
+
     brief = f"New deal submitted for committee review: {company} — Series A, {raise_amount} raise. Full pitch data is loaded in the deal brief. Please convene the investment committee and begin due diligence."
 
     if is_mock_mode():

@@ -257,41 +257,10 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
 
         from api.state import sim_state
 
-        if sim_state.deal_concluded:
-            logger.info(f"[{self._argus_agent_name}] Deal already concluded — skipping message: '{msg.content[:80]}'")
-            return
-
-        if self._argus_agent_name in sim_state.completed_agents and self._argus_agent_name != "managing_partner":
-            logger.info(f"[{self._argus_agent_name}] Agent already completed analysis for this deal — skipping message: '{msg.content[:80]}'")
-            return
-
-        # Is this genuinely OLD history (posted before this agent came online)?
-        is_historical = False
-        if hasattr(self, "_startup_time") and msg.created_at:
-            from datetime import datetime, timezone
-            msg_created = msg.created_at
-            if msg_created.tzinfo is None:
-                msg_created = msg_created.replace(tzinfo=timezone.utc)
-            if (self._startup_time - msg_created).total_seconds() > 3:
-                is_historical = True
-
-        # The SDK replays backlog during "session bootstrap". We must skip genuinely
-        # OLD messages — but NOT a freshly-posted brief that happens to land while
-        # this agent is still syncing. That race is exactly why 3 of 4 specialists
-        # used to drop their dispatch ("Skipping backlog message during session
-        # bootstrap") and the committee stalled with only one report in. Process
-        # fresh messages even mid-bootstrap.
-        if is_historical:
-            logger.info(f"[{self._argus_agent_name}] Skipping historical backlog message (created at {msg.created_at}): '{msg.content[:100]}'")
-            return
-        if is_session_bootstrap:
-            logger.info(f"[{self._argus_agent_name}] Fresh message arrived during bootstrap — processing instead of skipping: '{msg.content[:80]}'")
-            is_session_bootstrap = False  # treat as live so the SDK actually runs the agent
-
-        is_mentioned = False
-        
+        # ── Mention detection (computed FIRST) ───────────────────────────────
         # Robust mentions retrieval: handles metadata as dict, Pydantic model, or None,
         # and handle each item in the list as either a dict or an object.
+        is_mentioned = False
         raw_metadata = getattr(msg, "metadata", None)
         raw_mentions = []
         if raw_metadata is not None:
@@ -300,6 +269,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
             else:
                 raw_mentions = getattr(raw_metadata, "mentions", []) or []
 
+        agent_name_clean = self._argus_agent_name.replace("_", "-").replace("-agent", "").lower()
         for m in raw_mentions:
             if isinstance(m, dict):
                 m_id = m.get("id")
@@ -313,21 +283,59 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
             if m_id == self._argus_agent_id:
                 is_mentioned = True
                 break
+            if m_handle and agent_name_clean in m_handle.lstrip("@").lower():
+                is_mentioned = True
+                break
+            if m_username and agent_name_clean in m_username.lstrip("@").lower():
+                is_mentioned = True
+                break
 
-            agent_name_clean = self._argus_agent_name.replace("_", "-").replace("-agent", "").lower()
-            if m_handle:
-                m_handle_clean = m_handle.lstrip("@").lower()
-                if agent_name_clean in m_handle_clean:
-                    is_mentioned = True
-                    break
-            if m_username:
-                m_username_clean = m_username.lstrip("@").lower()
-                if agent_name_clean in m_username_clean:
-                    is_mentioned = True
-                    break
+        # Fallback: a plain "@agent-handle" typed in the message body (no mention
+        # metadata) should still count — humans in the Band UI often type it inline.
+        if not is_mentioned and msg.content and ("@" + agent_name_clean) in msg.content.lower():
+            is_mentioned = True
 
         is_ic = self._argus_agent_name == "incident_commander"
         is_from_user = msg.sender_type == "User"
+
+        # A human directly @-mentioning this agent is a live question, NOT part of the
+        # automated committee handoff. It must always be answered — even after the
+        # verdict is in or this agent already filed its analysis. The guards below
+        # exist only to stop the agent-to-agent handoff from looping; they must not
+        # gag a person asking a follow-up in the Band room.
+        direct_user_query = is_from_user and is_mentioned
+
+        if not direct_user_query:
+            if sim_state.deal_concluded:
+                logger.info(f"[{self._argus_agent_name}] Deal already concluded — skipping message: '{msg.content[:80]}'")
+                return
+
+            if self._argus_agent_name in sim_state.completed_agents and self._argus_agent_name != "managing_partner":
+                logger.info(f"[{self._argus_agent_name}] Agent already completed analysis for this deal — skipping message: '{msg.content[:80]}'")
+                return
+
+            # Is this genuinely OLD history (posted before this agent came online)?
+            is_historical = False
+            if hasattr(self, "_startup_time") and msg.created_at:
+                from datetime import datetime, timezone
+                msg_created = msg.created_at
+                if msg_created.tzinfo is None:
+                    msg_created = msg_created.replace(tzinfo=timezone.utc)
+                if (self._startup_time - msg_created).total_seconds() > 3:
+                    is_historical = True
+
+            # The SDK replays backlog during "session bootstrap". We must skip genuinely
+            # OLD messages — but NOT a freshly-posted brief that happens to land while
+            # this agent is still syncing. That race is exactly why 3 of 4 specialists
+            # used to drop their dispatch ("Skipping backlog message during session
+            # bootstrap") and the committee stalled with only one report in. Process
+            # fresh messages even mid-bootstrap.
+            if is_historical:
+                logger.info(f"[{self._argus_agent_name}] Skipping historical backlog message (created at {msg.created_at}): '{msg.content[:100]}'")
+                return
+        if is_session_bootstrap:
+            logger.info(f"[{self._argus_agent_name}] Fresh message arrived during bootstrap — processing instead of skipping: '{msg.content[:80]}'")
+            is_session_bootstrap = False  # treat as live so the SDK actually runs the agent
 
         # If any other agent is mentioned in the message, the Incident Commander should
         # stay silent and let that agent handle it, unless the IC is also mentioned.

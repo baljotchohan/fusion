@@ -1,0 +1,154 @@
+{
+  "company": {
+    "name": "Cadence Health",
+    "industry": "Healthtech / Remote Patient Monitoring",
+    "stage": "Series A",
+    "raise_amount": "$11,000,000",
+    "post_money_valuation": "$48,000,000",
+    "founded": "2022",
+    "headquarters": "Boston, MA",
+    "employees": 38,
+    "description": "Cadence Health is a remote patient-monitoring platform for cardiology and chronic-care clinics. Connected devices stream vitals to our triage layer, which flags deterioration early and routes alerts to care teams. Strong clinical outcomes, but revenue is concentrated in one large health-system partner."
+  },
+  "pitch_claims": {
+    "arr": "$6,400,000",
+    "arr_raw": 6400000,
+    "yoy_growth": "120%",
+    "users": 34,
+    "nps_score": 64,
+    "net_revenue_retention": "118%",
+    "market_size_claim": "$26B remote patient-monitoring market by 2030",
+    "unique_selling_point": "Triage layer reduces false-alert fatigue by 44% in published clinic data, lifting clinician adoption."
+  },
+  "financials": {
+    "monthly_burn_usd": 610000,
+    "runway_months": 8,
+    "gross_margin_pct": 56,
+    "customers": "34 cardiology and chronic-care clinics",
+    "customer_revenue_breakdown": [
+      {
+        "customer": "Northeast Health System (anchor partner)",
+        "revenue_pct": 58,
+        "note": "Anchor contract through 2027; expansion to more sites under discussion but not yet signed."
+      },
+      {
+        "customer": "Independent cardiology clinics (combined)",
+        "revenue_pct": 31,
+        "note": "Growing but each under $200k ARR."
+      },
+      {
+        "customer": "Pilot accounts",
+        "revenue_pct": 11
+      }
+    ],
+    "unit_economics": {
+      "cac_usd": 28000,
+      "ltv_usd": 96000,
+      "ltv_cac_ratio": "3.4x",
+      "payback_period_months": 16,
+      "note": "Device-subsidy model compresses gross margin to 56%; margin expansion expected as device costs amortize."
+    },
+    "previous_funding": [
+      {"round": "Seed", "amount": "$3,200,000", "investors": "Bessemer (lead)", "date": "2023-05"}
+    ],
+    "red_flags": [
+      "58% of ARR from a single anchor health system",
+      "8 months runway at current burn",
+      "Gross margin of 56% — below software benchmark due to device subsidy"
+    ]
+  },
+  "legal": {
+    "ip_status": "1 patent pending on triage algorithm; clean invention-assignment agreements in place.",
+    "litigation": {
+      "value": "No active lawsuits or pending disputes.",
+      "confidence": 95,
+      "provenance": "direct",
+      "evidence": "Legal review completed 2026-03"
+    },
+    "pending_litigation": [],
+    "regulatory_compliance": {
+      "hipaa": "HIPAA compliant; independent HIPAA controls audit completed 2026-01.",
+      "soc2": "SOC 2 Type II certified.",
+      "device_status": "Operates as non-device clinical decision-support software; outside FDA device scope under current product design.",
+      "data_privacy": "PHI encrypted; BAAs executed with all clinical customers."
+    },
+    "cap_table": {
+      "founders_pct": 60,
+      "investors_pct": 28,
+      "employee_options_pool_pct": 12,
+      "note": "Clean cap table, standard terms."
+    },
+    "red_flags": []
+  },
+  "technical": {
+    "tech_stack": {
+      "backend": "Python 3.12 and Go (current, supported)",
+      "database": "PostgreSQL 16, encrypted PHI store",
+      "infrastructure": "Kubernetes on AWS, HITRUST-aligned controls",
+      "frontend": "React 19 + TypeScript"
+    },
+    "security": {
+      "last_penetration_test": "Third-party penetration test completed 2026-02; findings remediated.",
+      "pii_storage": "PHI encrypted at rest with AES-256; field-level encryption on identifiers.",
+      "encryption_at_rest": "AES-256 across PHI stores.",
+      "mfa": "MFA enforced for all clinical and admin users.",
+      "soc2": "SOC 2 Type II certified.",
+      "incident_history": "No breaches or data-exposure incidents."
+    },
+    "architecture": {
+      "pattern": "Event-driven ingestion from connected devices; redundant alert routing.",
+      "scalability": "Supports 120k monitored patients; load-tested to 3x.",
+      "tech_debt_assessment": "LOW-MODERATE — solid coverage; device-integration layer carries some bespoke code.",
+      "uptime_sla": "99.9% SLA; trailing uptime 99.92%."
+    },
+    "red_flags": []
+  },
+  "market": {
+    "sector": "Remote Patient Monitoring / Chronic Care",
+    "tam_claim": "$26B remote patient-monitoring market by 2030",
+    "actual_market_trends": {
+      "sector_growth": "RPM reimbursement expansion drove 23% market growth in 2025.",
+      "policy_tailwinds": "CMS reimbursement codes for remote monitoring continue to broaden coverage.",
+      "demand": "Health systems are expanding chronic-care-at-home programs."
+    },
+    "competitors": [
+      {"name": "Validic", "funding_raised": "$60M", "market_share": "Device data integration"},
+      {"name": "HealthSnap", "funding_raised": "$10M", "market_share": "RPM workflow"},
+      {"name": "Withings Health Solutions", "funding_raised": "n/a", "market_share": "Connected devices"}
+    ],
+    "positioning": "Cadence differentiates on triage quality and clinician adoption rather than raw device connectivity.",
+    "red_flags": []
+  },
+  "team": {
+    "ceo": {
+      "name": "Dr. Aisha Rahman",
+      "education": "Johns Hopkins MD, MBA",
+      "previous_company": "Practicing cardiologist; clinical informatics lead at an academic medical center",
+      "assessment": "Strong clinical credibility and buyer empathy; first-time operator scaling go-to-market."
+    },
+    "cto": {
+      "name": "Tom Becker",
+      "education": "Georgia Tech CS",
+      "previous": "Senior engineer at a connected-health startup (acquired)",
+      "assessment": "Solid; has shipped regulated health software before."
+    },
+    "team_gaps": [
+      "No CFO yet — finance handled by a fractional controller; a Series A close should fund a full-time hire.",
+      "Revenue concentration means a dedicated enterprise-expansion lead is needed."
+    ]
+  },
+  "deal_summary": {
+    "raise": "$11M Series A",
+    "valuation_post_money": "$48M",
+    "use_of_funds": {
+      "sales_marketing": "38%",
+      "engineering": "32%",
+      "clinical_ops": "20%",
+      "operations": "10%"
+    },
+    "lead_investor_committed": false,
+    "existing_investor_participation": "Bessemer indicated pro-rata participation pending lead.",
+    "timeline": "Targeting close by September 1, 2026",
+    "note": "Strong clinical product and clean legal/technical posture; concerns are financial — runway, margin, and single-partner concentration. A conditional term sheet with milestone-based tranches is the likely path."
+  }
+}
