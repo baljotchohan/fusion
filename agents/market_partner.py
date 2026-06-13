@@ -47,7 +47,7 @@ STEP 4 — SECTOR TIMING ANALYSIS
 
 STEP 5 — GROWTH THESIS STRESS TEST
 - What has to be true for this company to reach $50M ARR in 3 years?
-- Is the current go-to-market motion (Amazon partnership) scalable beyond one client?
+- Is the current go-to-market motion (partnerships/channels) scalable beyond one client?
 - International expansion: is there a realistic path, or is this US-only?
 
 STEP 6 — DEFENSIBILITY ASSESSMENT

@@ -170,29 +170,43 @@ Open [http://localhost:3000](http://localhost:3000) to view the FUSION Boardroom
 
 ## 🔌 Model Context Protocol (MCP) Workflow
 
-FUSION exposes its entire investment committee to external AI tools (such as Claude Desktop) using standard stdio transport.
+FUSION exposes its entire investment committee to external AI clients (Claude Desktop, Claude Code, Cursor, custom agents) as **5 tools**. There are two ways to connect — pick whichever fits.
 
-### Register FUSION with Claude Desktop
-Open your Claude Desktop config file:
+> **Tools:** `chat_with_managing_partner` · `get_deal_record` · `get_boardroom_verdict` · `query_deal_vault` · `learn_risk_pattern`. Discover them live at `GET /api/v1/system/mcp`.
+
+### Option A — Remote URL (no install, works for anyone) ⭐
+Once FUSION is running (`python run.py`), the committee is served over **streamable-HTTP** at **`/mcp`** on the same port. Add it as a remote MCP server by URL:
+
+* **Local:** `http://localhost:8000/mcp`
+* **Deployed:** `https://<your-deploy>/mcp`
+
+```bash
+# Claude Code, for example:
+claude mcp add --transport http fusion https://<your-deploy>/mcp
+```
+No repo clone, no local Python process — anyone you share the URL with can connect.
+
+### Option B — Local stdio
+If you have the repo, the bundled **`.mcp.json`** registers FUSION automatically in Claude Code — just open the folder. For Claude Desktop, edit the config file:
 *   **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 *   **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
-Add the FUSION server:
 ```json
 {
   "mcpServers": {
-    "fusion-committee": {
-      "command": "python3",
-      "args": ["/Users/baljotchohan/Desktop/fusion/mcp_server.py"],
-      "env": {
-        "FUSION_API_URL": "http://localhost:8000"
-      }
+    "fusion": {
+      "command": "python",
+      "args": ["/absolute/path/to/fusion/mcp_server.py"],
+      "env": { "FUSION_API_URL": "http://localhost:8000" }
     }
   }
 }
 ```
-Restart Claude Desktop. You can now chat directly with the FUSION Managing Partner:
-> *"Analyze this startup Pitch deck for RetailPulse. Tell me what the technical and financial risk is, and whether the committee recommends investing."*
+
+Either way, you can then chat directly with the FUSION Managing Partner:
+> *"Analyze this startup pitch deck for RetailPulse. What are the technical and financial risks, and does the committee recommend investing?"*
+
+> **Note:** both transports require the FUSION API running (`python run.py`); set `FUSION_API_URL` (tools → API) and `FUSION_PUBLIC_URL` / `FUSION_MCP_URL` (advertised remote URL) as needed.
 
 ---
 

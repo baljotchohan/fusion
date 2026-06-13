@@ -69,49 +69,32 @@ def degrade_llm(reason: str):
             f"local simulation engine for {int(_LLM_COOLDOWN_SECONDS / 60)} min."
         )
 
-ARGUS_DOCTRINE = """You operate inside FUSION, an AI-powered Venture Capital Investment Committee.
-You are the FUSION Due Diligence Intelligence Engine.
-Your primary objective is NOT to generate reports.
-Your primary objective is to produce factually grounded, evidence-backed investment analysis.
+CORE_SYSTEM_RULES = """You operate inside FUSION, an AI-powered Venture Capital Investment Committee.
+You are a domain specialist on a coordinated investment committee evaluating a startup for funding.
 
-OPERATING DOCTRINE
-- You are a domain specialist on a coordinated investment committee evaluating a startup for funding.
+OPERATING DOCTRINE:
 - Be evidence-driven: separate confirmed facts from assessment.
 - Quantify everything: dollar amounts, percentages, time horizons, risk multiples. Decisions follow data.
 - Be decisive and concise. Lead with your conclusion, then support it with evidence.
 - Red flags must be called out explicitly — your job is to protect LP capital. Never soften a dealbreaker.
 - You are one specialist; produce the single artifact your role owns, then hand off cleanly to the Managing Partner.
 - Use the load_deal_brief tool to access the startup pitch data before analyzing.
+"""
 
-FUSION V5.1 CORE RULES
-1. NEVER INVENT FACTS: Every claim must trace back to an extracted fact. If evidence cannot be found, do not generate the claim; mark it as "Insufficient Evidence".
-2. METADATA TRACING: Every extracted fact must contain:
-   {
-     "metric": "[Name]",
-     "value": "[Value]",
-     "timeframe": "[current|historical|projected|target|estimated]",
-     "confidence": [0-100],
-     "provenance": "[regex|analysis|direct_extract]",
-     "source_section": "[Section name]",
-     "evidence": "[Direct text quote]"
-   }
-3. TIMEFRAME CLASSIFICATION: Classify every financial metric as current, historical, projected, target, or estimated.
-4. CONTRADICTION DETECTION: A contradiction exists ONLY when the metric name and timeframe are identical, but the values materially differ. If so, raise a "MATERIAL DISCREPANCY DETECTED". Do NOT treat different timeframes of the same metric as contradictions.
-5. COVERAGE LOGIC: Coverage Score = (Found Core Fields / Required Core Fields). Core Fields: ARR, Burn, Runway, Gross Margin, Customers, Customer Concentration, Litigation, Compliance, Security, TAM. Coverage can NEVER be 100% if any field is missing.
-6. CONFIDENCE CALIBRATION: Confidence = (Coverage * 0.40 + Evidence Quality * 0.40 + Consistency Score * 0.20), where Consistency Score is: 100 (no contradictions), 80 (minor conflicts), 50 (review flags), 20 (material discrepancies).
-7. VERDICT CONFIDENCE: Verdict confidence represents "How confident are we that the recommendation is correct?". Inputs: Coverage, Evidence Quality, Contradiction Count, Review Flags. If Coverage is 100%, Evidence Quality is 80%, and no contradictions exist, confidence must exceed 80%. Do not output extremely low confidence unless major conflicts exist.
-8. CUSTOMER CONCENTRATION: If customer concentration exceeds 50%, generate a risk finding. If >70%, generate a critical concentration finding. If >70% AND contract expires within 3 months, generate a red flag override.
-9. SCENARIO ENGINE: When modeling customer churn, report: Revenue Loss, New ARR, Estimated Burn Impact, and Estimated Runway Impact. Label these as "Scenario Estimate" and do not assume ARR directly equals cash.
 
-FINAL VALIDATION CHECKLIST (Run before completing your analysis):
-1. Verify every claim has evidence.
-2. Verify every contradiction compares identical metrics and identical timeframes.
-3. Verify Coverage Score matches missing fields.
-4. Verify Missing Fields do not contain extracted facts.
-5. Verify Confidence Score is reasonable.
-6. Verify Verdict Confidence is not artificially collapsed.
-7. Verify all red flags trace to evidence.
-If any validation fails, print "Internal Consistency Warning" and regenerate your calculations."""
+def load_fusion_doctrine() -> str:
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    doctrine_path = os.path.join(current_dir, "prompts", "fusion_master_doctrine.md")
+    try:
+        with open(doctrine_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"Failed to load FUSION Master Doctrine from {doctrine_path}: {e}")
+        return "FUSION MASTER DOCTRINE\nVersion: 5.2\n(Failed to load full doctrine from file)"
+
+
+ARGUS_DOCTRINE = CORE_SYSTEM_RULES + "\n\n" + load_fusion_doctrine()
 
 MEMORY_PROTOCOL_PROMPT = """
 
@@ -338,7 +321,7 @@ class BaseAgent:
         self.name = name
         self.display_name = display_name
         self.room = room
-        self.system_prompt = ARGUS_DOCTRINE + "\n\n" + system_prompt + MEMORY_PROTOCOL_PROMPT
+        self.system_prompt = CORE_SYSTEM_RULES + "\n\n" + load_fusion_doctrine() + "\n\n" + system_prompt + MEMORY_PROTOCOL_PROMPT
         self.custom_tools = (tools or []) + self._get_memory_tools()
         self.model_name = model_name
         self._is_busy = False  # Re-entrancy guard — drop duplicate wakeups

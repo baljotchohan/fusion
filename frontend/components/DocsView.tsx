@@ -200,10 +200,13 @@ npx next dev --webpack`}</Code>
         {section === 'mcp' && (
           <div>
             <H>Model Context Protocol (MCP) integration</H>
-            <P>FUSION ships with an <B>MCP server</B> so external AI clients (like Claude Desktop or Cursor) can invoke the investment committee or search past deals directly as tools.</P>
-            <P><B>1. Start the MCP server</B> (stdio transport):</P>
+            <P>FUSION exposes the investment committee as tools so external AI clients (Claude Desktop, Claude Code, Cursor) can run audits or search past deals directly. Connect either way:</P>
+            <P><B>Option A — Remote URL</B> (no install). With FUSION running, add the streamable-HTTP endpoint by URL — share it with anyone:</P>
+            <Code label="shell">{`claude mcp add --transport http fusion https://<your-deploy>/mcp
+# or locally:  http://localhost:8000/mcp`}</Code>
+            <P><B>Option B — Local stdio.</B> Start the server:</P>
             <Code label="shell">{`python mcp_server.py`}</Code>
-            <P><B>2. Register it</B> in your MCP client configuration:</P>
+            <P>Then register it in your MCP client (the repo also ships a ready <code>.mcp.json</code> for Claude Code):</P>
             <Code label="claude_desktop_config.json">{`{
   "mcpServers": {
     "fusion": {

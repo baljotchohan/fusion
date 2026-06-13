@@ -8,11 +8,13 @@ import json
 import logging
 import asyncio
 import random
+from contextlib import asynccontextmanager
 from typing import List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from mcp.server.fastmcp import FastMCP
 
 from core.event_bus import event_bus
 from core.band_client import mock_bus, is_mock_mode
@@ -20,12 +22,63 @@ from core.memory_graph import memory_graph
 from api.state import sim_state
 from api.v1 import router as v1_router
 from core.pitch_loader import _load_pitch_file
+import mcp_tools
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fusion.api")
 
-app = FastAPI(title="FUSION API", version="1.0.0")
+# ── Remote MCP transport ─────────────────────────────────────────────────────
+# Expose the same 5 committee tools as mcp_server.py (stdio) over streamable HTTP,
+# mounted at /mcp, so ANY MCP client can connect to the deployed FUSION by URL.
+# Tool behavior is shared via mcp_tools.dispatch — stdio and HTTP can't drift.
+# streamable_http_path="/" + mount("/mcp") => the endpoint is exactly /mcp.
+fusion_mcp = FastMCP("fusion-mcp", stateless_http=True, streamable_http_path="/")
+_MCP_DESC = {t.name: t.description for t in mcp_tools.TOOLS}
+
+
+@fusion_mcp.tool(description=_MCP_DESC["chat_with_managing_partner"])
+async def chat_with_managing_partner(message: str) -> dict:
+    return await mcp_tools.dispatch("chat_with_managing_partner", {"message": message})
+
+
+@fusion_mcp.tool(description=_MCP_DESC["get_deal_record"])
+async def get_deal_record(incident_id: str) -> dict:
+    return await mcp_tools.dispatch("get_deal_record", {"incident_id": incident_id})
+
+
+@fusion_mcp.tool(description=_MCP_DESC["get_boardroom_verdict"])
+async def get_boardroom_verdict(incident_id: str) -> dict:
+    return await mcp_tools.dispatch("get_boardroom_verdict", {"incident_id": incident_id})
+
+
+@fusion_mcp.tool(description=_MCP_DESC["query_deal_vault"])
+async def query_deal_vault(keyword: str, limit: int = 5) -> dict:
+    return await mcp_tools.dispatch("query_deal_vault", {"keyword": keyword, "limit": limit})
+
+
+@fusion_mcp.tool(description=_MCP_DESC["learn_risk_pattern"])
+async def learn_risk_pattern(keyword: str, checklist: str, success_rate: float = 0.8) -> dict:
+    return await mcp_tools.dispatch(
+        "learn_risk_pattern",
+        {"keyword": keyword, "checklist": checklist, "success_rate": success_rate},
+    )
+
+
+# Build the streamable-HTTP ASGI app once (this also creates the session manager).
+_mcp_http_app = fusion_mcp.streamable_http_app()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # The MCP session manager must run for the mounted /mcp app to serve requests.
+    async with fusion_mcp.session_manager.run():
+        logger.info("🔌 FUSION MCP streamable-HTTP transport live at /mcp")
+        yield
+
+
+app = FastAPI(title="FUSION API", version="1.0.0", lifespan=lifespan)
 app.include_router(v1_router)
+app.mount("/mcp", _mcp_http_app)
 
 # Enable CORS for the Next.js War Room dashboard
 ALLOWED_ORIGINS = os.getenv(
@@ -332,10 +385,11 @@ async def mock_llm_completions(request: Request):
         qs = "\n".join(f"- {q}" for q in calc["questions"]["ceo"])
         fin_report += f"\n❓ AUTO-GENERATED VC DILIGENCE QUESTIONS (CEO):\n{qs}\n"
     
+    fin_score_display = f"{fin_score:.1f}/10" if fin_score is not None else "N/A"
     fin_report += (
         f"\n🚨 CRITICAL RED FLAGS:\n"
         f"{format_red_flags(fin_flags)}\n\n"
-        f"FINANCIAL RISK SCORE: {fin_score:.1f}/10\n"
+        f"FINANCIAL RISK SCORE: {fin_score_display}\n"
         f"RECOMMENDATION: {fin_rec}"
     )
     
@@ -352,10 +406,11 @@ async def mock_llm_completions(request: Request):
         qs = "\n".join(f"- {q}" for q in calc["questions"]["legal"])
         leg_report += f"\n❓ AUTO-GENERATED VC DILIGENCE QUESTIONS (Legal Counsel):\n{qs}\n"
         
+    leg_score_display = f"{leg_score:.1f}/10" if leg_score is not None else "N/A"
     leg_report += (
         f"\n🚨 CRITICAL RED FLAGS:\n"
         f"{format_red_flags(leg_flags)}\n\n"
-        f"LEGAL RISK SCORE: {leg_score:.1f}/10\n"
+        f"LEGAL RISK SCORE: {leg_score_display}\n"
         f"RECOMMENDATION: {leg_rec}"
     )
     
@@ -372,10 +427,11 @@ async def mock_llm_completions(request: Request):
         qs = "\n".join(f"- {q}" for q in calc["questions"]["cto"])
         tech_report += f"\n❓ AUTO-GENERATED VC DILIGENCE QUESTIONS (CTO):\n{qs}\n"
         
+    tech_score_display = f"{tech_score:.1f}/10" if tech_score is not None else "N/A"
     tech_report += (
         f"\n🚨 CRITICAL RED FLAGS:\n"
         f"{format_red_flags(tech_flags)}\n\n"
-        f"TECHNICAL RISK SCORE: {tech_score:.1f}/10\n"
+        f"TECHNICAL RISK SCORE: {tech_score_display}\n"
         f"RECOMMENDATION: {tech_rec}"
     )
     
@@ -389,9 +445,9 @@ async def mock_llm_completions(request: Request):
         f"- Competition: {get_citation(competition, 'Market')}\n\n"
         f"🚨 CRITICAL RED FLAGS:\n"
         f"{format_red_flags(mkt_flags)}\n\n"
-        f"MARKET RISK SCORE: {mkt_score:.1f}/10\n"
-        f"RECOMMENDATION: {mkt_rec}"
+        f"MARKET RISK SCORE: {mkt_score:.1f}/10\n" if mkt_score is not None else f"MARKET RISK SCORE: N/A\n"
     )
+    mkt_report += f"RECOMMENDATION: {mkt_rec}"
     
     weighted_score = calc["weighted_score"]
     verdict = calc["verdict"]
@@ -399,7 +455,9 @@ async def mock_llm_completions(request: Request):
     
     # build primary reasons list
     reasons = []
-    if calc["override_reasons"]:
+    if weighted_score is None:
+        reasons = ["Coverage below minimum threshold (40%)"]
+    elif calc["override_reasons"]:
         reasons = calc["override_reasons"]
     else:
         all_flags = fin_flags + leg_flags + tech_flags + mkt_flags
@@ -427,6 +485,20 @@ async def mock_llm_completions(request: Request):
     readiness_status = calc.get("deal_readiness_status", "Ready for IC Review")
     readiness_text = f"{readiness_score:.1f}/100 ({readiness_status})"[:42]
     
+    fin_val_str = f"{fin_score:>2.0f}/10" if fin_score is not None else " N/A "
+    fin_w_str = f"{0.3*fin_score:>4.2f}" if fin_score is not None else " N/A"
+    
+    leg_val_str = f"{leg_score:>2.0f}/10" if leg_score is not None else " N/A "
+    leg_w_str = f"{0.25*leg_score:>4.2f}" if leg_score is not None else " N/A"
+    
+    tech_val_str = f"{tech_score:>2.0f}/10" if tech_score is not None else " N/A "
+    tech_w_str = f"{0.25*tech_score:>4.2f}" if tech_score is not None else " N/A"
+    
+    mkt_val_str = f"{mkt_score:>2.0f}/10" if mkt_score is not None else " N/A "
+    mkt_w_str = f"{0.2*mkt_score:>4.2f}" if mkt_score is not None else " N/A"
+    
+    weighted_val_str = f"{weighted_score:>4.1f}/10" if weighted_score is not None else " N/A  "
+    
     card = (
         "╔══════════════════════════════════════════════════════════╗\n"
         "║         FUSION INVESTMENT COMMITTEE DECISION             ║\n"
@@ -440,12 +512,12 @@ async def mock_llm_completions(request: Request):
         f"║  READINESS:   {readiness_text:<42} ║\n"
         "╚══════════════════════════════════════════════════════════╝\n\n"
         "RISK SCORECARD:\n"
-        f"  Financial Risk:  {fin_score:>2.0f}/10  (weight: 30%) → {0.3*fin_score:>4.2f}\n"
-        f"  Legal Risk:      {leg_score:>2.0f}/10  (weight: 25%) → {0.25*leg_score:>4.2f}\n"
-        f"  Technical Risk:  {tech_score:>2.0f}/10  (weight: 25%) → {0.25*tech_score:>4.2f}\n"
-        f"  Market Risk:     {mkt_score:>2.0f}/10  (weight: 20%) → {0.2*mkt_score:>4.2f}\n"
+        f"  Financial Risk:  {fin_val_str}  (weight: 30%) → {fin_w_str}\n"
+        f"  Legal Risk:      {leg_val_str}  (weight: 25%) → {leg_w_str}\n"
+        f"  Technical Risk:  {tech_val_str}  (weight: 25%) → {tech_w_str}\n"
+        f"  Market Risk:     {mkt_val_str}  (weight: 20%) → {mkt_w_str}\n"
         "  ─────────────────────────────────────────────\n"
-        f"  WEIGHTED SCORE:  {weighted_score:>4.1f}/10\n\n"
+        f"  WEIGHTED SCORE:  {weighted_val_str}\n\n"
         "PRIMARY REASONS:\n"
         f"{reasons_str}"
     )
@@ -473,10 +545,10 @@ async def mock_llm_completions(request: Request):
     }
     
     next_room_map = {
-        "financial_partner": ("managing-partner-room", f"@managing-partner FINANCIAL ANALYSIS COMPLETE. Risk Score: {fin_score:.1f}/10. {fin_rec}."),
-        "legal_partner": ("managing-partner-room", f"@managing-partner LEGAL ANALYSIS COMPLETE. Risk Score: {leg_score:.1f}/10. {leg_rec}."),
-        "technical_partner": ("managing-partner-room", f"@managing-partner TECHNICAL ANALYSIS COMPLETE. Risk Score: {tech_score:.1f}/10. {tech_rec}."),
-        "market_partner": ("managing-partner-room", f"@managing-partner MARKET ANALYSIS COMPLETE. Risk Score: {mkt_score:.1f}/10. {mkt_rec}."),
+        "financial_partner": ("managing-partner-room", f"@managing-partner FINANCIAL ANALYSIS COMPLETE. Risk Score: {fin_score:.1f}/10. {fin_rec}." if fin_score is not None else f"@managing-partner FINANCIAL ANALYSIS COMPLETE. Risk Score: N/A. {fin_rec}."),
+        "legal_partner": ("managing-partner-room", f"@managing-partner LEGAL ANALYSIS COMPLETE. Risk Score: {leg_score:.1f}/10. {leg_rec}." if leg_score is not None else f"@managing-partner LEGAL ANALYSIS COMPLETE. Risk Score: N/A. {leg_rec}."),
+        "technical_partner": ("managing-partner-room", f"@managing-partner TECHNICAL ANALYSIS COMPLETE. Risk Score: {tech_score:.1f}/10. {tech_rec}." if tech_score is not None else f"@managing-partner TECHNICAL ANALYSIS COMPLETE. Risk Score: N/A. {tech_rec}."),
+        "market_partner": ("managing-partner-room", f"@managing-partner MARKET ANALYSIS COMPLETE. Risk Score: {mkt_score:.1f}/10. {mkt_rec}." if mkt_score is not None else f"@managing-partner MARKET ANALYSIS COMPLETE. Risk Score: N/A. {mkt_rec}."),
     }
 
     expects_real_schema = False

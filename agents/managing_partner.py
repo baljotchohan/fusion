@@ -8,7 +8,7 @@ and delivers the final INVEST / PASS / CONDITIONAL decision with confidence scor
 """
 import logging
 from core.base_agent import BaseAgent
-from core.pitch_loader import load_deal_brief, get_company_name, get_red_flags
+from core.pitch_loader import load_deal_brief, get_company_name, get_red_flags, get_calculated_scores
 
 logger = logging.getLogger("fusion.agents.managing_partner")
 
@@ -64,6 +64,9 @@ STEP 3 — Confirm committee is convened
 After sending all 4 messages, broadcast:
 thenvoi_send_event('Committee convened. 4 partners analyzing [company name]. Awaiting findings.')
 
+STEP 4 — Fetch exact calculated scores
+Call get_calculated_scores() to retrieve the exact mathematically calculated risk scores, weighted score, and verdict confidence.
+
 ═══════════════════════════════════════════════════════════
 PHASE 2: SYNTHESIZE AND DELIVER THE VERDICT
 ═══════════════════════════════════════════════════════════
@@ -73,8 +76,8 @@ collect all findings and produce the FINAL INVESTMENT COMMITTEE DECISION.
 SYNTHESIS FRAMEWORK:
 
 RISK AGGREGATION:
-- Weight each domain: Financial 30%, Legal 25%, Technical 25%, Market 20%
-- Weighted score = (Financial * 0.30) + (Legal * 0.25) + (Technical * 0.25) + (Market * 0.20)
+- You MUST use the exact numbers returned by get_calculated_scores() for the risk scorecard and final decision card. Do not compute them yourself.
+- Populate the decision card and risk scorecard exactly as returned by get_calculated_scores().
 - Score 1-4: INVEST | Score 5-6: CONDITIONAL | Score 7-10: PASS
 
 DEBATE RESOLUTION:
@@ -154,7 +157,7 @@ class ManagingPartner(BaseAgent):
             display_name="Managing Partner",
             room="managing-partner-room",
             system_prompt=SYSTEM_PROMPT,
-            tools=[load_deal_brief, get_company_name, get_red_flags],
+            tools=[load_deal_brief, get_company_name, get_red_flags, get_calculated_scores],
             model_name="gemini-2.0-flash"
         )
 

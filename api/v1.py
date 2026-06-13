@@ -48,6 +48,20 @@ def _new_incident_id() -> str:
     return f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
 
+def is_field_missing(field: dict) -> bool:
+    if not field or not isinstance(field, dict):
+        return True
+    val = field.get("value")
+    if val is None or val == "" or str(val).lower() in ("insufficient evidence", "unknown", "n/a"):
+        return True
+    if field.get("confidence", 0) < 40:
+        return True
+    if not field.get("evidence") or str(field.get("evidence")).strip() == "":
+        return True
+    return False
+
+
+
 def _agent_statuses() -> dict:
     return {name: sim_state.agent_statuses.get(name, "idle") for name in AGENT_NAMES}
 
@@ -367,12 +381,14 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
             readiness_score = calc.get("deal_readiness_score", 80.0)
             readiness_status = calc.get("deal_readiness_status", "Ready for IC Review")
             
+            w_score_str = f"**{weighted_score:.1f}/10**" if weighted_score is not None else "**N/A**"
+            
             return (
                 f"📊 **Active Diligence Record — {company_name}**\n\n"
                 f"- 🏢 **Target Name**: {company_name}\n"
                 f"- 💼 **Stage & Deal**: {stage} | {raise_amount} raise at {valuation} post-money valuation\n"
                 f"- 💵 **Financials**: {arr} ARR | {burn} burn | {runway} runway\n"
-                f"- ⚖️ **Verdict & Risk**: **{verdict}** (Risk Score: **{weighted_score:.1f}/10**)\n"
+                f"- ⚖️ **Verdict & Risk**: **{verdict}** (Risk Score: {w_score_str})\n"
                 f"- 🎯 **Coverage & Quality**: Fact Coverage **{coverage_score}%** | Evidence Quality **{quality_val_pct:.1f}%**\n"
                 f"- 🛡️ **Verdict Confidence**: **{confidence_val_pct:.1f}%**\n"
                 f"- 🚦 **Deal Readiness**: **{readiness_score:.1f}/100** ({readiness_status})\n\n"
@@ -754,6 +770,26 @@ MCP_TOOLS = [
      "inputs": ["keyword", "checklist", "success_rate"]},
 ]
 
+
+def _mcp_transports() -> list:
+    """The two ways any MCP client can connect to FUSION's committee tools."""
+    public_url = os.getenv("FUSION_PUBLIC_URL", "http://localhost:8000").rstrip("/")
+    mcp_url = os.getenv("FUSION_MCP_URL", f"{public_url}/mcp")
+    return [
+        {
+            "type": "streamable-http",
+            "url": mcp_url,
+            "remote": True,
+            "connect_hint": f"Add '{mcp_url}' as a streamable-HTTP MCP server in any client — no local install.",
+        },
+        {
+            "type": "stdio",
+            "command": "python mcp_server.py",
+            "remote": False,
+            "connect_hint": "Local: register `python mcp_server.py` (see repo .mcp.json / Claude Desktop config).",
+        },
+    ]
+
 _PROVIDER_META = [
     ("gemini", "GOOGLE_API_KEY", "Google Gemini 2.0 Flash", "Fast multimodal reasoning"),
     ("groq", "GROQ_API_KEY", "Groq — Llama 3.3 70B", "Free, very low latency"),
@@ -813,10 +849,9 @@ async def get_system_settings():
         "agents": AGENT_NAMES,
         "mcp": {
             "server": "fusion-mcp",
-            "transport": "stdio",
+            "transports": _mcp_transports(),
             "tool_count": len(MCP_TOOLS),
             "tools": MCP_TOOLS,
-            "connect_hint": "Run `python mcp_server.py` and register it in your MCP client (Claude Desktop, etc.).",
         },
         "memory_stats": memory_graph.get_memory_stats(),
     }
@@ -849,8 +884,13 @@ async def update_system_settings(patch: SettingsPatch):
 
 @router.get("/system/mcp")
 async def get_mcp_registry():
-    """The MCP tool surface external AI apps can call."""
-    return {"server": "fusion-mcp", "transport": "stdio", "tools": MCP_TOOLS}
+    """The MCP tool surface external AI apps can call, and how to connect."""
+    return {
+        "server": "fusion-mcp",
+        "transports": _mcp_transports(),
+        "tool_count": len(MCP_TOOLS),
+        "tools": MCP_TOOLS,
+    }
 
 
 @router.post("/system/reset-all")
@@ -889,30 +929,98 @@ async def _agent_reply(agent_name: str, user_message: str, incident_id: str) -> 
     
     findings_str = "\n".join(f"- {f}" for f in agent_findings) if agent_findings else "No findings logged yet."
     
+    # Load calculations dynamically to build a custom mandate
+    calc = None
+    try:
+        from core.pitch_loader import _load_pitch_file
+        from core.diligence_engine import run_diligence_calculations
+        from api.state import sim_state
+        pitch_file = getattr(sim_state, "active_pitch_file", None) or (f"pitch_{incident_id}.json" if incident_id else None)
+        pitch_data = _load_pitch_file(pitch_file)
+        if pitch_data:
+            calc = run_diligence_calculations(pitch_data)
+    except Exception as e:
+        logger.warning(f"Failed to load pitch data for agent reply mandate: {e}")
+
+    # Default generic mandates
+    fin_mandate = "Evaluate revenue quality, ARR, gross margins, runway, burn, LTV:CAC, and valuation multiples."
+    leg_mandate = "Evaluate litigation risks, regulatory compliance, CCPA/GDPR compliance, licensing gaps, and founder histories."
+    tech_mandate = "Evaluate software stack, database architectures, plaintext storage of sensitive data, security audit gaps, and potential breaches."
+    mkt_mandate = "Evaluate TAM claim validation, industry sector trends, competitor pressures, and regulatory exposure."
+
+    if calc:
+        company_name = calc.get("company_name", "the startup")
+        
+        # Build financial mandate dynamically
+        fin_claims = []
+        if calc.get("arr") and calc["arr"].get("value") != "Insufficient Evidence":
+            fin_claims.append(f"ARR of {calc['arr']['value']}")
+        if calc.get("burn") and calc["burn"].get("value") != "Insufficient Evidence":
+            fin_claims.append(f"monthly burn of {calc['burn']['value']}")
+        if calc.get("runway") and calc["runway"].get("value") != "Insufficient Evidence":
+            fin_claims.append(f"runway of {calc['runway']['value']}")
+        if calc.get("gross_margin") and calc["gross_margin"].get("value") != "Insufficient Evidence":
+            fin_claims.append(f"gross margin of {calc['gross_margin']['value']}")
+        if calc.get("customer_concentration") and calc["customer_concentration"].get("value") != "Insufficient Evidence":
+            fin_claims.append(f"customer concentration ({calc['customer_concentration']['value']})")
+        
+        if fin_claims:
+            fin_mandate = f"Evaluate revenue quality for {company_name}, specifically: " + ", ".join(fin_claims) + "."
+            
+        # Build legal mandate dynamically
+        leg_claims = []
+        if calc.get("litigation") and calc["litigation"].get("value") != "Insufficient Evidence" and "no active" not in str(calc["litigation"].get("value")).lower():
+            leg_claims.append(f"litigation ({calc['litigation']['value']})")
+        if calc.get("compliance") and calc["compliance"].get("value") != "Insufficient Evidence":
+            leg_claims.append(f"compliance status ({calc['compliance']['value']})")
+        
+        if leg_claims:
+            leg_mandate = f"Evaluate legal and regulatory compliance risks for {company_name}, specifically: " + ", ".join(leg_claims) + "."
+            
+        # Build technical mandate dynamically
+        tech_claims = []
+        if calc.get("stack") and calc["stack"].get("value") != "Insufficient Evidence":
+            tech_claims.append(f"technology stack ({calc['stack']['value']})")
+        if calc.get("security") and calc["security"].get("value") != "Insufficient Evidence":
+            tech_claims.append(f"security posture ({calc['security']['value']})")
+            
+        if tech_claims:
+            tech_mandate = f"Evaluate technical architecture and security risks for {company_name}, specifically: " + ", ".join(tech_claims) + "."
+            
+        # Build market mandate dynamically
+        mkt_claims = []
+        if calc.get("tam") and calc["tam"].get("value") != "Insufficient Evidence":
+            mkt_claims.append(f"TAM validation ({calc['tam']['value']})")
+        if calc.get("competition") and calc["competition"].get("value") != "Insufficient Evidence":
+            mkt_claims.append(f"competition ({calc['competition']['value']})")
+            
+        if mkt_claims:
+            mkt_mandate = f"Evaluate market sizing and industry dynamics for {company_name}, specifically: " + ", ".join(mkt_claims) + "."
+
     PERSONAS = {
         "financial_partner": {
             "name": "Financial Partner",
             "role": "Forensic Accountant & Financial Analyst",
             "bio": "You are a Senior Financial Partner at a top-tier VC firm. You have 15 years of experience in forensic accounting and startup due diligence. You are analytical, skeptical, and focused on hard numbers.",
-            "mandate": "Evaluate revenue quality, Amazon ARR concentration (78%), gross margins (48%), runway (8 months), burn ($380k), LTV:CAC (2.5x), and valuation multiples."
+            "mandate": fin_mandate
         },
         "legal_partner": {
             "name": "Legal Partner",
             "role": "M&A Legal Counsel",
             "bio": "You are a Senior Legal Partner at the VC firm, formerly an M&A attorney at Sullivan & Cromwell with 18 years of experience. You focus on contracts, IP, lawsuits, and regulatory landmines.",
-            "mandate": "Evaluate litigation risks (Klarna $8M lawsuit), state transmitter licensing gaps (CA, NY, TX, FL), CCPA/GDPR compliance, CFPB compliance, and founder histories."
+            "mandate": leg_mandate
         },
         "technical_partner": {
             "name": "Technical Partner",
             "role": "CTO Advisor & Security Auditor",
             "bio": "You are a Senior Technical Partner at the VC firm, auditing product stacks, cybersecurity posture, tech debt, and database vulnerabilities.",
-            "mandate": "Evaluate EOL Node.js 14 and MongoDB 4.2 in production, plaintext storage of SSNs/PII, monolithic scalability issues, and undisclosed breaches."
+            "mandate": tech_mandate
         },
         "market_partner": {
             "name": "Market Partner",
             "role": "Market Research Director",
             "bio": "You are a Senior Market Partner at the firm, specializing in market sizing, competitor landscaping, sector timing, and defensibility moats.",
-            "mandate": "Evaluate TAM claim validation, BNPL sector contractions (12% YoY decline), competitor pressure from Klarna/Affirm, and CFPB credit reporting requirements."
+            "mandate": mkt_mandate
         },
         "managing_partner": {
             "name": "Managing Partner",
@@ -1091,6 +1199,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     co_conf = 40
     co_start, co_end = -1, -1
     co_evidence = "Filename derivation"
+    co_prov = "derived"
     
     co_match = re.search(r"(?:company\s*name|company|startup|name):\s*([A-Za-z0-9_\- ]{2,30})", text, re.IGNORECASE)
     if co_match:
@@ -1100,11 +1209,9 @@ def extract_facts_regex(text: str, filename: str) -> dict:
             co_conf = 98
             co_start, co_end = co_match.start(1), co_match.end(1)
             co_evidence = co_match.group(0).strip()
+            co_prov = "direct"
             
-    is_snaphire = "snap" in company_name.lower() or "snapscore" in text.lower() or "snaphire" in text.lower()
-    is_novapay = "nova" in company_name.lower() or "novapay" in text.lower()
-    
-    def find_pattern(patterns, text, default_val, default_ev, default_conf, is_pct=False):
+    def find_pattern(metric_name, timeframe_val, source_sec, patterns, text, is_pct=False):
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
@@ -1113,279 +1220,226 @@ def extract_facts_regex(text: str, filename: str) -> dict:
                     val = val.strip().strip('"*')
                     if is_pct and "%" not in val:
                         val = f"{val}%"
+                    resolved_timeframe = timeframe_val
+                    if not resolved_timeframe or resolved_timeframe == "unknown":
+                        surr = text[max(0, match.start() - 100):min(len(text), match.end() + 100)].lower()
+                        if any(w in surr for w in ["project", "forecast", "future", "plan", "expect", "reach", "path to", "2026", "2027", "2028", "2029", "2030"]):
+                            resolved_timeframe = "projected"
+                        elif any(w in surr for w in ["target", "goal"]):
+                            resolved_timeframe = "target"
+                        elif any(w in surr for w in ["history", "historical", "past", "last year", "2025", "2024"]):
+                            resolved_timeframe = "historical"
+                        elif any(w in surr for w in ["current", "now", "present", "runrate", "run rate"]):
+                            resolved_timeframe = "current"
+                        elif "estimate" in surr or "approximate" in surr:
+                            resolved_timeframe = "estimated"
+                        else:
+                            resolved_timeframe = "current"
                     return {
+                        "metric": metric_name,
                         "value": val,
+                        "timeframe": resolved_timeframe,
                         "confidence": 98,
-                        "provenance": "regex",
-                        "source_start": match.start(1),
-                        "source_end": match.end(1),
-                        "evidence": match.group(0).strip()
+                        "provenance": "direct",
+                        "source_section": source_sec,
+                        "source_start": match.start(1) if match.lastindex else match.start(),
+                        "source_end": match.end(1) if match.lastindex else match.end(),
+                        "evidence": match.group(0).strip(),
+                        "flag_for_review": False
                     }
         return {
-            "value": default_val,
-            "confidence": default_conf,
-            "provenance": "default",
+            "metric": metric_name,
+            "value": "Insufficient Evidence",
+            "timeframe": timeframe_val or "unknown",
+            "confidence": 0,
+            "provenance": "unknown",
+            "source_section": source_sec,
             "source_start": -1,
             "source_end": -1,
-            "evidence": default_ev
+            "evidence": "",
+            "flag_for_review": False
         }
 
     stage = find_pattern(
+        "Stage", "current", "Company",
         [r"(?:stage|round):\s*([A-Za-z0-9_\- ]{2,20})", r"\b(Series [A-D]|Seed|Pre-seed)\b"],
-        text,
-        "Series B" if is_snaphire else "Series A",
-        "Default assignment based on company profile",
-        80 if is_snaphire or is_novapay else 40
+        text
     )
     
     industry = find_pattern(
-        [r"(?:industry|sector):\s*([A-Za-z0-9_\- \/&]{3,40})"],
-        text,
-        "AI Recruiting / HR Tech platform" if is_snaphire else ("Fintech / Buy Now Pay Later (BNPL)" if is_novapay else "SaaS / Technology"),
-        "Default industry classification",
-        80 if is_snaphire or is_novapay else 40
+        "Industry", "current", "Company",
+        [r"(?:industry|sector)\s*(?::|is|of|at|-|\b)\s*([A-Za-z0-9_\- \/&]{3,40})"],
+        text
     )
     
     raise_amt = find_pattern(
-        [r"(?:raising|raise|raise_amount|funding):\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
+        "Raise Amount", "current", "Deal",
+        [r"(?:raising|raise|raise_amount|funding)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
          r"(?:raise|raising|raising amount|round size|raise size)\s*(?:of|is|target)?\s*(\$[0-9\.,]+\s*(?:million|m|billion|b)?)"],
-        text,
-        "$15,000,000" if is_snaphire else ("$10,000,000" if is_novapay else "$5,000,000"),
-        "Default raise size estimate",
-        80 if is_snaphire or is_novapay else 40
+        text
     )
     
     valuation = find_pattern(
-        [r"(?:valuation|post-money|post_money_valuation|post valuation):\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
+        "Post-money Valuation", "current", "Deal",
+        [r"(?:valuation|post-money|post_money_valuation|post valuation)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
          r"(\$[0-9\.,]+\s*(?:million|m|billion|b)?)\s*(?:post-money|post money|post-valuation|post valuation|valuation)"],
-        text,
-        "$60,000,000" if is_snaphire else ("$40,000,000" if is_novapay else "$20,000,000"),
-        "Default post-money valuation estimate",
-        80 if is_snaphire or is_novapay else 40
+        text
     )
     
     arr = find_pattern(
-        [r"(?:arr|annual recurring revenue|revenue):\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
+        "ARR", "current", "Financials",
+        [r"(?:arr|annual recurring revenue|revenue)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
          r"(\$[0-9\.,]+\s*(?:million|m|billion|b)?)\s*arr"],
-        text,
-        "$7,200,000" if is_snaphire else ("$5,000,000" if is_novapay else "$1,000,000"),
-        "Default ARR estimate",
-        80 if is_snaphire or is_novapay else 40
+        text
     )
     
     burn = find_pattern(
-        [r"(?:burn|burn rate|monthly burn|burn_rate):\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
+        "Burn", "current", "Financials",
+        [r"(?:burn|burn rate|monthly burn|burn_rate)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
          r"(\$[0-9\.,]+\s*(?:million|m|billion|b)?)\s*(?:monthly\s*)?burn"],
-        text,
-        "$520,000" if is_snaphire else ("$380,000" if is_novapay else "$150,000"),
-        "Default monthly burn estimate",
-        80 if is_snaphire or is_novapay else 40
+        text
     )
     
     runway = find_pattern(
-        [r"(?:runway):\s*([0-9\.]+\s*(?:months|years)?)", r"([0-9\.]+\s*months?)\s*runway", r"runway\s*(?:of|is)?\s*([0-9\.]+\s*months?)"],
-        text,
-        "6.9 months" if is_snaphire else ("8 months" if is_novapay else "12 months"),
-        "Default runway estimate",
-        80 if is_snaphire or is_novapay else 40
+        "Runway", "current", "Financials",
+        [r"(?:runway)\s*(?::|is|of|at|-|\b)\s*([0-9\.]+\s*(?:months|years)?)", r"([0-9\.]+\s*months?)\s*runway", r"runway\s*(?:of|is)?\s*([0-9\.]+\s*months?)"],
+        text
     )
     
     gross_margin = find_pattern(
-        [r"(?:gross margin|gross_margin|margin):\s*([0-9\.]+%)", r"([0-9\.]+%)\s*(?:gross\s*)?margin", r"margin\s*(?:of|is)?\s*([0-9\.]+\s*%)"],
+        "Gross Margin", "current", "Financials",
+        [r"(?:gross margin|gross_margin|margin)\s*(?::|is|of|at|-|\b)\s*([0-9\.]+%)", r"([0-9\.]+%)\s*(?:gross\s*)?margin", r"margin\s*(?:of|is)?\s*([0-9\.]+\s*%)"],
         text,
-        "48%" if is_snaphire else ("62%" if is_novapay else "70%"),
-        "Default gross margin estimate",
-        80 if is_snaphire or is_novapay else 40,
         is_pct=True
     )
     
-    cust_evidence = "Default customer profile"
-    cust_conf = 40
-    cust_start, cust_end = -1, -1
+    customers = find_pattern(
+        "Customers", "current", "Financials",
+        [r"(?:[0-9]+)\s*customers\s*total", r"([0-9]+)\s*(?:mid-market\s*)?clients", r"([0-9]+)\s*customers", r"customers\s*(?:count|total)\s*(?::|is|of|at|-|\b)\s*([0-9]+)"],
+        text
+    )
     
-    conc_match = re.search(r"([0-9]+%)\s*(?:revenue\s*)?concentration", text, re.IGNORECASE)
-    if conc_match:
-        cust_evidence = conc_match.group(0).strip()
-        cust_conf = 95
-        cust_start, cust_end = conc_match.start(1), conc_match.end(1)
-        
-    if is_snaphire:
-        customers_val = "Microsoft: $5.1M ARR (71% concentration). 11 customers total."
-        if cust_conf == 40:
-            cust_conf = 80
-            cust_evidence = "Injected SnapHire customer metrics"
-    elif is_novapay:
-        customers_val = "Amazon B2B Partnership: $3.9M ARR (78% concentration). 12 mid-market clients."
-        if cust_conf == 40:
-            cust_conf = 80
-            cust_evidence = "Injected NovaPay customer metrics"
-    else:
-        customers_val = f"Concentration level: {conc_match.group(1) if conc_match else 'None'}. Low concentration."
-        
-    customers = {
-        "value": customers_val,
-        "confidence": cust_conf,
-        "provenance": "regex" if cust_start != -1 else "default",
-        "source_start": cust_start,
-        "source_end": cust_end,
-        "evidence": cust_evidence
-    }
+    customer_concentration = find_pattern(
+        "Customer Concentration", "current", "Financials",
+        [r"([0-9]+%)[ \t]*(?:revenue|customer)?[ \t]*concentration", r"concentration[ \t]*(?:of|is)?[ \t]*([0-9]+%)", r"([0-9]+%)[ \t]*from[ \t]*[A-Za-z0-9_\- ]+"],
+        text
+    )
 
     lit_match = re.search(r"(?:lawsuit|litigation|patent dispute|sued by|dispute)[^\n]*", text, re.IGNORECASE)
-    lit_val = "No active lawsuits or pending litigation."
-    lit_conf = 40
-    lit_start, lit_end = -1, -1
-    lit_evidence = "No lawsuits found in text"
-    
     if lit_match:
         no_lit_words = ["no lawsuit", "no litigation", "no pending", "none mentioned", "no evidence of lawsuit"]
-        if not any(w in text.lower() for w in no_lit_words):
-            lit_val = lit_match.group(0).strip()
-            lit_conf = 95
-            lit_start, lit_end = lit_match.start(), lit_match.end()
-            lit_evidence = lit_val
-            
-    if is_snaphire:
-        lit_val = "No active lawsuits or pending litigation."
-        lit_conf = 80
-        lit_evidence = "Verified SnapHire litigation status (None)"
-    elif is_novapay and lit_conf == 40:
-        lit_val = "Klarna AB v. NovaPay Inc (Case No. 3:2026cv01847) Patent Infringement claiming $8.0M damages."
-        lit_conf = 80
-        lit_evidence = "Injected NovaPay Klarna lawsuit details"
-        
-    litigation = {
-        "value": lit_val,
-        "confidence": lit_conf,
-        "provenance": "regex" if lit_start != -1 else "default",
-        "source_start": lit_start,
-        "source_end": lit_end,
-        "evidence": lit_evidence
-    }
+        lit_val = lit_match.group(0).strip()
+        if any(w in lit_val.lower() for w in no_lit_words):
+            litigation = {
+                "metric": "Litigation",
+                "value": "No active lawsuits.",
+                "timeframe": "current",
+                "confidence": 95,
+                "provenance": "direct",
+                "source_section": "Legal",
+                "source_start": lit_match.start(),
+                "source_end": lit_match.end(),
+                "evidence": lit_val,
+                "flag_for_review": False
+            }
+        else:
+            litigation = {
+                "metric": "Litigation",
+                "value": lit_val,
+                "timeframe": "current",
+                "confidence": 95,
+                "provenance": "direct",
+                "source_section": "Legal",
+                "source_start": lit_match.start(),
+                "source_end": lit_match.end(),
+                "evidence": lit_val,
+                "flag_for_review": False
+            }
+    else:
+        litigation = {
+            "metric": "Litigation",
+            "value": "Insufficient Evidence",
+            "timeframe": "current",
+            "confidence": 0,
+            "provenance": "unknown",
+            "source_section": "Legal",
+            "source_start": -1,
+            "source_end": -1,
+            "evidence": "",
+            "flag_for_review": False
+        }
 
-    comp_val = "Awaiting regulatory compliance review."
-    comp_conf = 40
+    comp_val = "Insufficient Evidence"
+    comp_conf = 0
     comp_start, comp_end = -1, -1
-    comp_evidence = "Default compliance state"
-    
-    for word in ["NYC Local Law 144", "CFPB", "GDPR", "SOC 2", "SOC2", "unlicensed"]:
+    comp_evidence = ""
+    comp_prov = "unknown"
+    for word in ["NYC Local Law 144", "CFPB", "GDPR", "SOC 2", "SOC2", "unlicensed", "licensed"]:
         match = re.search(rf"([^%\n]*{word}[^\n]*)", text, re.IGNORECASE)
         if match:
             comp_val = match.group(1).strip()
             comp_conf = 95
             comp_start, comp_end = match.start(1), match.end(1)
             comp_evidence = comp_val
+            comp_prov = "direct"
             break
-            
-    if is_snaphire:
-        comp_val = "SOC 2 Type 1 certified, GDPR agreements in place, and ongoing privacy compliance efforts. NYC Local Law 144 regulatory exposure."
-        comp_conf = 80
-        comp_evidence = "Injected SnapHire compliance profile"
-    elif is_novapay and comp_conf == 40:
-        comp_val = "Non-compliant with CFPB BNPL rules effective Jan 2026. Lacks money transmitter licenses in 4 states (CA, NY, TX, FL)."
-        comp_conf = 80
-        comp_evidence = "Injected NovaPay compliance profile"
-        
     compliance = {
+        "metric": "Compliance",
         "value": comp_val,
+        "timeframe": "current",
         "confidence": comp_conf,
-        "provenance": "regex" if comp_start != -1 else "default",
+        "provenance": comp_prov,
+        "source_section": "Legal",
         "source_start": comp_start,
         "source_end": comp_end,
-        "evidence": comp_evidence
+        "evidence": comp_evidence,
+        "flag_for_review": False
     }
 
-    stack_val = "React, Node.js, AWS"
-    stack_conf = 40
-    stack_start, stack_end = -1, -1
-    stack_evidence = "Default tech stack estimate"
-    
-    stack_match = re.search(r"(?:tech stack|stack|backend|database):\s*([^\n]+)", text, re.IGNORECASE)
-    if stack_match:
-        stack_val = stack_match.group(1).strip()
-        stack_conf = 95
-        stack_start, stack_end = stack_match.start(1), stack_match.end(1)
-        stack_evidence = stack_match.group(0).strip()
-        
-    if is_snaphire:
-        stack_val = "Python 3.10, FastAPI, PostgreSQL, AWS, React"
-        stack_conf = 80
-        stack_evidence = "Injected SnapHire modern stack"
-    elif is_novapay and stack_conf == 40:
-        stack_val = "Node.js 14 (EOL Oct 2023), MongoDB 4.2 (EOL Feb 2023), React 17, AWS EC2"
-        stack_conf = 80
-        stack_evidence = "Injected NovaPay legacy EOL stack"
-        
-    tech_stack = {
-        "value": stack_val,
-        "confidence": stack_conf,
-        "provenance": "regex" if stack_start != -1 else "default",
-        "source_start": stack_start,
-        "source_end": stack_end,
-        "evidence": stack_evidence
-    }
+    tech_stack = find_pattern(
+        "Tech Stack", "current", "Technical",
+        [r"(?:tech stack|stack|backend|database)\s*(?::|is|of|at|-|\b)\s*([^\n]+)"],
+        text
+    )
 
-    sec_val = "Standard security procedures. SOC 2 pending."
-    sec_conf = 40
+    sec_val = "Insufficient Evidence"
+    sec_conf = 0
     sec_start, sec_end = -1, -1
-    sec_evidence = "Default security status"
-    
-    for word in ["plaintext", "SSNs", "PII", "breach", "data breach", "pentest", "MFA"]:
+    sec_evidence = ""
+    sec_prov = "unknown"
+    for word in ["plaintext", "SSNs", "PII", "breach", "data breach", "pentest", "MFA", "security"]:
         match = re.search(rf"([^%\n]*{word}[^\n]*)", text, re.IGNORECASE)
         if match:
             sec_val = match.group(1).strip()
             sec_conf = 95
             sec_start, sec_end = match.start(1), match.end(1)
             sec_evidence = sec_val
+            sec_prov = "direct"
             break
-            
-    if is_snaphire:
-        sec_val = "SOC 2 Type 1 certified, data encrypted at rest (AES-256) and in transit, MFA enforced. No security breaches."
-        sec_conf = 80
-        sec_evidence = "Injected SnapHire security details"
-    elif is_novapay and sec_conf == 40:
-        sec_val = "Customer financial data and SSNs stored in plaintext MongoDB. No pentest conducted. Undisclosed 2024 data breach (3,200 records)."
-        sec_conf = 80
-        sec_evidence = "Injected NovaPay security details"
-        
     security = {
+        "metric": "Security",
         "value": sec_val,
+        "timeframe": "current",
         "confidence": sec_conf,
-        "provenance": "regex" if sec_start != -1 else "default",
+        "provenance": sec_prov,
+        "source_section": "Technical",
         "source_start": sec_start,
         "source_end": sec_end,
-        "evidence": sec_evidence
+        "evidence": sec_evidence,
+        "flag_for_review": False
     }
 
-    tam_val = "$10B global TAM"
-    tam_conf = 40
-    tam_start, tam_end = -1, -1
-    tam_evidence = "Default market size estimate"
-    
-    tam_match = re.search(r"(?:tam|market size):\s*([^\n]+)", text, re.IGNORECASE)
-    if tam_match:
-        tam_val = tam_match.group(1).strip()
-        tam_conf = 95
-        tam_start, tam_end = tam_match.start(1), tam_match.end(1)
-        tam_evidence = tam_match.group(0).strip()
-        
-    if is_snaphire:
-        tam_val = "$50B global HR Tech market by 2030"
-        tam_conf = 80
-        tam_evidence = "Injected SnapHire HR Tech TAM"
-    elif is_novapay and tam_conf == 40:
-        tam_val = "$700B global BNPL market by 2030"
-        tam_conf = 80
-        tam_evidence = "Injected NovaPay BNPL TAM"
-        
-    tam = {
-        "value": tam_val,
-        "confidence": tam_conf,
-        "provenance": "regex" if tam_start != -1 else "default",
-        "source_start": tam_start,
-        "source_end": tam_end,
-        "evidence": tam_evidence
-    }
+    tam = find_pattern(
+        "TAM", "current", "Market",
+        [r"(?:tam|market size)\s*(?::|is|of|at|-|\b)\s*([^\n]+)"],
+        text
+    )
+
+    competition = find_pattern(
+        "Competition", "current", "Market",
+        [r"(?:competitors|competition|competitor)\s*(?::|is|of|at|-|\b|include|includes)\s*([^\n]+)"],
+        text
+    )
 
     cust_start = customers.get("source_start")
     cust_end = customers.get("source_end")
@@ -1403,78 +1457,145 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     tech_flags = []
     mkt_flags = []
 
-    if is_snaphire:
-        fin_flags = [
-            {"claim": "71% customer concentration in Microsoft", "evidence": "Microsoft contributes $5.1M of the $7.2M total ARR", "confidence": 92, "source_section": "Financials", "source_start": cust_start, "source_end": cust_end},
-            {"claim": "Short runway of 6.9 months", "evidence": "$3.6M cash / $520k monthly burn", "confidence": 92, "source_section": "Financials", "source_start": runway.get("source_start"), "source_end": runway.get("source_end")},
-            {"claim": "Low gross margin of 48%", "evidence": "Gross Margin = 48% (below SaaS benchmark of 70%+)", "confidence": 90, "source_section": "Financials", "source_start": gross_margin.get("source_start"), "source_end": gross_margin.get("source_end")}
-        ]
-        leg_flags = [
-            {"claim": "AI hiring regulatory exposure (NYC Local Law 144)", "evidence": "NYC Local Law 144 and ongoing bias-audit compliance risk", "confidence": 90, "source_section": "Legal", "source_start": comp_start, "source_end": comp_end}
-        ]
-        tech_flags = [
-            {"claim": "Dependence on proprietary SnapScore model", "evidence": "SnapScore candidate grading model requires continuous audits", "confidence": 85, "source_section": "Technical", "source_start": -1, "source_end": -1}
-        ]
-        mkt_flags = [
-            {"claim": "Highly competitive landscape", "evidence": "Competitors include well-funded HireVue and Eightfold.ai", "confidence": 85, "source_section": "Market", "source_start": -1, "source_end": -1}
-        ]
-    elif is_novapay or "novapay" in text.lower():
-        fin_flags = [
-            {"claim": "78% revenue concentration in Amazon", "evidence": "Amazon B2B Partnership represents 78% of revenue ($3.9M ARR)", "confidence": 92, "source_section": "Financials", "source_start": cust_start, "source_end": cust_end},
-            {"claim": "Amazon contract expires Sept 30, 2026", "evidence": "Contract renewal under negotiation, expires in 3 months", "confidence": 92, "source_section": "Financials", "source_start": -1, "source_end": -1},
-            {"claim": "8 months runway at current burn", "evidence": "8 months runway ($3.0M cash / $380k burn)", "confidence": 90, "source_section": "Financials", "source_start": runway.get("source_start"), "source_end": runway.get("source_end")}
-        ]
-        leg_flags = [
-            {"claim": "Klarna patent lawsuit", "evidence": "Active lawsuit seeking $8M in damages representing 80% of raise", "confidence": 95, "source_section": "Legal", "source_start": lit_start, "source_end": lit_end},
-            {"claim": "CFPB BNPL non-compliance", "evidence": "Non-compliant with new CFPB rules effective Jan 2026", "confidence": 92, "source_section": "Legal", "source_start": comp_start, "source_end": comp_end},
-            {"claim": "Unlicensed money transmission in 4 states", "evidence": "Operating in CA, NY, TX, FL without required state licenses", "confidence": 92, "source_section": "Legal", "source_start": -1, "source_end": -1}
-        ]
-        tech_flags = [
-            {"claim": "EOL Node.js 14 and MongoDB 4.2 in production", "evidence": "Node.js 14 (EOL Oct 2023) and MongoDB 4.2 (EOL Feb 2023)", "confidence": 95, "source_section": "Technical", "source_start": stack_start, "source_end": stack_end},
-            {"claim": "Plaintext storage of SSNs and PII", "evidence": "SSNs and user financial data stored in plaintext MongoDB collections", "confidence": 95, "source_section": "Technical", "source_start": sec_start, "source_end": sec_end},
-            {"claim": "Undisclosed 2024 data breach", "evidence": "3,200 records exposed in Q3 2024 S3 bucket leak, not reported to regulators", "confidence": 90, "source_section": "Technical", "source_start": -1, "source_end": -1}
-        ]
-        mkt_flags = [
-            {"claim": "US BNPL sector declining 12% YoY", "evidence": "Negative sector growth contradicts company's 200% growth claims", "confidence": 90, "source_section": "Market", "source_start": -1, "source_end": -1},
-            {"claim": "Negative sector VC funding timing", "evidence": "VC funding into BNPL is down 67% YoY in 2025", "confidence": 90, "source_section": "Market", "source_start": -1, "source_end": -1}
-        ]
-    else:
-        if runway.get("value") and "month" in runway.get("value").lower():
-            try:
-                r_val = float(re.search(r"([0-9\.]+)", runway.get("value")).group(1))
-                if r_val < 12:
-                    fin_flags.append({"claim": f"Runway under 12 months ({r_val} months)", "evidence": f"Runway is {r_val} months", "confidence": 90, "source_section": "Financials", "source_start": runway.get("source_start"), "source_end": runway.get("source_end")})
-            except Exception: pass
-        if lit_start != -1:
-            leg_flags.append({"claim": "Potential litigation or active legal dispute", "evidence": lit_val, "confidence": 90, "source_section": "Legal", "source_start": lit_start, "source_end": lit_end})
-        if "plaintext" in sec_val.lower() or "ssn" in sec_val.lower():
-            tech_flags.append({"claim": "Plaintext storage of sensitive data", "evidence": sec_val, "confidence": 90, "source_section": "Technical", "source_start": sec_start, "source_end": sec_end})
+    # Financial flags based on evidence
+    if not is_field_missing(runway):
+        try:
+            r_val = float(re.search(r"([0-9\.]+)", str(runway.get("value"))).group(1))
+            if r_val < 12:
+                fin_flags.append({
+                    "claim": f"Runway under 12 months ({r_val} months)",
+                    "evidence": f"Runway is {r_val} months",
+                    "confidence": runway.get("confidence", 90),
+                    "source_section": "Financials",
+                    "source_start": runway.get("source_start"),
+                    "source_end": runway.get("source_end")
+                })
+        except Exception:
+            pass
+            
+    if not is_field_missing(customer_concentration):
+        try:
+            c_val = float(re.search(r"([0-9\.]+)%", str(customer_concentration.get("value"))).group(1))
+            if c_val > 50:
+                fin_flags.append({
+                    "claim": f"High customer concentration of {c_val}%",
+                    "evidence": customer_concentration.get("evidence"),
+                    "confidence": customer_concentration.get("confidence", 90),
+                    "source_section": "Financials",
+                    "source_start": customer_concentration.get("source_start"),
+                    "source_end": customer_concentration.get("source_end")
+                })
+        except Exception:
+            pass
+            
+    if not is_field_missing(gross_margin):
+        try:
+            gm_val = float(re.search(r"([0-9\.]+)%", str(gross_margin.get("value"))).group(1))
+            if gm_val < 50:
+                fin_flags.append({
+                    "claim": f"Low gross margin of {gm_val}%",
+                    "evidence": gross_margin.get("evidence"),
+                    "confidence": gross_margin.get("confidence", 90),
+                    "source_section": "Financials",
+                    "source_start": gross_margin.get("source_start"),
+                    "source_end": gross_margin.get("source_end")
+                })
+        except Exception:
+            pass
 
-    core_fields = [arr, burn, runway, gross_margin, customers, litigation, compliance, tech_stack, security, tam]
-    found_fields = sum(1 for f in core_fields if f["confidence"] > 50)
+    # Legal flags
+    if not is_field_missing(litigation):
+        lit_val_str = str(litigation.get("value")).lower()
+        if any(w in lit_val_str for w in ["lawsuit", "litigation", "patent", "sued", "dispute"]):
+            if not any(w in lit_val_str for w in ["no active", "no pending", "no lawsuit", "no litigation"]):
+                leg_flags.append({
+                    "claim": "Potential litigation or active legal dispute",
+                    "evidence": litigation.get("evidence"),
+                    "confidence": litigation.get("confidence", 90),
+                    "source_section": "Legal",
+                    "source_start": litigation.get("source_start"),
+                    "source_end": litigation.get("source_end")
+                })
+                
+    if not is_field_missing(compliance):
+        comp_val_str = str(compliance.get("value")).lower()
+        if any(w in comp_val_str for w in ["non-compliant", "unlicensed", "violation", "cfpb"]):
+            leg_flags.append({
+                "claim": f"Compliance issue: {compliance.get('value')}",
+                "evidence": compliance.get("evidence"),
+                "confidence": compliance.get("confidence", 90),
+                "source_section": "Legal",
+                "source_start": compliance.get("source_start"),
+                "source_end": compliance.get("source_end")
+            })
+
+    # Technical flags
+    if not is_field_missing(security):
+        sec_val_str = str(security.get("value")).lower()
+        if "plaintext" in sec_val_str or "unencrypted" in sec_val_str or "ssn" in sec_val_str or "pii" in sec_val_str:
+            tech_flags.append({
+                "claim": "Plaintext storage of sensitive data",
+                "evidence": security.get("evidence"),
+                "confidence": security.get("confidence", 90),
+                "source_section": "Technical",
+                "source_start": security.get("source_start"),
+                "source_end": security.get("source_end")
+            })
+        if "breach" in sec_val_str or "leak" in sec_val_str:
+            tech_flags.append({
+                "claim": "History of security breach or data leak",
+                "evidence": security.get("evidence"),
+                "confidence": security.get("confidence", 90),
+                "source_section": "Technical",
+                "source_start": security.get("source_start"),
+                "source_end": security.get("source_end")
+            })
+            
+    if not is_field_missing(tech_stack):
+        stack_val_str = str(tech_stack.get("value")).lower()
+        if any(w in stack_val_str for w in ["eol", "end-of-life", "node.js 14", "mongodb 4.2"]):
+            tech_flags.append({
+                "claim": "Use of end-of-life (EOL) software stack",
+                "evidence": tech_stack.get("evidence"),
+                "confidence": tech_stack.get("confidence", 90),
+                "source_section": "Technical",
+                "source_start": tech_stack.get("source_start"),
+                "source_end": tech_stack.get("source_end")
+            })
+
+    core_fields = [arr, burn, runway, gross_margin, customers, customer_concentration, litigation, compliance, security, tam]
+    found_fields = sum(1 for f in core_fields if not is_field_missing(f))
     coverage_score = int((found_fields / 10) * 100)
 
     return {
         "company": {
             "name": {
+                "metric": "Company Name",
                 "value": company_name,
+                "timeframe": "current",
                 "confidence": co_conf,
-                "provenance": "regex" if co_start != -1 else "default",
+                "provenance": co_prov,
+                "source_section": "Company",
                 "source_start": co_start,
                 "source_end": co_end,
-                "evidence": co_evidence
+                "evidence": co_evidence,
+                "flag_for_review": False
             },
             "industry": industry,
             "stage": stage,
             "raise_amount": raise_amt,
             "post_money_valuation": valuation,
             "description": {
+                "metric": "Description",
                 "value": text[:300].strip() + "...",
+                "timeframe": "current",
                 "confidence": 80,
-                "provenance": "regex",
+                "provenance": "direct",
+                "source_section": "Company",
                 "source_start": 0,
                 "source_end": min(300, len(text)),
-                "evidence": "First 300 characters of brief"
+                "evidence": "First 300 characters of brief",
+                "flag_for_review": False
             }
         },
         "pitch_claims": {
@@ -1489,6 +1610,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
             "runway": runway,
             "gross_margin": gross_margin,
             "customers": customers,
+            "customer_concentration": customer_concentration,
             "red_flags": fin_flags
         },
         "legal": {
@@ -1503,14 +1625,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
         },
         "market": {
             "tam": tam,
-            "competition": {
-                "value": "Incumbent pressure",
-                "confidence": 60,
-                "provenance": "default",
-                "source_start": -1,
-                "source_end": -1,
-                "evidence": "Fuzzy sector check"
-            },
+            "competition": competition,
             "red_flags": mkt_flags
         },
         "coverage_score": coverage_score,
@@ -1529,33 +1644,47 @@ def merge_and_resolve_conflicts(r: Any, l: Any) -> Any:
         r_conf = r.get("confidence", 0)
         l_conf = l.get("confidence", 0)
         
+        flag = abs(r_conf - l_conf) <= 5
+        
         if r_val == l_val:
             return {
+                "metric": r.get("metric", ""),
                 "value": r_val,
+                "timeframe": r.get("timeframe", "current"),
                 "confidence": max(r_conf, l_conf),
-                "provenance": "merged",
+                "provenance": "derived",
+                "source_section": r.get("source_section", ""),
                 "source_start": r.get("source_start"),
                 "source_end": r.get("source_end"),
                 "evidence": r.get("evidence"),
-                "flag_for_review": False
+                "flag_for_review": flag
             }
         else:
-            gap = abs(r_conf - l_conf)
-            flag = gap <= 5
-            
             if r_conf > l_conf:
                 winner = r.copy()
-                winner["provenance"] = "regex"
+                winner["provenance"] = "direct"
             elif l_conf > r_conf:
                 winner = l.copy()
-                winner["provenance"] = "llm"
+                winner["provenance"] = "derived"
             else:
                 is_num = any(c.isdigit() for c in str(r_val))
                 winner = r.copy() if is_num else l.copy()
-                winner["provenance"] = "merged"
+                winner["provenance"] = "derived"
                 
             winner["flag_for_review"] = flag
-            return winner
+            # Standardize output structure
+            return {
+                "metric": winner.get("metric", ""),
+                "value": winner.get("value"),
+                "timeframe": winner.get("timeframe", "current"),
+                "confidence": winner.get("confidence", 0),
+                "provenance": "derived" if flag else winner.get("provenance", "direct"),
+                "source_section": winner.get("source_section", ""),
+                "source_start": winner.get("source_start", -1),
+                "source_end": winner.get("source_end", -1),
+                "evidence": winner.get("evidence", ""),
+                "flag_for_review": flag
+            }
             
     elif isinstance(r, dict):
         merged = {}
@@ -1593,6 +1722,11 @@ async def parse_and_structure_file(text: str, filename: str, incident_id: str) -
 Ingest the following raw startup pitch text and the pre-extracted facts JSON (Stage 1).
 Refine the values, source spans (char offsets), and confidence scores (0-100) based strictly on the raw text.
 
+CRITICAL RULES (NEVER VIOLATE):
+1. NEVER invent, fabricate, or estimate default values for any missing metrics.
+2. If a metric is not explicitly mentioned in the raw document text, do NOT guess or fill in default values. Keep its value as "Insufficient Evidence", confidence as 0, evidence as "", and provenance as "unknown".
+3. Under no circumstances should you output default estimates or fake evidence strings like "Default monthly burn estimate" or "Injected SnapHire...". If you cannot find evidence, you must leave it as Insufficient Evidence.
+
 CRITICAL: Return ONLY valid raw JSON matching the FUSION structured facts schema. Do not include markdown code block tags or any other commentary.
 
 FUSION Structured Facts Schema:
@@ -1603,9 +1737,16 @@ Raw document text:
 """
             res = await llm_router.call_llm(prompt, max_tokens=2500)
             res_clean = res.strip()
-            if res_clean.startswith("```"):
-                res_clean = re.sub(r"^```[a-zA-Z]*\n", "", res_clean)
-                res_clean = re.sub(r"\n```$", "", res_clean)
+            # Remove markdown code block fences if present anywhere
+            res_clean = re.sub(r"```json\s*", "", res_clean, flags=re.IGNORECASE)
+            res_clean = re.sub(r"```\s*", "", res_clean)
+            
+            # Find the first '{' and last '}'
+            start_idx = res_clean.find("{")
+            end_idx = res_clean.rfind("}")
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                res_clean = res_clean[start_idx:end_idx+1]
+                
             llm_data = json.loads(res_clean.strip())
             
             merged_data = merge_and_resolve_conflicts(regex_data, llm_data)
@@ -1639,7 +1780,7 @@ async def upload_pitch_document(file: UploadFile = File(...)):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid JSON pitch structure: {e}")
     else:
-        if filename.lower().endswith(".pdf"):
+        if content.startswith(b"%PDF") or filename.lower().endswith(".pdf"):
             try:
                 reader = PdfReader(io.BytesIO(content))
                 text = ""
@@ -1666,10 +1807,18 @@ async def upload_pitch_document(file: UploadFile = File(...)):
         
     # Set active company name, incident id, and pitch file
     co_obj = structured_data.get("company", {})
+    company_name = "Unknown Startup"
     if isinstance(co_obj, dict):
-        company_name = co_obj.get("value") or co_obj.get("name") or "Unknown Startup"
-    else:
-        company_name = co_obj or "Unknown Startup"
+        name_val = co_obj.get("name")
+        if isinstance(name_val, dict):
+            company_name = name_val.get("value") or name_val.get("name") or "Unknown Startup"
+        elif isinstance(name_val, str):
+            company_name = name_val
+        else:
+            company_name = co_obj.get("value") or "Unknown Startup"
+    elif isinstance(co_obj, str):
+        company_name = co_obj
+        
     sim_state.active_company_name = company_name
     sim_state.active_incident_id = incident_id
     sim_state.active_pitch_file = f"pitch_{incident_id}.json"
@@ -1730,18 +1879,49 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
     for ev in inc.get("timeline", []):
         finding = ev.get("finding", "")
         for domain in ["financial", "legal", "technical", "market"]:
-            score_match = re.search(fr"{domain}\s*risk:\s*([\d]+)/10", finding, re.I)
+            score_match = re.search(fr"{domain}\s*risk\s*(?:score\s*)?:\s*([\d\.]+)(?:\s*/\s*10)?", finding, re.I)
             if score_match:
                 risk_scores[domain] = score_match.group(1)
-        w_match = re.search(r"WEIGHTED SCORE:\s*([\d\.]+)/10", finding, re.I)
+        w_match = re.search(r"weighted\s*(?:risk\s*)?score:\s*([\d\.]+)(?:\s*/\s*10)?", finding, re.I)
         if w_match:
             risk_scores["weighted"] = w_match.group(1)
             
+    # Try to load calculations for exact scorecard details
+    consistency_warn_str = ""
+    try:
+        from core.pitch_loader import _load_pitch_file
+        from core.diligence_engine import run_diligence_calculations
+        pitch_data = _load_pitch_file(f"pitch_{incident_id}.json")
+        if pitch_data:
+            calc = run_diligence_calculations(pitch_data)
+            risk_scores["financial"] = str(calc.get("fin_score")) if calc.get("fin_score") is not None else "N/A"
+            risk_scores["legal"] = str(calc.get("leg_score")) if calc.get("leg_score") is not None else "N/A"
+            risk_scores["technical"] = str(calc.get("tech_score")) if calc.get("tech_score") is not None else "N/A"
+            risk_scores["market"] = str(calc.get("mkt_score")) if calc.get("mkt_score") is not None else "N/A"
+            risk_scores["weighted"] = f"{calc.get('weighted_score'):.2f}" if calc.get("weighted_score") is not None else "N/A"
+            if calc.get("internal_validation_error"):
+                consistency_warn_str = "\n\n> [!WARNING]\n> ⚠ Internal Consistency Warning: Fact Coverage is 100% but missing fields exist.\n"
+    except Exception as e:
+        logger.warning(f"Report generator failed to load calculations: {e}")
+        
+    # Calculate weighted score from parsed component scores if weighted is N/A
+    if risk_scores["weighted"] == "N/A":
+        fin = risk_scores.get("financial")
+        leg = risk_scores.get("legal")
+        tech = risk_scores.get("technical")
+        mkt = risk_scores.get("market")
+        if fin != "N/A" and leg != "N/A" and tech != "N/A" and mkt != "N/A":
+            try:
+                w_val = float(fin) * 0.30 + float(leg) * 0.25 + float(tech) * 0.25 + float(mkt) * 0.20
+                risk_scores["weighted"] = f"{w_val:.2f}"
+            except Exception:
+                pass
+
     report_md = f"""# FUSION VC DUE DILIGENCE REPORT
 **Deal Evaluation Record: {incident_id}**
 **Target Company: {company_name}**
 **Date Evaluated: {created_at}**
-**Status: Complete**
+**Status: Complete**{consistency_warn_str}
 
 ---
 
@@ -1751,7 +1931,18 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
 ---
 
 ## 📊 RISK SCORECARD
-* **Financial Risk:** {risk_scores['financial']}/10 (Weight: 30%)
+"""
+    if risk_scores["weighted"] == "N/A":
+        report_md += f"""* **Financial Risk:** N/A
+* **Legal Risk:** N/A
+* **Technical Risk:** N/A
+* **Market Risk:** N/A
+* **────────────────────────────────────────**
+* **WEIGHTED RISK SCORE:** **N/A**
+* **Reason:** Coverage below minimum threshold (40%)
+"""
+    else:
+        report_md += f"""* **Financial Risk:** {risk_scores['financial']}/10 (Weight: 30%)
 * **Legal Risk:** {risk_scores['legal']}/10 (Weight: 25%)
 * **Technical Risk:** {risk_scores['technical']}/10 (Weight: 25%)
 * **Market Risk:** {risk_scores['market']}/10 (Weight: 20%)
@@ -1781,7 +1972,7 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
         
     report_md += f"""
 ---
-*Report generated on the behalf of FUSION AI-Powered Venture Capital Investment Committee.*
+*Report generated on behalf of the FUSION AI-Powered Venture Capital Investment Committee. FUSION Master Doctrine Version 5.2.*
 """
     
     if format == "pdf":

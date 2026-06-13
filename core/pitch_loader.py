@@ -131,3 +131,34 @@ def get_red_flags(domain: str = "all") -> str:
     section_data = data.get(domain, {})
     flags = section_data.get("red_flags", [])
     return json.dumps(flags, indent=2)
+
+
+@tool("get_calculated_scores")
+def get_calculated_scores() -> str:
+    """Get the mathematically calculated risk scores, coverage, evidence quality, and confidence metrics for the current startup.
+    Use this to get the exact scores to populate the FUSION Investment Committee Decision card.
+    
+    Returns:
+        JSON string containing the risk scores, weighted score, verdict, coverage, and confidence.
+    """
+    from core.diligence_engine import run_diligence_calculations
+    data = _load_pitch_file()
+    if not data:
+        return json.dumps({"error": "No pitch data loaded."})
+    calc = run_diligence_calculations(data)
+    return json.dumps({
+        "company_name": calc.get("company_name"),
+        "financial_risk_score": calc.get("fin_score"),
+        "legal_risk_score": calc.get("leg_score"),
+        "technical_risk_score": calc.get("tech_score"),
+        "market_risk_score": calc.get("mkt_score"),
+        "weighted_risk_score": calc.get("weighted_score"),
+        "verdict": calc.get("verdict"),
+        "coverage_score": calc.get("coverage_score"),
+        "evidence_quality_score": calc.get("evidence_quality_score"),
+        "verdict_confidence": calc.get("verdict_confidence"),
+        "deal_readiness_score": calc.get("deal_readiness_score"),
+        "deal_readiness_status": calc.get("deal_readiness_status"),
+        "missing_gaps": calc.get("missing_gaps"),
+        "contradictions_count": len(calc.get("contradictions", []))
+    }, indent=2)

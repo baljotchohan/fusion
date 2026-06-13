@@ -1,113 +1,264 @@
-// components/IntegrationsView.tsx — Connected Workspace SaaS cards with interactive toggles
-import React, { useState } from 'react'
+// components/IntegrationsView.tsx — "Connect FUSION to your AI" (MCP, non-technical)
+// + the decorative workspace integrations grid below.
+import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { MessageSquare, Cloud, FolderOpen, FileSignature, HardDrive, BarChart3, type LucideIcon, Plug, CheckCircle2, XCircle } from 'lucide-react'
+import {
+  HardDrive, type LucideIcon, Plug, Copy, Check, Sparkles, Link2, Terminal, FileCode2,
+} from 'lucide-react'
+import { API_BASE } from '@/lib/agents'
 
-interface Integration {
-  id: string
-  name: string
-  description: string
-  Icon: LucideIcon
-  colorClass: string
-  bgClass: string
-  connected: boolean
+/* ──────────────────────────────────────────────────────────────
+   Copy-to-clipboard button (mirrors the DocsView pattern)
+   ────────────────────────────────────────────────────────────── */
+function CopyButton({ text, label = 'Copy', className = '' }: { text: string; label?: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard?.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1400)
+  }
+  return (
+    <button
+      onClick={copy}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors cursor-pointer ${
+        copied ? 'bg-accent text-white' : 'bg-accent/10 text-accent hover:bg-accent/20'
+      } ${className}`}
+      aria-label={label}
+    >
+      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? 'Copied!' : label}
+    </button>
+  )
 }
 
-const INITIAL_INTEGRATIONS: Integration[] = [
-  { id: 'slack', name: 'Slack', description: 'Get deal alerts and partner updates in real-time in your channels', Icon: MessageSquare, colorClass: 'text-purple-600 dark:text-purple-400', bgClass: 'bg-purple-50 dark:bg-purple-950/30 border-purple-200/50 dark:border-purple-800/30', connected: true },
-  { id: 'salesforce', name: 'Salesforce', description: 'Sync startup deal pipelines and contact records automatically', Icon: Cloud, colorClass: 'text-sky-600 dark:text-sky-400', bgClass: 'bg-sky-50 dark:bg-sky-950/30 border-sky-200/50 dark:border-sky-800/30', connected: false },
-  { id: 'gdrive', name: 'Google Drive', description: 'Ingest pitch decks and financial spreadsheets directly', Icon: FolderOpen, colorClass: 'text-amber-600 dark:text-amber-400', bgClass: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200/50 dark:border-amber-800/30', connected: true },
-  { id: 'docusign', name: 'DocuSign', description: 'Manage and sign investment term sheets and advisory agreements', Icon: FileSignature, colorClass: 'text-emerald-600 dark:text-emerald-400', bgClass: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/50 dark:border-emerald-800/30', connected: false },
-  { id: 'dropbox', name: 'Dropbox', description: 'Securely sync and mount shared due diligence pitch folders', Icon: HardDrive, colorClass: 'text-indigo-600 dark:text-indigo-400', bgClass: 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200/50 dark:border-indigo-800/30', connected: false },
-  { id: 'hubspot', name: 'HubSpot', description: 'Track co-investor networks and outbound startup sourcing', Icon: BarChart3, colorClass: 'text-rose-600 dark:text-rose-400', bgClass: 'bg-rose-50 dark:bg-rose-950/30 border-rose-200/50 dark:border-rose-800/30', connected: false },
+/* A monospace code/snippet box with its own copy button */
+function Snippet({ code }: { code: string }) {
+  return (
+    <div className="relative rounded-xl border border-border bg-bg-subtle font-mono text-[11.5px] text-text-primary">
+      <pre className="overflow-x-auto p-3.5 pr-20 whitespace-pre-wrap break-all leading-relaxed">{code}</pre>
+      <div className="absolute top-2.5 right-2.5">
+        <CopyButton text={code} />
+      </div>
+    </div>
+  )
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Setup recipes per client. {URL} is replaced with the live endpoint.
+   ────────────────────────────────────────────────────────────── */
+type ClientId = 'paste' | 'claude-code' | 'config' | 'local'
+
+const CLIENTS: { id: ClientId; label: string; Icon: LucideIcon }[] = [
+  { id: 'paste', label: 'Paste a link', Icon: Link2 },
+  { id: 'claude-code', label: 'Claude Code', Icon: Terminal },
+  { id: 'config', label: 'Config file', Icon: FileCode2 },
+  { id: 'local', label: 'Local (advanced)', Icon: HardDrive },
 ]
 
-export function IntegrationsView() {
-  const [integrations, setIntegrations] = useState<Integration[]>(INITIAL_INTEGRATIONS)
-
-  const toggleConnection = (id: string) => {
-    setIntegrations(prev =>
-      prev.map(item =>
-        item.id === id ? { ...item, connected: !item.connected } : item
-      )
-    )
+function recipe(id: ClientId, url: string): { steps: string[]; code?: string } {
+  switch (id) {
+    case 'paste':
+      return {
+        steps: [
+          'Open your AI tool (Claude, Cursor, …) and find “Add connector”, “Add custom MCP”, or “Integrations”.',
+          'Paste the FUSION link above into the URL box and confirm.',
+          'Ask it: “Use FUSION to evaluate this startup.” — that’s it. ✅',
+        ],
+      }
+    case 'claude-code':
+      return {
+        steps: [
+          'Open your terminal.',
+          'Paste this one command and press Enter:',
+          'FUSION’s 5 tools are now available in Claude Code.',
+        ],
+        code: `claude mcp add --transport http fusion ${url}`,
+      }
+    case 'config':
+      return {
+        steps: [
+          'Open your client’s MCP config (e.g. Claude Desktop’s claude_desktop_config.json).',
+          'Add this block, then restart the app.',
+        ],
+        code: `{
+  "mcpServers": {
+    "fusion": {
+      "type": "http",
+      "url": "${url}"
+    }
   }
+}`,
+      }
+    case 'local':
+      return {
+        steps: [
+          'Only if you’re running FUSION on your own machine from source.',
+          'Add this to your client config (the repo also ships a ready .mcp.json):',
+        ],
+        code: `{
+  "mcpServers": {
+    "fusion": {
+      "command": "python",
+      "args": ["/path/to/fusion/mcp_server.py"],
+      "env": { "FUSION_API_URL": "http://localhost:8000" }
+    }
+  }
+}`,
+      }
+  }
+}
 
+/* ──────────────────────────────────────────────────────────────
+   The MCP connect card
+   ────────────────────────────────────────────────────────────── */
+function McpConnectCard() {
+  const [url, setUrl] = useState(`${API_BASE}/mcp`)
+  const [online, setOnline] = useState<boolean | null>(null)
+  const [toolCount, setToolCount] = useState<number>(5)
+  const [tools, setTools] = useState<{ name: string; description: string }[]>([])
+  const [active, setActive] = useState<ClientId>('paste')
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${API_BASE}/api/v1/system/mcp`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return
+        const http = (d.transports || []).find((t: { type: string }) => t.type === 'streamable-http')
+        if (http?.url) setUrl(http.url)
+        if (typeof d.tool_count === 'number') setToolCount(d.tool_count)
+        if (Array.isArray(d.tools)) setTools(d.tools.map((t: { name: string; description: string }) => ({ name: t.name, description: t.description })))
+        setOnline(true)
+      })
+      .catch(() => { if (!cancelled) setOnline(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const r = recipe(active, url)
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="rounded-2xl bg-bg-card border border-border/80 shadow-sm overflow-hidden"
+    >
+      {/* Header band */}
+      <div className="p-5 sm:p-6 border-b border-border/60 bg-accent/[0.04]">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-accent" />
+            </div>
+            <div>
+              <h2 className="text-[17px] font-bold text-text-primary tracking-tight">Connect FUSION to your AI</h2>
+              <p className="text-[12.5px] text-text-secondary mt-0.5">
+                Use the full investment committee inside Claude, Cursor, or any AI tool — no coding.
+              </p>
+            </div>
+          </div>
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-semibold ${
+            online === false
+              ? 'bg-bg-muted text-text-muted'
+              : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${online === false ? 'bg-text-muted' : 'bg-emerald-500 animate-pulse'}`} />
+            {online === false ? 'Offline — start the server' : `Live · ${toolCount} tools`}
+          </span>
+        </div>
+      </div>
+
+      <div className="p-5 sm:p-6 space-y-5">
+        {/* The one thing they need: the link */}
+        <div>
+          <label className="text-[10.5px] font-bold uppercase tracking-wider text-text-muted">Your FUSION link</label>
+          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+            <code className="flex-1 min-w-[200px] rounded-xl border border-border bg-bg-subtle px-3.5 py-2.5 text-[13px] font-mono text-text-primary break-all">
+              {url}
+            </code>
+            <CopyButton text={url} label="Copy link" className="px-4 py-2.5" />
+          </div>
+        </div>
+
+        {/* Client picker */}
+        <div className="flex flex-wrap gap-1.5">
+          {CLIENTS.map(c => {
+            const on = active === c.id
+            return (
+              <button
+                key={c.id}
+                onClick={() => setActive(c.id)}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition-colors cursor-pointer ${
+                  on ? 'border-accent bg-accent/10 text-accent' : 'border-border bg-bg-card text-text-secondary hover:border-border-strong'
+                }`}
+              >
+                <c.Icon className="w-3.5 h-3.5" />
+                {c.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Steps for the chosen client */}
+        <ol className="space-y-2.5">
+          {r.steps.map((step, i) => (
+            <li key={i} className="flex gap-3">
+              <span className="shrink-0 w-5 h-5 rounded-full bg-accent/10 text-accent text-[11px] font-bold flex items-center justify-center mt-px">
+                {i + 1}
+              </span>
+              <span className="text-[12.5px] text-text-secondary leading-relaxed">{step}</span>
+            </li>
+          ))}
+        </ol>
+        {r.code && <Snippet code={r.code} />}
+
+        {/* What it can do */}
+        {tools.length > 0 && (
+          <div className="pt-4 border-t border-border/60">
+            <p className="text-[10.5px] font-bold uppercase tracking-wider text-text-muted mb-2.5">What your AI can now do</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {tools.map(t => (
+                <div key={t.name} className="flex items-start gap-2 rounded-lg border border-border/60 bg-bg-subtle px-3 py-2">
+                  <Check className="w-3.5 h-3.5 text-accent shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <code className="text-[11px] font-mono text-text-primary">{t.name}</code>
+                    <p className="text-[10.5px] text-text-muted leading-snug mt-0.5 line-clamp-2">{t.description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+export function IntegrationsView() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto py-4">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-1.5">
           <Plug className="w-5 h-5 text-accent" />
-          <h1 className="text-2xl font-bold text-text-primary tracking-tight">Connected Workspace</h1>
+          <h1 className="text-2xl font-bold text-text-primary tracking-tight">Integrations</h1>
         </div>
         <p className="text-text-secondary text-[13px]">
-          Connect your VC tech stack tools to stream deal flow and pipeline data.
+          Connect the FUSION investment committee to your AI assistant in seconds.
         </p>
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {integrations.map((item, idx) => {
-          const on = item.connected
-          return (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.05, duration: 0.3 }}
-              className="rounded-2xl bg-bg-card border border-border/80 shadow-sm hover:shadow-md hover:border-border transition-all duration-200 p-5 flex flex-col justify-between"
-            >
-              <div>
-                {/* Icon & Toggle Status Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className={`w-10 h-10 rounded-xl border flex items-center justify-center ${item.bgClass}`}>
-                    <item.Icon className={`w-5 h-5 ${item.colorClass}`} />
-                  </div>
-                  
-                  {/* Glowing Connection Badge */}
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold transition ${
-                    on
-                      ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-bg-muted text-text-muted'
-                  }`}>
-                    <span className={`w-1 h-1 rounded-full ${on ? 'bg-emerald-500 animate-pulse' : 'bg-text-muted'}`} />
-                    {on ? 'Connected' : 'Offline'}
-                  </span>
-                </div>
+      {/* The real integration: MCP */}
+      <McpConnectCard />
 
-                <h3 className="text-[14px] font-bold text-text-primary">{item.name}</h3>
-                <p className="text-[11.5px] text-text-secondary mt-1 leading-relaxed min-h-[36px]">
-                  {item.description}
-                </p>
-              </div>
-
-              {/* Toggle switch bar */}
-              <div className="mt-5 pt-4 border-t border-border/50 flex items-center justify-between">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-text-muted">
-                  {on ? 'Active' : 'Disabled'}
-                </span>
-                
-                {/* Interactive switch button */}
-                <button
-                  onClick={() => toggleConnection(item.id)}
-                  className={`
-                    relative inline-flex w-[46px] h-[24px] rounded-full transition-colors duration-300 focus:outline-none cursor-pointer
-                    ${on ? 'bg-accent' : 'bg-bg-muted'}
-                  `}
-                  aria-label={`Toggle ${item.name} connection`}
-                >
-                  <motion.span
-                    layout
-                    className="absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow-sm"
-                    animate={{ left: on ? 25 : 3 }}
-                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                  />
-                </button>
-              </div>
-            </motion.div>
-          )
-        })}
+      {/* Honest note about other tools */}
+      <div className="rounded-2xl border border-border/70 bg-bg-subtle p-5">
+        <h2 className="text-[13px] font-bold text-text-primary mb-1.5">Slack, Google Drive, Notion & more</h2>
+        <p className="text-[12.5px] text-text-secondary leading-relaxed">
+          Those tools already publish their own MCP connectors. Add them to the{' '}
+          <span className="font-semibold text-text-primary">same AI assistant</span> you connected FUSION to,
+          and your assistant can use FUSION and your workspace tools together — no separate setup here.
+        </p>
       </div>
     </div>
   )
