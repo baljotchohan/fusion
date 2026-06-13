@@ -23,19 +23,19 @@ const STATUS_BADGE: Record<AgentStatus, { label: string; bg: string; text: strin
 /* ------------------------------------------------------------------ */
 
 const AGENT_ACCENT: Record<string, string> = {
-  managing_partner:  'border-l-blue-500',
-  financial_partner: 'border-l-purple-500',
-  legal_partner:     'border-l-amber-500',
-  technical_partner: 'border-l-cyan-500',
-  market_partner:    'border-l-emerald-500',
+  managing_partner:  'border-l-accent',
+  financial_partner: 'border-l-accent',
+  legal_partner:     'border-l-accent',
+  technical_partner: 'border-l-accent',
+  market_partner:    'border-l-accent',
 }
 
 const AGENT_ICON_BG: Record<string, string> = {
-  managing_partner:  'bg-blue-500/10',
-  financial_partner: 'bg-purple-500/10',
-  legal_partner:     'bg-amber-500/10',
-  technical_partner: 'bg-cyan-500/10',
-  market_partner:    'bg-emerald-500/10',
+  managing_partner:  'bg-accent-soft',
+  financial_partner: 'bg-accent-soft',
+  legal_partner:     'bg-accent-soft',
+  technical_partner: 'bg-accent-soft',
+  market_partner:    'bg-accent-soft',
 }
 
 /* ------------------------------------------------------------------ */

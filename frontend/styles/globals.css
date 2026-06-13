@@ -1,106 +1,114 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
-/* ─── LIGHT MODE (default) ─────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════
+   FUSION design tokens — monochrome-first, single green accent.
+   Light = pure white, Dark = pure black. Status colors (amber/red)
+   are reserved strictly for state, never decoration.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ─── LIGHT MODE (default surface) ──────────────────────── */
 :root {
   /* Backgrounds */
   --bg-base: #ffffff;
-  --bg-subtle: #f7f7f5;
-  --bg-muted: #efefed;
+  --bg-subtle: #fafafa;
+  --bg-muted: #f4f4f5;
   --bg-card: #ffffff;
 
   /* Borders */
-  --border: #e9e9e7;
-  --border-strong: #c7c7c5;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
 
   /* Text */
-  --text-primary: #1a1a1a;
-  --text-secondary: #6b7280;
-  --text-muted: #9ca3af;
+  --text-primary: #0a0a0a;
+  --text-secondary: #525252;
+  --text-muted: #737373;
 
-  /* Accent — Fusion blue */
-  --accent: #2563eb;
-  --accent-soft: #eff6ff;
-  --accent-hover: #1d4ed8;
+  /* Accent — FUSION leaf green (single brand accent) */
+  --accent: #4fae47;
+  --accent-soft: #edf7ec;
+  --accent-hover: #3e9b3a;
 
-  /* Semantic colors */
-  --accent-green: #16a34a;
-  --accent-green-soft: #f0fdf4;
-  --accent-purple: #7c3aed;
-  --accent-purple-soft: #f5f3ff;
+  /* Legacy accent names kept so components don't break — re-pointed to green */
+  --accent-green: #2e9e3a;
+  --accent-green-soft: #edf7ec;
+  --accent-purple: #4fae47;
+  --accent-purple-soft: #edf7ec;
+  --accent-cyan: #4fae47;
+  --accent-cyan-soft: #edf7ec;
+  /* Amber stays a real status color (work-in-progress) */
   --accent-amber: #d97706;
-  --accent-amber-soft: #fffbeb;
-  --accent-cyan: #0891b2;
-  --accent-cyan-soft: #ecfeff;
+  --accent-amber-soft: #fef6e7;
 
-  --success: #16a34a;
-  --success-soft: #f0fdf4;
+  /* Semantic status (state only) */
+  --success: #2e9e3a;
+  --success-soft: #edf7ec;
   --danger: #dc2626;
-  --danger-soft: #fef2f2;
+  --danger-soft: #feecec;
   --warning: #d97706;
-  --warning-soft: #fffbeb;
-  --info: #2563eb;
-  --info-soft: #eff6ff;
+  --warning-soft: #fef6e7;
+  --info: #4fae47;
+  --info-soft: #edf7ec;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.10);
-  --shadow-pulse-glow-start: 0 0 8px rgba(37, 99, 235, 0.2);
-  --shadow-pulse-glow-end: 0 0 24px rgba(37, 99, 235, 0.5);
+  /* Shadows — soft, border-led depth */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-pulse-glow-start: 0 0 8px rgba(79, 174, 71, 0.2);
+  --shadow-pulse-glow-end: 0 0 24px rgba(79, 174, 71, 0.45);
 
   /* Fonts */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
   --font-mono: 'Space Grotesk', SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
 }
 
-/* ─── DARK MODE ─────────────────────────────────────────── */
+/* ─── DARK MODE (pure black) ────────────────────────────── */
 .dark {
   /* Backgrounds */
-  --bg-base: #0d1117;
-  --bg-subtle: #161b22;
-  --bg-muted: #1c2333;
-  --bg-card: #161b22;
+  --bg-base: #000000;
+  --bg-subtle: #0a0a0a;
+  --bg-muted: #161616;
+  --bg-card: #0a0a0a;
 
   /* Borders */
-  --border: #30363d;
-  --border-strong: #484f58;
+  --border: #1f1f1f;
+  --border-strong: #333333;
 
   /* Text */
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted: #6e7681;
+  --text-primary: #f5f5f5;
+  --text-secondary: #a3a3a3;
+  --text-muted: #737373;
 
-  /* Accent */
-  --accent: #58a6ff;
-  --accent-soft: #0c1929;
-  --accent-hover: #79c0ff;
+  /* Accent — brighter green reads better on pure black */
+  --accent: #5bbf52;
+  --accent-soft: rgba(91, 191, 82, 0.14);
+  --accent-hover: #6bcb60;
 
-  /* Semantic */
-  --accent-green: #3fb950;
-  --accent-green-soft: #0d2118;
-  --accent-purple: #bc8cff;
-  --accent-purple-soft: #1a1040;
-  --accent-amber: #d29922;
-  --accent-amber-soft: #1f1700;
-  --accent-cyan: #39d0d8;
-  --accent-cyan-soft: #0c2425;
+  --accent-green: #5bbf52;
+  --accent-green-soft: rgba(91, 191, 82, 0.14);
+  --accent-purple: #5bbf52;
+  --accent-purple-soft: rgba(91, 191, 82, 0.14);
+  --accent-cyan: #5bbf52;
+  --accent-cyan-soft: rgba(91, 191, 82, 0.14);
+  --accent-amber: #e0a335;
+  --accent-amber-soft: rgba(224, 163, 53, 0.14);
 
-  --success: #3fb950;
-  --success-soft: #0d2118;
-  --danger: #f85149;
-  --danger-soft: #2c0b0b;
-  --warning: #d29922;
-  --warning-soft: #1f1700;
-  --info: #58a6ff;
-  --info-soft: #0c1929;
+  --success: #5bbf52;
+  --success-soft: rgba(91, 191, 82, 0.14);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+  --info: #5bbf52;
+  --info-soft: rgba(91, 191, 82, 0.14);
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --shadow-pulse-glow-start: 0 0 8px rgba(88, 166, 255, 0.2);
-  --shadow-pulse-glow-end: 0 0 24px rgba(88, 166, 255, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-pulse-glow-start: 0 0 8px rgba(91, 191, 82, 0.22);
+  --shadow-pulse-glow-end: 0 0 24px rgba(91, 191, 82, 0.5);
 }
 
 @theme inline {
@@ -136,6 +144,7 @@
   --shadow-md: var(--shadow-md);
   --shadow-lg: var(--shadow-lg);
   --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
   --font-mono: var(--font-mono);
 }
 
@@ -158,6 +167,18 @@ body {
   line-height: 1.6;
   margin: 0;
   padding: 0;
+}
+
+/* Serif display utility — reserved for the big verdict headline (Claude-style warmth) */
+.font-serif-display {
+  font-family: var(--font-serif);
+  letter-spacing: -0.01em;
+}
+
+/* Subtle card surface used by the verdict memo / hero */
+.glassmorphic {
+  background-color: var(--bg-card);
+  backdrop-filter: saturate(140%) blur(8px);
 }
 
 /* ─── SCROLLBAR ─────────────────────────────────────────── */
@@ -193,10 +214,10 @@ body {
 /* ─── SELECTION ─────────────────────────────────────────── */
 ::selection {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-hover);
 }
 
-/* ─── ANIMATIONS ────────────────────────────────────────── */
+/* ─── ANIMATIONS (restrained: 150–250ms, ease-out) ──────── */
 @keyframes pulse-glow {
   0%, 100% { box-shadow: var(--shadow-pulse-glow-start); }
   50% { box-shadow: var(--shadow-pulse-glow-end); }
@@ -208,21 +229,30 @@ body {
 }
 
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-fade-in-up {
-  animation: fadeInUp 0.5s ease-out both;
+  animation: fadeInUp 0.25s ease-out both;
 }
 
 @keyframes slideInFromLeft {
-  from { opacity: 0; transform: translateX(-16px); }
+  from { opacity: 0; transform: translateX(-10px); }
   to { opacity: 1; transform: translateX(0); }
 }
 
 .animate-slide-in-left {
-  animation: slideInFromLeft 0.4s ease-out both;
+  animation: slideInFromLeft 0.22s ease-out both;
+}
+
+/* Honor reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* No-scrollbar utility */

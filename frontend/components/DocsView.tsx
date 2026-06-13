@@ -32,7 +32,7 @@ function B({ children }: { children: React.ReactNode }) {
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3 mb-3">
-      <div className="w-6 h-6 rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center text-[11px] font-bold font-mono shrink-0">{n}</div>
+      <div className="w-6 h-6 rounded-lg bg-accent-soft text-accent flex items-center justify-center text-[11px] font-bold font-mono shrink-0">{n}</div>
       <div>
         <p className="text-[12.5px] font-semibold text-slate-800 dark:text-slate-100">{title}</p>
         <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">{children}</p>
@@ -47,14 +47,14 @@ function Code({ children, label }: { children: string; label?: string }) {
     <div className="rounded-xl border border-slate-800 bg-slate-950 my-3 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/80">
         <span className="text-[9px] font-mono uppercase tracking-wider text-slate-500">{label || 'shell'}</span>
-        <button onClick={copy} className="text-[9px] font-mono text-slate-400 hover:text-cyan-400 transition">{copied ? '✓ copied' : 'copy'}</button>
+        <button onClick={copy} className="text-[9px] font-mono text-slate-400 hover:text-accent transition">{copied ? '✓ copied' : 'copy'}</button>
       </div>
       <pre className="px-3.5 py-3 text-[11px] font-mono text-emerald-300/90 overflow-auto leading-relaxed whitespace-pre">{children}</pre>
     </div>
   )
 }
 function EndpointRow({ method, path, desc }: { method: string; path: string; desc: string }) {
-  const color = method === 'GET' ? 'text-cyan-400 bg-cyan-500/10'
+  const color = method === 'GET' ? 'text-accent bg-accent-soft'
     : method === 'POST' ? 'text-emerald-400 bg-emerald-500/10'
     : method === 'DELETE' ? 'text-red-400 bg-red-500/10'
     : 'text-amber-400 bg-amber-500/10'
@@ -105,7 +105,7 @@ export function DocsView() {
                   onClick={() => setSection(n.id)}
                   className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[12px] text-left transition ${
                     section === n.id
-                      ? 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 font-semibold'
+                      ? 'bg-accent-soft text-accent font-semibold'
                       : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100/60 dark:hover:bg-slate-900/60'
                   }`}
                 >
@@ -128,7 +128,7 @@ export function DocsView() {
             <P>Each partner is a focused domain expert — the Financial Partner audits ARR and burn rate, the Legal Partner reviews IP and licensing liabilities,
             the Technical Partner performs system and security audits, the Market Partner profiles competition, and the Managing Partner runs the committee and issues the final boardroom verdict.</P>
             <P>The payoff: a raw pitch brief or deal structure goes in, and a complete, audit-logged investment decision comes out — automatically.</P>
-            <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 mt-4">
+            <div className="rounded-xl border border-accent/20 bg-accent-soft p-4 mt-4">
               <p className="text-[12px] text-slate-600 dark:text-slate-300"><B>Try it:</B> open the Boardroom tab and click
               <B> Evaluate Startup Deal (NovaPay)</B>, or type in chat: &ldquo;Evaluate NovaPay Inc raising Series A.&rdquo;</p>
             </div>
@@ -217,7 +217,7 @@ npx next dev --webpack`}</Code>
             <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/60 divide-y divide-slate-200/50 dark:divide-slate-800/50">
               {MCP_TOOLS.map(([n, d]) => (
                 <div key={n} className="flex items-start gap-3 p-2.5">
-                  <code className="text-[11px] font-mono text-cyan-600 dark:text-cyan-400 shrink-0">{n}</code>
+                  <code className="text-[11px] font-mono text-accent shrink-0">{n}</code>
                   <span className="text-[11px] text-slate-500 dark:text-slate-400">{d}</span>
                 </div>
               ))}

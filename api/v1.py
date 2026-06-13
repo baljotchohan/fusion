@@ -81,6 +81,10 @@ _GREETING_WORDS = ("hi", "hii", "hiya", "hello", "helo", "hallo", "hey", "heyy",
                     "yo", "sup", "greetings", "howdy", "good", "gm", "morning", "hlo", "hy", "hola",
                     "kya", "namaste", "kem", "adaab", "salam", "wassup", "halloo")
 _THANKS_WORDS = ("thanks", "thank you", "thx", "ty", "appreciate", "great", "nice", "cool", "awesome")
+_SMALLTALK_WORDS = ("how are you", "how r u", "hru", "how are u", "how you doing", "how are things",
+                    "how's it going", "hows it going", "how is it going", "what's up", "whats up", "wassup",
+                    "how do you do", "you good", "u good", "how's your day", "hows your day", "what are you up to",
+                    "what you up to", "wyd", "how have you been", "you ok", "are you ok", "how is everything")
 _TRIGGER_KEYWORDS = ("evaluate", "run diligence", "run due diligence", "start simulation", "trigger simulation", "analyze startup", "run evaluation", "test startup", "assess startup")
 
 
@@ -101,7 +105,11 @@ def _classify_intent(text: str) -> str:
     # 3. Thanks
     if t in _THANKS_WORDS or first in _THANKS_WORDS:
         return "thanks"
-        
+
+    # 3b. Smalltalk ("how are you") — must beat query_deal's trailing-'?' rule
+    if any(k in t for k in _SMALLTALK_WORDS):
+        return "smalltalk"
+
     # 4. Docs
     if any(k in t for k in _DOCS_WORDS):
         return "docs"
@@ -125,6 +133,7 @@ def _suggestions_for(intent: str) -> List[str]:
         "docs": ["Evaluate NovaPay", "What are the 5 partner agents?", "What is the weighted scoring?"],
         "greeting": ["Evaluate NovaPay", "Is the committee in session?", "What did the committee learn?"],
         "thanks": ["Evaluate a deal", "What's our status?", "How does FUSION work?"],
+        "smalltalk": ["Evaluate NovaPay", "How does FUSION work?", "What has the committee learned?"],
         "general": ["Evaluate NovaPay", "What's our status?", "What has the committee learned?"],
     }
     return base.get(intent, base["general"])
@@ -300,6 +309,16 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
         )
     if intent == "thanks":
         return "🤝 **Pleasure working with you!** Let me know if you need any other startup evaluations."
+    if intent == "smalltalk":
+        if sim_state.running:
+            return (
+                f"😄 Doing well — and genuinely energized, because the committee is mid-session on **{company_name}** as we speak. "
+                f"My partners are deep in their audits right now. How are *you*? If you'd like, I can walk you through what we're seeing so far."
+            )
+        return (
+            f"😄 I'm doing great, thanks for asking — sharp, caffeinated, and ready to put a startup through its paces. "
+            f"How are you? Whenever you're set, hand me a pitch deck or just say **“evaluate NovaPay”** and I'll convene the committee."
+        )
     if intent == "docs":
         return (
             f"📚 **FUSION System Architecture**\n\n"
@@ -366,11 +385,10 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
             return "No active deal or past evaluation records were found in the committee database."
         
     return (
-        "💡 **Help Directory**\n\n"
-        "I can help you coordinate the FUSION Investment Swarm. Try saying:\n"
-        "- \"evaluate NovaPay\" or \"evaluate SnapHire\" to start a due diligence review.\n"
-        "- \"what is the committee status?\" to view active progress.\n"
-        "- \"what has the committee learned?\" to see past findings."
+        f"I'm right here as your **Managing Partner**. 🤝 I can run a full due-diligence review on a startup, "
+        f"unpack a specific risk, or pull up what the committee has learned from past deals.\n\n"
+        f"Just tell me what you need — for example, **“evaluate NovaPay”**, *“what's the financial risk?”*, "
+        f"or drop a pitch deck and I'll take it from there."
     )
 
 
@@ -408,6 +426,13 @@ async def _commander_reply(intent: str, user_message: str, incident_id: str,
         elif intent == "thanks":
             intent_instructions = (
                 "Gratitude detected. Respond briefly and politely (1 sentence) saying you are glad to help."
+            )
+        elif intent == "smalltalk":
+            intent_instructions = (
+                "The user is making casual small talk (e.g. 'how are you', 'what's up'). Reply warmly and naturally "
+                "in first person as the Managing Partner — 1-2 sentences with a little personality, optionally ask "
+                "how they are, then lightly invite them to evaluate a startup or ask about a deal. Do NOT dump deal "
+                "data, risk scores, or a feature list."
             )
         elif intent == "trigger_evaluation":
             intent_instructions = (
@@ -448,11 +473,12 @@ Context:
 Instructions for this message:
 {intent_instructions}
 
-Formatting:
-1. Always respond in a clean, advanced, well-structured format. Use Markdown bullet points, bold key terms, and section dividers if helpful.
-2. Adopt a high-end, elite VC partner tone. Avoid raw JSON, logs, or developer jargon.
-3. Keep it concise (2-4 sentences or structured bullets) and highly readable.
-4. User message: "{user_message}"
+Formatting (strict):
+1. Respond in clean, natural prose with short '- ' bullet points and **bold** for key terms.
+2. NEVER use markdown headers (#, ##, ###) or hashtags like #Finance. No '---' dividers. No raw JSON, code fences, or developer jargon.
+3. Use a few tasteful emojis where they genuinely help (📊 ⚖️ 🚩) — never as spam.
+4. Adopt a high-end, warm, elite VC partner tone. Keep it concise (2-4 sentences or a tight bullet list) and highly readable.
+5. User message: "{user_message}"
 """
         try:
             return await llm_router.call_llm(prompt, max_tokens=420)
@@ -490,7 +516,7 @@ def _build_thinking_steps(intent: str, dispatched: bool, incident_id: str) -> Li
         ]
     elif intent == "docs":
         steps += ["Pulled boardroom architecture overview from the knowledge base"]
-    elif intent in ("greeting", "thanks"):
+    elif intent in ("greeting", "thanks", "smalltalk"):
         steps += ["Checked live boardroom state for a quick status read"]
     else:
         steps += ["Checked memory graph for relevant context"]
@@ -827,6 +853,27 @@ async def get_mcp_registry():
     return {"server": "fusion-mcp", "transport": "stdio", "tools": MCP_TOOLS}
 
 
+@router.post("/system/reset-all")
+async def reset_all_history():
+    """Danger zone: wipe ALL deals, learned patterns, agent profiles, and chat history,
+    then reset live simulation state. Powers the Settings 'Reset & Clear All History' button."""
+    memory_graph.clear_all()
+    sim_state.reset()
+    # Clear any stuck agent busy flags so the next run starts clean
+    if is_mock_mode():
+        for room_agents in mock_bus.rooms.values():
+            for agent in room_agents:
+                agent._is_busy = False
+    # Drop the cached pitch so the committee falls back to the default deal
+    try:
+        from core.pitch_loader import clear_pitch_cache
+        clear_pitch_cache()
+    except Exception:
+        pass
+    logger.info("System: full reset-all complete — memory graph + simulation state cleared.")
+    return {"status": "ok", "message": "All deals, patterns, and chat history cleared."}
+
+
 # ─── AGENT DIRECT CHAT & DOCUMENT SaaS ENDPOINTS ────────────
 
 async def _agent_reply(agent_name: str, user_message: str, incident_id: str) -> str:
@@ -895,10 +942,11 @@ User message: "{user_message}"
 
 CRITICAL INSTRUCTIONS:
 1. Speak in first person ("I found...", "In my audit...", "My assessment...").
-2. Answer the user's question directly, concisely, and professionally. Use markdown bold for key terms.
-3. Adopt a high-end, elite VC partner tone. Never output developer jargon, code blocks, or raw JSON.
-4. Keep your answer brief (2-3 sentences) unless the user specifically asks for a detailed report.
-5. If the user asks about your "last job", "last time", or "what is the status", refer to your logged findings above or your role.
+2. Answer the user's question directly, concisely, and professionally. Use **bold** for key terms and '- ' bullets.
+3. NEVER use markdown headers (#, ##, ###) or hashtags like #Finance. No '---' dividers, code blocks, or raw JSON.
+4. Adopt a high-end, warm, elite VC partner tone. Use a few tasteful emojis where they help (📊 ⚖️ 🚩).
+5. Keep your answer brief (2-3 sentences) unless the user specifically asks for a detailed report.
+6. If the user asks about your "last job", "last time", or "what is the status", refer to your logged findings above or your role.
 """
     
     from core.base_agent import llm_degraded
@@ -917,7 +965,13 @@ CRITICAL INSTRUCTIONS:
     pitch_data = _load_pitch_file()
     calc = run_diligence_calculations(pitch_data)
     company_name = calc["company_name"]
-    
+    valuation = calc.get("valuation", "N/A")
+
+    def _flag_line(f):
+        """Red flags may be dicts ({'claim': ...}) or plain strings — handle both."""
+        claim = f.get("claim") if isinstance(f, dict) else str(f)
+        return f"- ⚠️ {claim}"
+
     if agent_name == "financial_partner":
         arr = calc["arr"]
         burn = calc["burn"]
@@ -927,7 +981,7 @@ CRITICAL INSTRUCTIONS:
         fin_flags = calc["fin_flags"]
         score = calc["fin_score"]
         rec = calc["fin_rec"]
-        flags_text = "\n".join(f"- ⚠️ {f.get('claim')}" for f in fin_flags) if fin_flags else "- No major flags identified."
+        flags_text = "\n".join(_flag_line(f) for f in fin_flags) if fin_flags else "- No major flags identified."
         
         scenario_text = ""
         if calc.get("scenario"):
@@ -967,7 +1021,7 @@ CRITICAL INSTRUCTIONS:
         leg_flags = calc["leg_flags"]
         score = calc["leg_score"]
         rec = calc["leg_rec"]
-        flags_text = "\n".join(f"- ⚠️ {f.get('claim')}" for f in leg_flags) if leg_flags else "- No major flags identified."
+        flags_text = "\n".join(_flag_line(f) for f in leg_flags) if leg_flags else "- No major flags identified."
         
         questions_text = ""
         if calc.get("questions") and calc["questions"].get("legal"):
@@ -990,7 +1044,7 @@ CRITICAL INSTRUCTIONS:
         tech_flags = calc["tech_flags"]
         score = calc["tech_score"]
         rec = calc["tech_rec"]
-        flags_text = "\n".join(f"- ⚠️ {f.get('claim')}" for f in tech_flags) if tech_flags else "- No major flags identified."
+        flags_text = "\n".join(_flag_line(f) for f in tech_flags) if tech_flags else "- No major flags identified."
         
         questions_text = ""
         if calc.get("questions") and calc["questions"].get("cto"):
@@ -1013,7 +1067,7 @@ CRITICAL INSTRUCTIONS:
         mkt_flags = calc["mkt_flags"]
         score = calc["mkt_score"]
         rec = calc["mkt_rec"]
-        flags_text = "\n".join(f"- ⚠️ {f.get('claim')}" for f in mkt_flags) if mkt_flags else "- No major flags identified."
+        flags_text = "\n".join(_flag_line(f) for f in mkt_flags) if mkt_flags else "- No major flags identified."
         return (
             f"📊 **Market Partner Swarm Report — {company_name}**\n\n"
             f"I have completed the market audit of **{company_name}**:\n"
@@ -1637,8 +1691,8 @@ async def upload_pitch_document(file: UploadFile = File(...)):
 
 @router.get("/generate-report")
 @router.post("/generate-report")
-async def generate_research_report(incident_id: Optional[str] = None):
-    """Generates a downloadable Markdown VC due diligence report.
+async def generate_research_report(incident_id: Optional[str] = None, format: Optional[str] = "md"):
+    """Generates a downloadable Markdown or PDF VC due diligence report.
     Defaults to the active deal, then the latest deal on record."""
     incident_id = incident_id or sim_state.active_incident_id or memory_graph.get_latest_incident_id()
     if not incident_id:
@@ -1717,6 +1771,19 @@ async def generate_research_report(incident_id: Optional[str] = None):
 *Report generated on the behalf of FUSION AI-Powered Venture Capital Investment Committee.*
 """
     
+    if format == "pdf":
+        from core.pdf_generator import compile_pdf_report
+        try:
+            pdf_bytes = compile_pdf_report(report_md, company_name)
+            file_like = io.BytesIO(pdf_bytes)
+            headers = {
+                'Content-Disposition': f'attachment; filename="FUSION_Report_{company_name.replace(" ", "_")}.pdf"'
+            }
+            return StreamingResponse(file_like, media_type="application/pdf", headers=headers)
+        except Exception as e:
+            logger.error(f"Failed to generate PDF report: {e}")
+            raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
+
     file_like = io.BytesIO(report_md.encode("utf-8"))
     headers = {
         'Content-Disposition': f'attachment; filename="FUSION_Report_{company_name.replace(" ", "_")}.md"'

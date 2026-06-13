@@ -200,6 +200,16 @@ class MemoryGraph:
         with _LOCK:
             self._write_file(self.chat_file, [])
 
+    def clear_all(self):
+        """Wipe everything: all deals, learned patterns, agent profiles, and chat history.
+        Used by the Settings 'Reset & Clear All History' control."""
+        with _LOCK:
+            self._write_file(self.incidents_file, {})
+            self._write_file(self.patterns_file, {})
+            self._write_file(self.agent_profiles_file, {})
+            self._write_file(self.chat_file, [])
+        logger.info("Memory: cleared ALL history (incidents, patterns, profiles, chat).")
+
     # ── Summaries ─────────────────────────────────────────────────────────
 
     def get_team_summary(self, incident_id: str) -> str:

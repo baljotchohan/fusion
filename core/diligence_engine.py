@@ -104,26 +104,193 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
         valuation = company.get("post_money_valuation")
         
     financials = pitch_data.get("financials", {})
-    arr = financials.get("arr") if isinstance(financials.get("arr"), dict) else {"value": "$1,000,000", "confidence": 40, "provenance": "default", "evidence": "Default ARR"}
-    burn = financials.get("burn") if isinstance(financials.get("burn"), dict) else {"value": "$150,000", "confidence": 40, "provenance": "default", "evidence": "Default Burn"}
-    runway = financials.get("runway") if isinstance(financials.get("runway"), dict) else {"value": "12 months", "confidence": 40, "provenance": "default", "evidence": "Default Runway"}
-    gross_margin = financials.get("gross_margin") if isinstance(financials.get("gross_margin"), dict) else {"value": "70%", "confidence": 40, "provenance": "default", "evidence": "Default Margin"}
-    customers = financials.get("customers") if isinstance(financials.get("customers"), dict) else {"value": "No customer concentration", "confidence": 40, "provenance": "default", "evidence": "Default Customers"}
+    pitch_claims = pitch_data.get("pitch_claims", {})
+
+    # ── Extract ARR from pitch data ──
+    if isinstance(financials.get("arr"), dict):
+        arr = financials["arr"]
+    elif pitch_claims.get("arr"):
+        arr = {"value": str(pitch_claims["arr"]), "confidence": 85, "provenance": "pitch_claims", "evidence": "Pitch Claims ARR"}
+    elif financials.get("arr_raw") or pitch_claims.get("arr_raw"):
+        raw = financials.get("arr_raw") or pitch_claims.get("arr_raw")
+        arr = {"value": f"${raw:,.0f}" if isinstance(raw, (int, float)) else str(raw), "confidence": 85, "provenance": "pitch_data", "evidence": "ARR Raw Value"}
+    else:
+        arr = {"value": "$1,000,000", "confidence": 40, "provenance": "default", "evidence": "Default ARR"}
+
+    # ── Extract Burn Rate ──
+    if isinstance(financials.get("burn"), dict):
+        burn = financials["burn"]
+    elif financials.get("monthly_burn_usd"):
+        b = financials["monthly_burn_usd"]
+        burn = {"value": f"${b:,.0f}" if isinstance(b, (int, float)) else str(b), "confidence": 90, "provenance": "financials", "evidence": "Monthly Burn USD"}
+    else:
+        burn = {"value": "$150,000", "confidence": 40, "provenance": "default", "evidence": "Default Burn"}
+
+    # ── Extract Runway ──
+    if isinstance(financials.get("runway"), dict):
+        runway = financials["runway"]
+    elif financials.get("runway_months"):
+        r = financials["runway_months"]
+        runway = {"value": f"{r} months", "confidence": 90, "provenance": "financials", "evidence": "Runway Months"}
+    else:
+        runway = {"value": "12 months", "confidence": 40, "provenance": "default", "evidence": "Default Runway"}
+
+    # ── Extract Gross Margin ──
+    if isinstance(financials.get("gross_margin"), dict):
+        gross_margin = financials["gross_margin"]
+    elif financials.get("gross_margin_pct") is not None:
+        gm = financials["gross_margin_pct"]
+        gross_margin = {"value": f"{gm}%", "confidence": 90, "provenance": "financials", "evidence": "Gross Margin Pct"}
+    else:
+        gross_margin = {"value": "70%", "confidence": 40, "provenance": "default", "evidence": "Default Margin"}
+
+    # ── Extract Customer Concentration ──
+    if isinstance(financials.get("customers"), dict):
+        customers = financials["customers"]
+    elif financials.get("customer_revenue_breakdown"):
+        breakdown = financials["customer_revenue_breakdown"]
+        if isinstance(breakdown, list) and len(breakdown) > 0:
+            top = max(breakdown, key=lambda x: x.get("revenue_pct", 0))
+            top_name = top.get("customer", "Top customer")
+            top_pct = top.get("revenue_pct", 0)
+            note = top.get("note", "")
+            cust_str = f"{top_pct}% from {top_name}"
+            if note:
+                cust_str += f" ({note})"
+            customers = {"value": cust_str, "confidence": 90, "provenance": "financials", "evidence": "Customer Revenue Breakdown"}
+        else:
+            customers = {"value": "No customer concentration", "confidence": 40, "provenance": "default", "evidence": "Default Customers"}
+    else:
+        customers = {"value": "No customer concentration", "confidence": 40, "provenance": "default", "evidence": "Default Customers"}
     fin_flags = financials.get("red_flags", [])
     
     legal = pitch_data.get("legal", {})
-    litigation = legal.get("litigation") if isinstance(legal.get("litigation"), dict) else {"value": "No active lawsuits.", "confidence": 40, "provenance": "default", "evidence": "Default Litigation"}
-    compliance = legal.get("compliance") if isinstance(legal.get("compliance"), dict) else {"value": "SOC 2 Type 1 certified.", "confidence": 40, "provenance": "default", "evidence": "Default Compliance"}
+
+    # ── Extract Litigation ──
+    if isinstance(legal.get("litigation"), dict):
+        litigation = legal["litigation"]
+    elif legal.get("pending_litigation"):
+        cases = legal["pending_litigation"]
+        if isinstance(cases, list) and len(cases) > 0:
+            parts = []
+            total_damages = 0
+            for c in cases:
+                case_name = c.get("case", "Unknown case")
+                case_type = c.get("type", "")
+                damages = c.get("potential_damages_usd", 0)
+                total_damages += damages
+                status = c.get("status", "")
+                note = c.get("note", "")
+                desc = f"{case_type}: {case_name}"
+                if damages:
+                    desc += f" (${damages:,.0f} potential damages)"
+                if status:
+                    desc += f" — {status}"
+                if note:
+                    desc += f". {note}"
+                parts.append(desc)
+            lit_val = f"{len(cases)} active lawsuit(s) totaling ${total_damages:,.0f} potential damages. " + " | ".join(parts)
+            litigation = {"value": lit_val, "confidence": 90, "provenance": "legal", "evidence": "Pending Litigation Records"}
+        else:
+            litigation = {"value": "No active lawsuits.", "confidence": 40, "provenance": "default", "evidence": "Default Litigation"}
+    else:
+        litigation = {"value": "No active lawsuits.", "confidence": 40, "provenance": "default", "evidence": "Default Litigation"}
+
+    # ── Extract Compliance ──
+    if isinstance(legal.get("compliance"), dict):
+        compliance = legal["compliance"]
+    elif legal.get("regulatory_compliance"):
+        rc = legal["regulatory_compliance"]
+        if isinstance(rc, dict):
+            parts = []
+            for key, val in rc.items():
+                if isinstance(val, str):
+                    parts.append(f"{key}: {val}")
+            comp_val = "; ".join(parts) if parts else "Compliance status available"
+            # Check for non-compliance signals
+            comp_lower = comp_val.lower()
+            has_issue = any(w in comp_lower for w in ["non-compliant", "not certified", "not compliant", "no independent", "self-assessed", "not applicable", "without required", "unlicensed", "may require", "may cross"])
+            confidence = 85 if has_issue else 75
+            compliance = {"value": comp_val, "confidence": confidence, "provenance": "legal", "evidence": "Regulatory Compliance Data"}
+        else:
+            compliance = {"value": str(rc), "confidence": 70, "provenance": "legal", "evidence": "Regulatory Compliance"}
+    else:
+        compliance = {"value": "SOC 2 Type 1 certified.", "confidence": 40, "provenance": "default", "evidence": "Default Compliance"}
     leg_flags = legal.get("red_flags", [])
     
     technical = pitch_data.get("technical", {})
-    stack = technical.get("stack") if isinstance(technical.get("stack"), dict) else {"value": "React, Node.js, AWS", "confidence": 40, "provenance": "default", "evidence": "Default Stack"}
-    security = technical.get("security") if isinstance(technical.get("security"), dict) else {"value": "Standard security controls.", "confidence": 40, "provenance": "default", "evidence": "Default Security"}
+
+    # ── Extract Tech Stack ──
+    if isinstance(technical.get("stack"), dict) and "value" in technical.get("stack", {}):
+        stack = technical["stack"]
+    elif technical.get("tech_stack"):
+        ts = technical["tech_stack"]
+        if isinstance(ts, dict):
+            parts = []
+            for key, val in ts.items():
+                if isinstance(val, str):
+                    parts.append(f"{key}: {val}")
+            stack_val = "; ".join(parts) if parts else "Tech stack available"
+            # Check for EOL
+            stack_lower = stack_val.lower()
+            has_eol = any(w in stack_lower for w in ["eol", "end-of-life", "end of life", "unsupported", "node.js 14", "mongodb 4.2", "python 3.9"])
+            stack = {"value": stack_val, "confidence": 90, "provenance": "technical", "evidence": "Tech Stack Details"}
+        else:
+            stack = {"value": str(ts), "confidence": 70, "provenance": "technical", "evidence": "Tech Stack"}
+    else:
+        stack = {"value": "React, Node.js, AWS", "confidence": 40, "provenance": "default", "evidence": "Default Stack"}
+
+    # ── Extract Security ──
+    if isinstance(technical.get("security"), dict) and "value" in technical.get("security", {}):
+        security = technical["security"]
+    elif isinstance(technical.get("security"), dict):
+        sec = technical["security"]
+        parts = []
+        for key, val in sec.items():
+            if isinstance(val, str):
+                parts.append(f"{key}: {val}")
+        sec_val = "; ".join(parts) if parts else "Security data available"
+        # Check for serious issues
+        sec_lower = sec_val.lower()
+        has_severe = any(w in sec_lower for w in ["plaintext", "ssn", "pii", "never conducted", "no pentest", "unpatched", "undisclosed", "breach", "unencrypted", "not enforced", "leaked"])
+        security = {"value": sec_val, "confidence": 90 if has_severe else 75, "provenance": "technical", "evidence": "Security Assessment Data"}
+    else:
+        security = {"value": "Standard security controls.", "confidence": 40, "provenance": "default", "evidence": "Default Security"}
     tech_flags = technical.get("red_flags", [])
     
     market = pitch_data.get("market", {})
-    tam = market.get("tam") if isinstance(market.get("tam"), dict) else {"value": "$10B TAM", "confidence": 40, "provenance": "default", "evidence": "Default TAM"}
-    competition = market.get("competition") if isinstance(market.get("competition"), dict) else {"value": "Incumbent pressure", "confidence": 40, "provenance": "default", "evidence": "Default Competition"}
+
+    # ── Extract TAM ──
+    if isinstance(market.get("tam"), dict) and "value" in market.get("tam", {}):
+        tam = market["tam"]
+    elif market.get("tam_claim"):
+        tam = {"value": str(market["tam_claim"]), "confidence": 60, "provenance": "market", "evidence": "Company TAM Claim"}
+    else:
+        tam = {"value": "$10B TAM", "confidence": 40, "provenance": "default", "evidence": "Default TAM"}
+
+    # ── Extract Competition ──
+    if isinstance(market.get("competition"), dict) and "value" in market.get("competition", {}):
+        competition = market["competition"]
+    elif market.get("competitors"):
+        comps = market["competitors"]
+        if isinstance(comps, list) and len(comps) > 0:
+            names = []
+            for c in comps:
+                name = c.get("name", "Unknown")
+                threat = c.get("threat_level", "")
+                funding = c.get("funding_raised", c.get("valuation", ""))
+                entry = name
+                if funding:
+                    entry += f" ({funding})"
+                if threat:
+                    entry += f" [Threat: {threat}]"
+                names.append(entry)
+            comp_val = f"{len(comps)} competitors: " + ", ".join(names)
+            competition = {"value": comp_val, "confidence": 85, "provenance": "market", "evidence": "Competitor Analysis"}
+        else:
+            competition = {"value": "Incumbent pressure", "confidence": 40, "provenance": "default", "evidence": "Default Competition"}
+    else:
+        competition = {"value": "Incumbent pressure", "confidence": 40, "provenance": "default", "evidence": "Default Competition"}
     mkt_flags = market.get("red_flags", [])
     
     coverage_score = pitch_data.get("coverage_score", 100)
@@ -200,26 +367,30 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     elif margin_val < 60.0:
         fin_score += 2.0
         
+    if concentration_val > 50.0:
+        fin_score += 2.0
     if concentration_val > 70.0:
-        fin_score += 3.0
-        if any(w in c_str.lower() or w in str(pitch_data).lower() for w in ["expires in 3 months", "contract expires Sept 30, 2026", "expires in 3 months", "renewal in 3 months", "3 months after close"]):
+        fin_score += 1.0
+        if any(w in c_str.lower() or w in str(pitch_data).lower() for w in ["termination-for-convenience", "vendor consolidation", "expires in 3 months", "contract expires Sept 30, 2026", "renewal in 3 months", "3 months after close", "90-day termination"]):
             fin_score += 1.0
     fin_score = min(10.0, fin_score)
     
     # Legal score
     leg_score = 1.0
-    has_lawsuit = any(w in lit_str.lower() for w in ["lawsuit", "litigation", "patent dispute", "sued"]) and not any(neg in lit_str.lower() for neg in ["no active", "no pending", "no lawsuits", "none", "no litigation"])
+    has_lawsuit = any(w in lit_str.lower() for w in ["lawsuit", "litigation", "patent dispute", "sued", "active lawsuit", "damages", "malpractice", "false claims", "whistleblower"]) and not any(neg in lit_str.lower() for neg in ["no active", "no pending", "no lawsuits", "none", "no litigation"])
     if has_lawsuit:
         leg_score += 5.0
         if lit_damages > 0.5 * raise_amt_val:
             leg_score += 3.0
             
     comp_str = str(compliance.get("value", ""))
-    is_non_compliant = any(w in comp_str.lower() for w in ["non-compliant", "cfpb rules", "mandatory guideline", "violat"])
+    is_non_compliant = any(w in comp_str.lower() for w in ["non-compliant", "cfpb rules", "mandatory guideline", "violat", "self-assessed", "no independent audit", "may require", "may cross", "not conducted", "not certified", "abandoned", "material control deficiencies"])
     if is_non_compliant:
         leg_score += 3.0
         
-    is_unlicensed = any(w in comp_str.lower() for w in ["unlicensed", "without required licenses", "without licenses", "lacks money transmitter", "lacks licenses"])
+    is_unlicensed_money_transmitter = any(w in comp_str.lower() for w in ["unlicensed", "lacks money transmitter", "lacks money transmission", "without required licenses", "lacks licenses"]) and not any(w in comp_str.lower() for w in ["fda", "510(k)", "telehealth"])
+    is_unlicensed_healthcare = any(w in comp_str.lower() for w in ["telehealth", "fda", "510(k)", "medical device", "samd"]) and any(w in comp_str.lower() for w in ["require clearance", "require license", "requiring clearance", "requiring fda", "lacks clearance", "may require", "require licensing"])
+    is_unlicensed = is_unlicensed_money_transmitter or is_unlicensed_healthcare
     if is_unlicensed:
         leg_score += 4.0
     leg_score = min(10.0, leg_score)
@@ -227,35 +398,45 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     # Technical score
     tech_score = 1.0
     stack_str = str(stack.get("value", ""))
-    is_eol = any(w in stack_str.lower() for w in ["eol", "end-of-life", "node.js 14", "mongodb 4.2"])
+    is_eol = any(w in stack_str.lower() for w in ["eol", "end-of-life", "end of life", "unsupported", "node.js 14", "mongodb 4.2", "python 3.9", "python 3.8", "python 3.7"])
     if is_eol:
         tech_score += 3.0
         
     sec_str = str(security.get("value", ""))
-    is_plaintext_ssn = any(w in sec_str.lower() for w in ["plaintext", "ssn", "pii"])
+    is_plaintext_ssn = any(w in sec_str.lower() for w in ["plaintext", "unencrypted"]) and any(w in sec_str.lower() for w in ["ssn", "pii", "phi", "patient", "identifiers", "credential", "data", "record"])
     if is_plaintext_ssn:
         tech_score += 5.0
         
-    is_undisclosed_breach = ("undisclosed" in sec_str.lower() and "breach" in sec_str.lower()) and not any(neg in sec_str.lower() for neg in ["no undisclosed", "no security breaches"])
+    is_undisclosed_breach = any(
+        all(k in sec_str.lower() for k in combo)
+        for combo in [("undisclosed",), ("leaked",), ("not reported",), ("not disclosed",)]
+    ) and any(w in sec_str.lower() for w in ["breach", "incident", "exposure", "credentials", "github"])
+    is_undisclosed_breach = is_undisclosed_breach and not any(neg in sec_str.lower() for neg in ["no undisclosed", "no security breaches"])
     if is_undisclosed_breach:
         tech_score += 3.0
         
-    is_no_pentest = any(w in sec_str.lower() for w in ["never conducted", "no pentest", "no penetration test"])
+    is_no_pentest = any(w in sec_str.lower() for w in ["never conducted", "no pentest", "no penetration test", "unpatched", "remain unpatched", "vulnerabilities remain"])
     if is_no_pentest:
+        tech_score += 2.0
+    
+    # Additional: check for leaked credentials
+    is_leaked_creds = any(w in sec_str.lower() for w in ["leaked", "connection string", "credentials", "public github"])
+    if is_leaked_creds:
         tech_score += 2.0
     tech_score = min(10.0, tech_score)
     
     # Market score
     mkt_score = 1.0
-    is_declining = any(w in str(pitch_data).lower() for w in ["declining", "shrinking", "negative sector growth", "-12%"])
+    pitch_str_lower = str(pitch_data).lower()
+    is_declining = any(w in pitch_str_lower for w in ["declining", "shrinking", "negative sector growth", "-12%", "flat to declining", "flat/declining", "cost reduction", "budget cuts"])
     if is_declining:
         mkt_score += 4.0
         
-    is_funding_down = any(w in str(pitch_data).lower() for w in ["funding down", "down 67%", "vc funding down"])
+    is_funding_down = any(w in pitch_str_lower for w in ["funding down", "down 67%", "vc funding down", "down 31%", "funding.*down", "passing on this round"])
     if is_funding_down:
         mkt_score += 2.0
         
-    is_heavy_comp = any(w in str(pitch_data).lower() for w in ["affirm", "klarna", "afterpay", "block", "intense competition"])
+    is_heavy_comp = any(w in pitch_str_lower for w in ["affirm", "klarna", "afterpay", "block", "intense competition", "epic", "viz.ai", "aidoc", "google health", "med-palm", "microsoft", "nuance", "fda clearance", "fda-cleared", "bundling free", "bundled free", "no additional cost", "existential"])
     if is_heavy_comp:
         mkt_score += 3.0
     mkt_score = min(10.0, mkt_score)
@@ -265,9 +446,11 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     if has_lawsuit and lit_damages > 0.5 * raise_amt_val:
         override_reasons.append("Active patent lawsuit damages > 50% of the raise amount")
     if is_plaintext_ssn:
-        override_reasons.append("User PII and SSNs stored in plaintext")
-    if is_unlicensed:
+        override_reasons.append("User PII/PHI or sensitive data stored in plaintext/unencrypted")
+    if is_unlicensed_money_transmitter:
         override_reasons.append("Operating without required state money transmitter licenses")
+    if is_unlicensed_healthcare:
+        override_reasons.append("Operating without required FDA/healthcare clearance or licenses")
     if runway_val < 3.0:
         override_reasons.append("Runway is critical (<3 months)")
     is_concentration_cliff = (concentration_val > 70.0) and any(w in c_str.lower() or w in str(pitch_data).lower() for w in ["expires in 3 months", "contract expires Sept 30, 2026", "expires in 3 months", "renewal in 3 months", "3 months after close"])
