@@ -1665,7 +1665,12 @@ async def upload_pitch_document(file: UploadFile = File(...)):
         json.dump(structured_data, f, indent=2)
         
     # Set active company name, incident id, and pitch file
-    sim_state.active_company_name = structured_data.get("company", {}).get("name", "Unknown Startup")
+    co_obj = structured_data.get("company", {})
+    if isinstance(co_obj, dict):
+        company_name = co_obj.get("value") or co_obj.get("name") or "Unknown Startup"
+    else:
+        company_name = co_obj or "Unknown Startup"
+    sim_state.active_company_name = company_name
     sim_state.active_incident_id = incident_id
     sim_state.active_pitch_file = f"pitch_{incident_id}.json"
 
@@ -1689,8 +1694,7 @@ async def upload_pitch_document(file: UploadFile = File(...)):
     }
 
 
-@router.get("/generate-report")
-@router.post("/generate-report")
+@router.api_route("/generate-report", methods=["GET", "POST"])
 async def generate_research_report(incident_id: Optional[str] = None, format: Optional[str] = "md"):
     """Generates a downloadable Markdown or PDF VC due diligence report.
     Defaults to the active deal, then the latest deal on record."""
@@ -1701,9 +1705,18 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
     if not inc:
         raise HTTPException(status_code=404, detail="Incident/deal record not found.")
         
-    company_name = inc["metadata"].get("company", "NovaPay Inc")
-    if company_name == "NovaPay Inc" and sim_state.active_company_name:
-        company_name = sim_state.active_company_name
+    raw_company = inc["metadata"].get("company", "NovaPay Inc")
+    if isinstance(raw_company, dict):
+        company_name = raw_company.get("value") or raw_company.get("name") or "Unknown Startup"
+    else:
+        company_name = raw_company or "Unknown Startup"
+        
+    if (not company_name or company_name == "NovaPay Inc" or company_name == "Unknown Startup") and sim_state.active_company_name:
+        act_co = sim_state.active_company_name
+        if isinstance(act_co, dict):
+            company_name = act_co.get("value") or act_co.get("name") or "NovaPay Inc"
+        else:
+            company_name = act_co
         
     created_at = inc.get("created_at", "N/A")
     verdict = "PENDING"

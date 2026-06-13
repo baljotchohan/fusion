@@ -137,7 +137,11 @@ async def trigger_deal(company: str = "NovaPay Inc", raise_amount: str = "$10M")
         deal_id = sim_state.active_incident_id
         inc = memory_graph.get_incident(deal_id)
         if inc:
-            company = inc["metadata"].get("company", company)
+            raw_co = inc["metadata"].get("company")
+            if isinstance(raw_co, dict):
+                company = raw_co.get("value") or raw_co.get("name") or company
+            elif raw_co:
+                company = raw_co
     else:
         from datetime import datetime, timezone
         deal_id = f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
