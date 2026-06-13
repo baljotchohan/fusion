@@ -102,13 +102,13 @@ _SMALLTALK_WORDS = ("how are you", "how r u", "hru", "how are u", "how you doing
 _TRIGGER_KEYWORDS = ("evaluate", "run diligence", "run due diligence", "start simulation", "trigger simulation", "analyze startup", "run evaluation", "test startup", "assess startup")
 
 
-_CASUAL_OPENERS = (
-    "hi", "hii", "hello", "hey", "heyy", "yo", "sup", "howdy", "hola", "gm",
-    "good morning", "good afternoon", "good evening", "namaste", "salam",
-)
+# Greeting tokens (incl. typos like "hlo"/"hy") reuse the chat greeting vocab.
+_CASUAL_OPENERS = set(_GREETING_WORDS) | {
+    "hii", "heyy", "sup", "howdy", "hola", "yo", "good", "ok", "okay", "cool",
+}
 _CASUAL_PHRASES = _SMALLTALK_WORDS + _THANKS_WORDS + (
-    "who are you", "what do you do", "what's your name", "whats your name",
-    "nice to meet", "tell me about yourself", "introduce yourself",
+    "who are you", "what do you do", "what's your name", "whats your name", "ur name",
+    "nice to meet", "tell me about yourself", "introduce yourself", "what can you do",
 )
 
 
@@ -1129,7 +1129,26 @@ async def _agent_reply(agent_name: str, user_message: str, incident_id: str) -> 
     }
     
     p = PERSONAS.get(agent_name, PERSONAS["managing_partner"])
-    
+
+    # Casual greeting / smalltalk → fast, friendly in-persona reply. Handled BEFORE
+    # the LLM and the full audit so "hi"/"hlo" never returns a wall of risk findings.
+    if _is_casual_message(user_message):
+        import random
+        emoji = {"financial_partner": "💵", "legal_partner": "⚖️",
+                 "technical_partner": "🛠️", "market_partner": "📊",
+                 "managing_partner": "💼"}.get(agent_name, "🤝")
+        openers = [
+            f"{emoji} Hey! I'm the {p['name']} on the FUSION committee — {p['role'].lower()}.",
+            f"{emoji} Good to meet you — {p['name']} here at FUSION ({p['role']}).",
+            f"{emoji} Hi there, {p['name']} speaking.",
+        ]
+        invites = [
+            "Ask me anything about this deal's risk, or say \"what did you find?\" and I'll walk you through my read.",
+            "Happy to dig into the numbers whenever you want — point me at a deal or a specific risk.",
+            "When you're ready, ask me about the current deal and I'll give you my honest assessment.",
+        ]
+        return f"{random.choice(openers)} {random.choice(invites)}"
+
     prompt = f"""You are the {p['name']} ({p['role']}) at FUSION VC investment committee.
 {p['bio']}
 
@@ -1162,24 +1181,6 @@ CRITICAL INSTRUCTIONS:
             return await llm_router.call_llm(prompt, max_tokens=350)
         except Exception as e:
             logger.warning(f"Persona LLM failed for {agent_name}: {e}")
-
-    # Casual message? Reply in-persona like a person — don't dump a full audit.
-    if _is_casual_message(user_message):
-        import random
-        emoji = {"financial_partner": "💵", "legal_partner": "⚖️",
-                 "technical_partner": "🛠️", "market_partner": "📊",
-                 "managing_partner": "💼"}.get(agent_name, "🤝")
-        openers = [
-            f"{emoji} Hey! I'm the **{p['name']}** on the FUSION committee — {p['role'].lower()}.",
-            f"{emoji} Good to meet you. I'm the **{p['name']}** here at FUSION ({p['role']}).",
-            f"{emoji} Hi there — **{p['name']}** speaking.",
-        ]
-        invites = [
-            "Ask me anything about a deal's risk, or say *\"what did you find?\"* and I'll walk you through my audit.",
-            "Happy to dig into the numbers whenever you want — just point me at a deal or ask about a specific risk.",
-            "When you're ready, ask me about the current deal and I'll give you my honest read.",
-        ]
-        return f"{random.choice(openers)} {random.choice(invites)}"
 
     from core.pitch_loader import _load_pitch_file
     from core.diligence_engine import (
@@ -1301,7 +1302,23 @@ CRITICAL INSTRUCTIONS:
             f"**Domain Risk Score**: {score:.1f}/10 | **Recommendation**: **{rec}**"
         )
         
-    return calc["managing_partner"] if "managing_partner" in agent_name else f"As the **{p['name']}**, I have audited this target. My current risk findings show: {findings_str}."
+    if agent_name == "managing_partner":
+        verdict = calc.get("verdict", "PENDING")
+        weighted = calc.get("weighted_score")
+        def _s(v):
+            return f"{v:.1f}/10" if isinstance(v, (int, float)) else "N/A"
+        reasons = calc.get("override_reasons") or []
+        reason_line = ("\n".join(f"- {r}" for r in reasons[:3])) if reasons else \
+            "- Scores fell within committee thresholds across all four domains."
+        return (
+            f"💼 **Managing Partner — Committee Read on {company_name}**\n\n"
+            f"My synthesis is a **{verdict}** at a weighted risk score of **{_s(weighted)}** "
+            f"(Financial {_s(calc.get('fin_score'))} · Legal {_s(calc.get('leg_score'))} · "
+            f"Technical {_s(calc.get('tech_score'))} · Market {_s(calc.get('mkt_score'))}).\n\n"
+            f"**Key drivers:**\n{reason_line}\n\n"
+            f"Ask me about any partner's findings, or mention a specialist directly for their detail."
+        )
+    return f"As the **{p['name']}**, I have audited this target. My current risk findings show: {findings_str}."
 
 
 def extract_facts_regex(text: str, filename: str) -> dict:

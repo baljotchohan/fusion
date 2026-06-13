@@ -106,6 +106,21 @@ When you confirm a recurring red flag pattern, call record_defense_recipe so the
 spots it faster on future deals."""
 
 
+def _to_plain_text(text: str) -> str:
+    """Flatten markdown so replies read cleanly in the Band chat (which shows
+    raw text): drop bold/italic markers and headers, normalize bullets."""
+    if not text:
+        return text
+    t = text
+    t = _re.sub(r"\*\*(.+?)\*\*", r"\1", t)   # **bold**
+    t = _re.sub(r"__(.+?)__", r"\1", t)         # __bold__
+    t = _re.sub(r"(?<!\*)\*(?!\s)(.+?)\*", r"\1", t)  # *italic*
+    t = _re.sub(r"^\s{0,3}#{1,6}\s*", "", t, flags=_re.MULTILINE)  # # headers
+    t = _re.sub(r"^\s*[-*]\s+", "• ", t, flags=_re.MULTILINE)        # - bullets → •
+    t = _re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
+
+
 def _extract_mitre_tags(text: str) -> List[str]:
     """Pull MITRE ATT&CK technique IDs (T1566, T1566.001, ...) out of a report."""
     return sorted(set(_re.findall(r"\bT\d{4}(?:\.\d{3})?\b", text or "")))
@@ -304,6 +319,27 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
         # exist only to stop the agent-to-agent handoff from looping; they must not
         # gag a person asking a follow-up in the Band room.
         direct_user_query = is_from_user and is_mentioned
+
+        # A human asked this agent something directly in the Band room. Answer it
+        # ourselves with a real persona reply (LLM when healthy, grounded engine
+        # fallback otherwise) and post it back — instead of running the committee
+        # react-loop, which only knows the scripted handoff and posts nothing for
+        # a casual question. This is what makes @mentions actually get a reply.
+        if direct_user_query:
+            logger.info(f"[{self._argus_agent_name}] Direct user mention — replying: '{(msg.content or '')[:80]}'")
+            await event_bus.broadcast(self._argus_agent_name, "working", {"current_action": "Answering a question in Band"})
+            try:
+                from api.v1 import _agent_reply
+                incident_id = sim_state.active_incident_id or memory_graph.get_latest_incident_id() or ""
+                reply = await _agent_reply(self._argus_agent_name, msg.content or "", incident_id)
+                reply = _to_plain_text(reply)
+                await tools.send_message(content=reply)
+                self._processed_msg_ids.add(msg.id)
+                await event_bus.broadcast(self._argus_agent_name, "done", {"report": reply[:500]})
+            except Exception as e:
+                logger.error(f"[{self._argus_agent_name}] Direct user reply failed: {e}")
+                await event_bus.broadcast(self._argus_agent_name, "alert", {"error": str(e)})
+            return
 
         if not direct_user_query:
             if sim_state.deal_concluded:
