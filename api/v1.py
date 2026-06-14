@@ -1979,44 +1979,67 @@ DOCUMENT:
 
 
 @router.post("/upload-pitch")
-async def upload_pitch_document(file: UploadFile = File(...)):
-    """Receives and parses real pitch documents (JSON, PDF, TXT, MD), structures them, and saves for active review."""
-    content = await file.read()
-    size_mb = len(content) / (1024 * 1024)
-    if size_mb > sim_state.max_file_size_mb:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File exceeds size limit of {sim_state.max_file_size_mb}MB (got {size_mb:.1f}MB)"
-        )
+async def upload_pitch_document(
+    file: Optional[UploadFile] = File(None),
+    files: Optional[List[UploadFile]] = File(None)
+):
+    """Receives and parses real pitch documents/data room files (JSON, PDF, TXT, MD), structures them, and saves for active review."""
+    uploaded_files = []
+    if file:
+        uploaded_files.append(file)
+    if files:
+        uploaded_files.extend(files)
+        
+    if not uploaded_files:
+        raise HTTPException(status_code=400, detail="No files uploaded.")
         
     incident_id = _new_incident_id()
-    filename = file.filename or "uploaded_pitch"
-    text = ""
+    files_text = {}
+    structured_data = None
     
-    if filename.lower().endswith(".json"):
-        try:
-            structured_data = json.loads(content.decode("utf-8"))
-            if not isinstance(structured_data, dict) or "company" not in structured_data:
-                raise ValueError("JSON missing required pitch schema structure")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid JSON pitch structure: {e}")
-    else:
-        if content.startswith(b"%PDF") or filename.lower().endswith(".pdf"):
+    for u_file in uploaded_files:
+        content = await u_file.read()
+        size_mb = len(content) / (1024 * 1024)
+        if size_mb > sim_state.max_file_size_mb:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File {u_file.filename} exceeds size limit of {sim_state.max_file_size_mb}MB"
+            )
+            
+        filename = u_file.filename or "uploaded_doc"
+        
+        if filename.lower().endswith(".json"):
+            try:
+                js_data = json.loads(content.decode("utf-8"))
+                if len(uploaded_files) == 1 and isinstance(js_data, dict) and "company" in js_data:
+                    structured_data = js_data
+                else:
+                    files_text[filename] = json.dumps(js_data, indent=2)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid JSON file {filename}: {e}")
+        elif content.startswith(b"%PDF") or filename.lower().endswith(".pdf"):
             try:
                 reader = PdfReader(io.BytesIO(content))
-                text = ""
+                f_text = ""
                 for page in reader.pages:
-                    text += page.extract_text() or ""
-                if not text.strip():
+                    f_text += page.extract_text() or ""
+                if not f_text.strip():
                     raise ValueError("Empty or scanned PDF (no selectable text found)")
+                files_text[filename] = f_text
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Failed to read PDF file: {e}")
+                raise HTTPException(status_code=400, detail=f"Failed to read PDF file {filename}: {e}")
         elif filename.lower().endswith((".txt", ".md")):
-            text = content.decode("utf-8", errors="ignore")
+            files_text[filename] = content.decode("utf-8", errors="ignore")
         else:
-            raise HTTPException(status_code=400, detail="Unsupported file format. Please upload JSON, PDF, TXT, or MD.")
-            
-        structured_data = await parse_and_structure_file(text, filename, incident_id)
+            raise HTTPException(status_code=400, detail=f"Unsupported format for file {filename}. Upload JSON, PDF, TXT, or MD.")
+
+    if structured_data is None:
+        combined_text = ""
+        for fname, ftext in files_text.items():
+            combined_text += f"\n\n--- DOCUMENT: {fname} ---\n{ftext}\n"
+        
+        display_filename = ", ".join(files_text.keys())
+        structured_data = await parse_and_structure_file(combined_text, display_filename, incident_id)
         
     # Write structured pitch JSON file to data directory so pitch_loader can read it
     data_dir = os.path.join(os.path.dirname(__file__), "../data")
@@ -2026,7 +2049,6 @@ async def upload_pitch_document(file: UploadFile = File(...)):
     with open(uploaded_path, "w") as f:
         json.dump(structured_data, f, indent=2)
         
-    # Set active company name, incident id, and pitch file
     co_obj = structured_data.get("company", {})
     company_name = "Unknown Startup"
     if isinstance(co_obj, dict):
@@ -2047,20 +2069,22 @@ async def upload_pitch_document(file: UploadFile = File(...)):
     # Bust the pitch cache so agents load the new file, and open the deal record
     from core.pitch_loader import clear_pitch_cache
     clear_pitch_cache()
+    
+    display_filename = ", ".join(u_file.filename for u_file in uploaded_files if u_file.filename) or "uploaded_data_room"
     memory_graph.create_incident(incident_id, {
         "trigger": "document_upload",
         "company": sim_state.active_company_name,
-        "filename": filename,
+        "filename": display_filename,
         "threat_level": 5,
     })
 
-    logger.info(f"SaaS Ingestion: parsed and saved pitch for incident {incident_id}: {sim_state.active_company_name}")
+    logger.info(f"SaaS Ingestion: parsed and saved data room for incident {incident_id}: {sim_state.active_company_name}")
     
     return {
         "status": "success",
         "incident_id": incident_id,
         "company_name": sim_state.active_company_name,
-        "message": f"Successfully parsed and ingested document for {sim_state.active_company_name}."
+        "message": f"Successfully parsed and ingested data room for {sim_state.active_company_name}."
     }
 
 
@@ -2089,71 +2113,221 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
             company_name = act_co
         
     created_at = inc.get("created_at", "N/A")
-    verdict = "PENDING"
-    fd = inc.get("final_decision") or ""
-    m = re.search(r"DECISION:\s*([A-Za-z]+)", fd, re.I)
-    if m:
-        verdict = m.group(1).upper()
-        
-    # Scorecard calculation
-    risk_scores = {"financial": "N/A", "legal": "N/A", "technical": "N/A", "market": "N/A", "weighted": "N/A"}
-    for ev in inc.get("timeline", []):
-        finding = ev.get("finding", "")
-        for domain in ["financial", "legal", "technical", "market"]:
-            score_match = re.search(fr"{domain}\s*risk\s*(?:score\s*)?:\s*([\d\.]+)(?:\s*/\s*10)?", finding, re.I)
-            if score_match:
-                risk_scores[domain] = score_match.group(1)
-        w_match = re.search(r"weighted\s*(?:risk\s*)?score:\s*([\d\.]+)(?:\s*/\s*10)?", finding, re.I)
-        if w_match:
-            risk_scores["weighted"] = w_match.group(1)
-            
-    # Try to load calculations for exact scorecard details
-    consistency_warn_str = ""
+    
+    # ── SINGLE SOURCE OF TRUTH: Load and run calculations ──
+    from core.pitch_loader import _load_pitch_file
+    from core.diligence_engine import run_diligence_calculations
+    
+    pitch_data = None
     try:
-        from core.pitch_loader import _load_pitch_file
-        from core.diligence_engine import run_diligence_calculations
         pitch_data = _load_pitch_file(f"pitch_{incident_id}.json")
-        if pitch_data:
-            calc = run_diligence_calculations(pitch_data)
-            risk_scores["financial"] = str(calc.get("fin_score")) if calc.get("fin_score") is not None else "N/A"
-            risk_scores["legal"] = str(calc.get("leg_score")) if calc.get("leg_score") is not None else "N/A"
-            risk_scores["technical"] = str(calc.get("tech_score")) if calc.get("tech_score") is not None else "N/A"
-            risk_scores["market"] = str(calc.get("mkt_score")) if calc.get("mkt_score") is not None else "N/A"
-            risk_scores["weighted"] = f"{calc.get('weighted_score'):.2f}" if calc.get("weighted_score") is not None else "N/A"
-            if calc.get("internal_validation_error"):
-                consistency_warn_str = "\n\n> [!WARNING]\n> ⚠ Internal Consistency Warning: Fact Coverage is 100% but missing fields exist.\n"
     except Exception as e:
-        logger.warning(f"Report generator failed to load calculations: {e}")
+        logger.warning(f"Failed to load pitch file pitch_{incident_id}.json: {e}")
         
-    # Calculate weighted score from parsed component scores if weighted is N/A
-    if risk_scores["weighted"] == "N/A":
-        fin = risk_scores.get("financial")
-        leg = risk_scores.get("legal")
-        tech = risk_scores.get("technical")
-        mkt = risk_scores.get("market")
-        if fin != "N/A" and leg != "N/A" and tech != "N/A" and mkt != "N/A":
+    if not pitch_data:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Diligence calculations could not be run: Pitch data for incident {incident_id} not found."
+        )
+        
+    calc = run_diligence_calculations(pitch_data)
+    if not calc:
+        raise HTTPException(
+            status_code=400,
+            detail="Diligence calculations returned empty or invalid results."
+        )
+        
+    calc_company_name = calc.get("company_name", "Unknown Startup")
+    calc_weighted_score = calc.get("weighted_score")
+    calc_verdict = calc.get("verdict", "PENDING")
+    
+    # Extract details from existing timeline/decision card for validation
+    fd = inc.get("final_decision") or ""
+    card_company_name = None
+    card_weighted_score = None
+    card_decision = None
+    if fd:
+        m_co = re.search(r"Company:\s*(.+)", fd, re.I)
+        if m_co:
+            card_company_name = m_co.group(1).strip().strip("|").strip()
+        m_w = re.search(r"weighted\s*(?:risk\s*)?score:\s*\*?\*?([\d\.]+)", fd, re.I)
+        if m_w:
             try:
-                w_val = float(fin) * 0.30 + float(leg) * 0.25 + float(tech) * 0.25 + float(mkt) * 0.20
-                risk_scores["weighted"] = f"{w_val:.2f}"
-            except Exception:
+                card_weighted_score = float(m_w.group(1))
+            except ValueError:
                 pass
+        m_dec = re.search(r"DECISION:\s*([A-Za-z]+)", fd, re.I)
+        if m_dec:
+            card_decision = m_dec.group(1).upper()
+            
+    # ── VALIDATION GUARDS ──
+    
+    # Rule 1: Validate company name
+    if company_name != calc_company_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Company name mismatch: Incident metadata has '{company_name}', but calculations returned '{calc_company_name}'."
+        )
+    if card_company_name and card_company_name != calc_company_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Decision card company name mismatch: Card has '{card_company_name}', but calculations returned '{calc_company_name}'."
+        )
+        
+    # Rule 2: Validate weighted score
+    if card_weighted_score is not None and calc_weighted_score is not None:
+        if abs(card_weighted_score - calc_weighted_score) > 0.01:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Weighted score mismatch: Decision card has {card_weighted_score}, but calculations returned {calc_weighted_score}."
+            )
+            
+    # Rule 3: Validate verdict check
+    verdict_to_check = card_decision or calc_verdict
+    score_to_check = calc_weighted_score
+    if verdict_to_check == "INVEST" and score_to_check is not None and score_to_check > 7:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid investment verdict: Decision is INVEST but weighted risk score is {score_to_check} (> 7)."
+        )
+        
+    # ── REQUIRE PARTNER CONTENT ──
+    partner_findings = {
+        "financial_partner": "",
+        "legal_partner": "",
+        "technical_partner": "",
+        "market_partner": ""
+    }
+    
+    for ev in inc.get("timeline", []):
+        agent = ev.get("agent")
+        if agent in partner_findings:
+            finding = ev.get("finding", "").strip()
+            if finding:
+                partner_findings[agent] = finding
+                
+    for partner, finding in partner_findings.items():
+        partner_display = partner.replace("_", " ").title()
+        if not finding:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Diligence report requires findings from all partners. {partner_display} report is empty."
+            )
+        if "deal already concluded" in finding.lower() or "standing by" in finding.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Diligence report cannot be generated: {partner_display} report contains a standby placeholder ('{finding[:50]}...')."
+            )
+            
+    # ── DYNAMIC CARD & TIMELINE GENERATION ──
+    co_text = calc_company_name[:42]
+    raise_amount = calc.get("raise_amount", "N/A")
+    valuation = calc.get("valuation", "N/A")
+    deal_text = f"{raise_amount} at {valuation} post"[:42]
+    decision_text = calc_verdict[:42]
+    
+    coverage_score = calc.get("coverage_score", 0.0)
+    confidence_val_pct = calc.get("verdict_confidence", coverage_score)
+    confidence_text = f"{confidence_val_pct:.1f}%"[:42]
+    
+    quality_val_pct = calc.get("evidence_quality_score", 80.0)
+    quality_text = f"{quality_val_pct:.1f}%"[:42]
+    
+    readiness_score = calc.get("deal_readiness_score", 80.0)
+    readiness_status = calc.get("deal_readiness_status", "Ready for IC Review")
+    readiness_text = f"{readiness_score:.1f}/100 ({readiness_status})"[:42]
+    
+    fin_score = calc.get("fin_score")
+    fin_val_str = f"{fin_score:>2.0f}/10" if fin_score is not None else " N/A "
+    fin_w_str = f"{0.3*fin_score:>4.2f}" if fin_score is not None else " N/A"
+    
+    leg_score = calc.get("leg_score")
+    leg_val_str = f"{leg_score:>2.0f}/10" if leg_score is not None else " N/A "
+    leg_w_str = f"{0.25*leg_score:>4.2f}" if leg_score is not None else " N/A"
+    
+    tech_score = calc.get("tech_score")
+    tech_val_str = f"{tech_score:>2.0f}/10" if tech_score is not None else " N/A "
+    tech_w_str = f"{0.25*tech_score:>4.2f}" if tech_score is not None else " N/A"
+    
+    mkt_score = calc.get("mkt_score")
+    mkt_val_str = f"{mkt_score:>2.0f}/10" if mkt_score is not None else " N/A "
+    mkt_w_str = f"{0.2*mkt_score:>4.2f}" if mkt_score is not None else " N/A"
+    
+    weighted_val_str = f"{calc_weighted_score:>4.1f}/10" if calc_weighted_score is not None else " N/A  "
+    
+    reasons = []
+    if calc_weighted_score is None:
+        reasons = ["Coverage below minimum threshold (40%)"]
+    elif calc.get("override_reasons"):
+        reasons = calc["override_reasons"]
+    else:
+        reasons = [
+            "Target company metrics align with investment thesis.",
+            "TAM and sector timing support the deal.",
+            "Compliance and technical audits resolved successfully."
+        ]
+            
+    reasons_str = "\n".join(f"{i+1}. {r}" for i, r in enumerate(reasons))
+    
+    dynamic_verdict_card = (
+        "```\n"
+        "+----------------------------------------------------------+\n"
+        "|         FUSION INVESTMENT COMMITTEE DECISION             |\n"
+        "+----------------------------------------------------------+\n"
+        f"| Company:      {co_text:<42} |\n"
+        f"| Deal:         {deal_text:<42} |\n"
+        "+----------------------------------------------------------+\n"
+        f"|  DECISION:    {decision_text:<42} |\n"
+        f"|  CONFIDENCE:  {confidence_text:<42} |\n"
+        f"|  EVI QUALITY: {quality_text:<42} |\n"
+        f"|  READINESS:   {readiness_text:<42} |\n"
+        "+----------------------------------------------------------+\n\n"
+        "RISK SCORECARD:\n"
+        f"  Financial Risk:  {fin_val_str}  (weight: 30%) → {fin_w_str}\n"
+        f"  Legal Risk:      {leg_val_str}  (weight: 25%) → {leg_w_str}\n"
+        f"  Technical Risk:  {tech_val_str}  (weight: 25%) → {tech_w_str}\n"
+        f"  Market Risk:     {mkt_val_str}  (weight: 20%) → {mkt_w_str}\n"
+        "  ------------------------------------------------------\n"
+        f"  WEIGHTED SCORE:  {weighted_val_str}\n\n"
+        "PRIMARY REASONS:\n"
+        f"{reasons_str}\n"
+        "```"
+    )
+    
+    if calc.get("missing_gaps"):
+        gaps_str = ", ".join(calc["missing_gaps"])
+        dynamic_verdict_card += f"\n\nMISSING DILIGENCE GAPS:\n- {gaps_str}"
+        
+    warnings_str = ""
+    if calc.get("contradictions"):
+        for contra in calc["contradictions"]:
+            warnings_str += f"{contra['message']}\n"
+    if calc.get("validation_warnings"):
+        for warn in calc["validation_warnings"]:
+            warnings_str += f"{warn}\n"
+    if warnings_str:
+        dynamic_verdict_card = warnings_str + "\n" + dynamic_verdict_card
+        
+    consistency_warn_str = ""
+    if calc.get("internal_validation_error"):
+        consistency_warn_str = "\n\n> [!WARNING]\n> ⚠ Internal Consistency Warning: Fact Coverage is 100% but missing fields exist.\n"
 
     report_md = f"""# FUSION VC DUE DILIGENCE REPORT
 **Deal Evaluation Record: {incident_id}**
-**Target Company: {company_name}**
+**Target Company: {calc_company_name}**
 **Date Evaluated: {created_at}**
 **Status: Complete**{consistency_warn_str}
 
 ---
 
-## ⚖️ COMMITTEE VERDICT: {verdict}
-{fd or "Committee synthesis memo not yet generated."}
+## ⚖️ COMMITTEE VERDICT: {calc_verdict}
+{dynamic_verdict_card}
 
 ---
 
 ## 📊 RISK SCORECARD
 """
-    if risk_scores["weighted"] == "N/A":
+    if calc_weighted_score is None:
         report_md += f"""* **Financial Risk:** N/A
 * **Legal Risk:** N/A
 * **Technical Risk:** N/A
@@ -2161,14 +2335,18 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
 * **────────────────────────────────────────**
 * **WEIGHTED RISK SCORE:** **N/A**
 * **Reason:** Coverage below minimum threshold (40%)
+
+---
+
+## 📝 CHRONOLOGICAL PARTNER AUDIT TIMELINE
 """
     else:
-        report_md += f"""* **Financial Risk:** {risk_scores['financial']}/10 (Weight: 30%)
-* **Legal Risk:** {risk_scores['legal']}/10 (Weight: 25%)
-* **Technical Risk:** {risk_scores['technical']}/10 (Weight: 25%)
-* **Market Risk:** {risk_scores['market']}/10 (Weight: 20%)
+        report_md += f"""* **Financial Risk:** {fin_score:.1f}/10 (Weight: 30%)
+* **Legal Risk:** {leg_score:.1f}/10 (Weight: 25%)
+* **Technical Risk:** {tech_score:.1f}/10 (Weight: 25%)
+* **Market Risk:** {mkt_score:.1f}/10 (Weight: 20%)
 * **────────────────────────────────────────**
-* **WEIGHTED RISK SCORE:** **{risk_scores['weighted']}/10**
+* **WEIGHTED RISK SCORE:** **{calc_weighted_score:.2f}/10**
 
 ---
 

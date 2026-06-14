@@ -117,37 +117,34 @@ RISK SCORECARD:
   -------------------------------------
   WEIGHTED SCORE:  [X.X]/10
 
-PARTNER FINDINGS SUMMARY:
+# FUSION INVESTMENT MEMO
 
-📊 FINANCIAL PARTNER:
-[2-3 sentence summary of key findings]
+### 1. INVESTMENT THESIS
+[A strong, forward-looking 3-4 sentence GP thesis explaining why we should (or should not) invest in this company, detailing the ultimate potential upside or the structural reasons for a pass/avoid.]
 
-⚖️ LEGAL PARTNER:
-[2-3 sentence summary of key findings]
+### 2. CORE STRENGTHS
+[A bulleted list of 3-4 key factual strengths extracted from the diligence, especially team, ARR/growth, technology moats, or market SAM/SOM.]
+* **Strength 1:** [Detail]
+* **Strength 2:** [Detail]
 
-🔧 TECHNICAL PARTNER:
-[2-3 sentence summary of key findings]
+### 3. KEY RISKS & RED FLAGS
+[A bulleted list of 3-4 most critical risks identified by the partners, such as EOL stack, regulatory gaps, customer concentration, or active litigation. Include direct evidence quotes where possible.]
+* **Risk 1:** [Detail]
+* **Risk 2:** [Detail]
 
-📈 MARKET PARTNER:
-[2-3 sentence summary of key findings]
+### 4. DILIGENCE QUESTIONS (FOR MANAGEMENT)
+[A list of 3-4 key questions to ask the company leadership to resolve outstanding risks or gaps.]
+1. [Question 1]
+2. [Question 2]
 
-COMMITTEE DEBATE:
-[Note any conflicts between partners and how they were resolved]
+### 5. PARTNER DILIGENCE SUMMARIES
+* **Financial Partner:** [2-3 sentences of findings]
+* **Legal Partner:** [2-3 sentences of findings]
+* **Technical Partner:** [2-3 sentences of findings]
+* **Market Partner:** [2-3 sentences of findings]
 
-PRIMARY REASONS FOR DECISION:
-1. [Most important reason]
-2. [Second reason]
-3. [Third reason]
-
-[IF CONDITIONAL] CONDITIONS REQUIRED BEFORE CLOSE:
-1. [Specific, measurable condition with timeline]
-2. [Second condition]
-3. [Third condition]
-
-MANAGING PARTNER COMMENTARY:
-[2-3 sentences of your personal assessment — the GP view]
-
-— Managing Partner, FUSION Investment Committee
+---
+— FUSION Swarm Investment Associate & Committee OS
 
 After delivering the verdict, call thenvoi_send_event('FUSION DELIVERED: [INVEST/PASS/CONDITIONAL] on [company] with [X]% confidence.')"""
 

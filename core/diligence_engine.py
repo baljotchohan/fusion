@@ -123,20 +123,81 @@ def parse_arrs_with_timeframes_from_text(text: str) -> List[Dict[str, Any]]:
                     # Resolve timeframe
                     surr = text[max(0, match.start() - 100):min(len(text), match.end() + 100)].lower()
                     resolved_timeframe = "current"
-                    if any(w in surr for w in ["project", "forecast", "future", "plan", "expect", "reach", "path to", "2026", "2027", "2028", "2029", "2030"]):
+                    
+                    # Resolve specific fiscal or calendar years to prevent grouping different forecast years as one
+                    fy_match = re.search(r"\b(?:fy\s*20\d{2}|fy\s*\d{2})\b", surr)
+                    year_match = re.search(r"\b20\d{2}\b", surr)
+                    
+                    if fy_match:
+                        fy_str = fy_match.group(0).replace(" ", "").lower()
+                        if len(fy_str) == 4:  # e.g. fy25
+                            resolved_timeframe = f"fy20{fy_str[2:]}"
+                        else:
+                            resolved_timeframe = fy_str
+                    elif year_match:
+                        resolved_timeframe = f"cy{year_match.group(0)}"
+                    elif any(w in surr for w in ["project", "forecast", "future", "plan", "expect", "reach", "path to"]):
                         resolved_timeframe = "projected"
                     elif any(w in surr for w in ["target", "goal"]):
                         resolved_timeframe = "target"
-                    elif any(w in surr for w in ["history", "historical", "past", "last year", "2025", "2024"]):
+                    elif any(w in surr for w in ["history", "historical", "past", "last year"]):
                         resolved_timeframe = "historical"
                     elif any(w in surr for w in ["current", "now", "present", "runrate", "run rate"]):
                         resolved_timeframe = "current"
                     elif "estimate" in surr or "approximate" in surr:
                         resolved_timeframe = "estimated"
                         
+                    # Determine scope (quota, customer, or company-level ARR)
+                    scope = "company"
+                    if any(w in surr for w in ["quota", "attainment", "incentive", "target quota", "sales quota"]):
+                        scope = "quota"
+                    elif any(w in surr for w in ["customer", "client", "partner", "integration", "embed", "concentration", "contract", "contribution", "shopify", "quickbooks", "intuit"]):
+                        scope = "customer"
+                        
                     results.append({
                         "value": parsed_val,
                         "timeframe": resolved_timeframe,
+                        "scope": scope,
+                        "raw_match": match.group(0).strip()
+                    })
+    return results
+
+def parse_shares_from_text(text: str) -> List[Dict[str, Any]]:
+    if not text:
+        return []
+    patterns = [
+        r"(?:shares|share\s*count|outstanding\s*shares|total\s*shares)\b\s*(?::|is|of|at|=|-|—|\b)\s*(?:approximately\s*|approx\.?\s*|about\s*|around\s*|~\s*)?([0-9]+[0-9\.,]*\s*(?:million|billion|m|b|k|thousand)?)",
+        r"([0-9]+[0-9\.,]*\s*(?:million|m|billion|b)?)\s*(?:outstanding\s*)?shares"
+    ]
+    results = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            val = next((g for g in match.groups() if g is not None), None)
+            if val:
+                val_clean = val.replace(",", "").strip()
+                multiplier = 1.0
+                m_match = re.search(r"([0-9\.]+)\s*([mM]illion|[mM]|[bB]illion|[bB]|[kK])?", val_clean, re.IGNORECASE)
+                if m_match:
+                    num = float(m_match.group(1))
+                    unit = m_match.group(2)
+                    if unit:
+                        unit = unit.lower()
+                        if unit in ("million", "m"):
+                            multiplier = 1_000_000.0
+                        elif unit in ("billion", "b"):
+                            multiplier = 1_000_000_000.0
+                        elif unit == "k":
+                            multiplier = 1_000.0
+                    parsed_val = int(num * multiplier)
+                    
+                    surr = text[max(0, match.start() - 100):min(len(text), match.end() + 100)].lower()
+                    scope = "company"
+                    if any(w in surr for w in ["holder", "founder", "ceo", "option pool", "incentive pool", "esop", "employee", "investor", "series a investor", "seed investor"]):
+                        scope = "individual"
+                        
+                    results.append({
+                        "value": parsed_val,
+                        "scope": scope,
                         "raw_match": match.group(0).strip()
                     })
     return results
@@ -151,6 +212,15 @@ def parse_arr_from_text(text: str) -> float:
 def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     if not pitch_data:
         pitch_data = {}
+        
+    def get_grounding(field, default_sec, default_evid="unverified"):
+        if not isinstance(field, dict):
+            return f"{default_sec} -> {default_evid}"
+        prov = field.get("provenance") or "data_room"
+        evid = field.get("evidence") or field.get("value") or default_evid
+        if isinstance(evid, str) and len(evid) > 100:
+            evid = evid[:97] + "..."
+        return f"{prov} -> {evid}"
         
     company = pitch_data.get("company", {})
     
@@ -473,6 +543,8 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
             if lit_damages is not None and raise_amt_val is not None and lit_damages > 0.5 * raise_amt_val:
                 leg_score += 3.0
     is_non_compliant = False
+    is_unlicensed_money_transmitter = False
+    is_unlicensed_healthcare = False
     is_unlicensed = False
     if not is_field_missing(compliance):
         comp_str = str(compliance.get("value", ""))
@@ -503,12 +575,16 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
         ])
         if is_eol:
             tech_score += 3.0
+    is_plaintext_storage = False
+    is_public_exposure = False
     is_plaintext_ssn = False
     is_undisclosed_breach = False
     is_no_pentest = False
     if not is_field_missing(security) or doc_text:
         sec_str = (str(security.get("value", "")) + " " + doc_text).lower()
-        is_plaintext_ssn = any(w in sec_str for w in ["plaintext", "unencrypted", "public-read", "publicly readable", "publicly accessible"]) and any(w in sec_str for w in ["ssn", "pii", "phi", "patient", "identifiers", "credential", "data", "record", "bank account"])
+        is_plaintext_storage = any(w in sec_str for w in ["plaintext", "unencrypted"]) and any(w in sec_str for w in ["ssn", "pii", "phi", "patient", "identifiers", "credential", "data", "record", "bank account"])
+        is_public_exposure = any(w in sec_str for w in ["public-read", "publicly readable", "publicly accessible"]) and any(w in sec_str for w in ["ssn", "pii", "phi", "patient", "identifiers", "credential", "data", "record", "bank account"])
+        is_plaintext_ssn = is_plaintext_storage or is_public_exposure
         if is_plaintext_ssn:
             tech_score += 5.0
         is_undisclosed_breach = any(
@@ -596,20 +672,24 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     # Red-Flag Override Policy Check
     override_reasons = []
     if has_lawsuit and lit_damages is not None and raise_amt_val is not None and lit_damages > 0.5 * raise_amt_val:
-        override_reasons.append("Active patent lawsuit damages > 50% of the raise amount")
-    if is_plaintext_ssn:
-        override_reasons.append("User PII/PHI or sensitive data stored in plaintext/unencrypted")
-    if is_unlicensed:
-        override_reasons.append("Operating without required money transmitter or healthcare licenses")
+        override_reasons.append(f"Active patent lawsuit damages > 50% of the raise amount [Grounding: Litigation -> {get_grounding(litigation, 'Litigation')}]")
+    if is_plaintext_storage:
+        override_reasons.append(f"User PII/PHI or sensitive data stored in plaintext/unencrypted [Grounding: Security -> {get_grounding(security, 'Security')}]")
+    if is_public_exposure:
+        override_reasons.append(f"User PII/PHI or sensitive data publicly exposed (e.g. public S3 bucket) [Grounding: Security -> {get_grounding(security, 'Security')}]")
+    if is_unlicensed_money_transmitter:
+        override_reasons.append(f"Operating without required money transmitter licenses [Grounding: Compliance -> {get_grounding(compliance, 'Compliance')}]")
+    if is_unlicensed_healthcare:
+        override_reasons.append(f"Operating without required healthcare or FDA licenses/clearances [Grounding: Compliance -> {get_grounding(compliance, 'Compliance')}]")
     if runway_val is not None and runway_val < 3.0 and not is_field_missing(runway):
-        override_reasons.append("Runway is critical (<3 months)")
+        override_reasons.append(f"Runway is critical (<3 months) [Grounding: Financials -> {get_grounding(runway, 'Financials')}]")
     is_concentration_cliff = (concentration_val is not None and concentration_val > 70.0) and any(w in str(customer_concentration.get("evidence", "")).lower() or w in str(pitch_data).lower() for w in ["expires in 3 months", "contract expires sept 30, 2026", "renewal in 3 months", "3 months after close"])
     if is_concentration_cliff:
-        override_reasons.append("70%+ customer concentration with contract expiring in <3 months")
+        override_reasons.append(f"70%+ customer concentration with contract expiring in <3 months [Grounding: Financials -> {get_grounding(customer_concentration, 'Financials')}]")
     if is_undisclosed_breach:
-        override_reasons.append("Undisclosed data breach history")
+        override_reasons.append(f"Undisclosed data breach history [Grounding: Security -> {get_grounding(security, 'Security')}]")
     if "sec investigation" in str(pitch_data).lower() or "misrepresenting" in str(pitch_data).lower():
-        override_reasons.append("Prior regulatory investigation or metric misrepresentation")
+        override_reasons.append("Prior regulatory investigation or metric misrepresentation [Grounding: Compliance -> data_room -> SEC inquiry / metric discrepancy]")
         
     if coverage_score < 40:
         verdict = "INSUFFICIENT_EVIDENCE"
@@ -641,51 +721,192 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     document_text = pitch_data.get("document_text", "")
     
     if document_text:
-        sections = {}
-        current_section = "General"
-        current_lines = []
-        for line in document_text.splitlines():
-            header_match = re.match(r"^#+\s*(.*)$", line.strip())
-            if header_match:
-                if current_lines:
-                    sections[current_section] = "\n".join(current_lines).strip()
-                current_section = header_match.group(1).strip()
-                current_lines = []
+        # 1. Parse documents first using --- DOCUMENT: <filename> ---
+        documents = {}
+        doc_matches = list(re.finditer(r"--- DOCUMENT:\s*(.*?)\s*---", document_text))
+        
+        if doc_matches:
+            for idx, match in enumerate(doc_matches):
+                doc_name = match.group(1).strip()
+                start_idx = match.end()
+                end_idx = doc_matches[idx+1].start() if idx + 1 < len(doc_matches) else len(document_text)
+                documents[doc_name] = document_text[start_idx:end_idx].strip()
+        else:
+            # Fallback to single document named after company or "General"
+            co_section = pitch_data.get("company", {})
+            if isinstance(co_section, dict):
+                co_name_field = co_section.get("name")
+                if isinstance(co_name_field, dict):
+                    doc_name = co_name_field.get("value", "Pitch Deck")
+                elif isinstance(co_name_field, str):
+                    doc_name = co_name_field
+                else:
+                    doc_name = "Pitch Deck"
             else:
-                current_lines.append(line)
-        if current_lines:
-            sections[current_section] = "\n".join(current_lines).strip()
-            
-        # Compare ARR between sections with timeframe awareness
-        section_arrs = {}
-        for sec_name, sec_content in sections.items():
-            parsed_list = parse_arrs_with_timeframes_from_text(sec_content)
-            if parsed_list:
-                section_arrs[sec_name] = parsed_list
+                doc_name = "Pitch Deck"
                 
-        sec_names = list(section_arrs.keys())
-        for i in range(len(sec_names)):
-            for j in range(i + 1, len(sec_names)):
-                s1, s2 = sec_names[i], sec_names[j]
-                arrs1 = section_arrs[s1]
-                arrs2 = section_arrs[s2]
-                
-                for item1 in arrs1:
-                    for item2 in arrs2:
-                        if item1["timeframe"] == item2["timeframe"] and item1["timeframe"] != "unknown":
-                            v1 = item1["value"]
-                            v2 = item2["value"]
-                            if abs(v1 - v2) > 1000:
-                                v1_str = f"${v1:,.0f}" if v1 >= 1000 else str(v1)
-                                v2_str = f"${v2:,.0f}" if v2 >= 1000 else str(v2)
-                                contradictions.append({
-                                    "type": "cross_document",
-                                    "field": "ARR",
-                                    "timeframe": item1["timeframe"],
-                                    "message": f"🚨 MATERIAL DISCREPANCY DETECTED: ARR claims contradict for timeframe '{item1['timeframe']}'. Section '{s1}' claims {v1_str} ARR, but section '{s2}' reports {v2_str} ARR."
-                                })
+            if not doc_name or doc_name == "Insufficient Evidence":
+                doc_name = "Pitch Deck"
+            documents[doc_name] = document_text
 
-        # Sector Contradiction Warning
+        # 2. Extract entries per document / section
+        all_arr_entries = []
+        all_shares_entries = []
+        
+        for doc_name, doc_content in documents.items():
+            sections = {}
+            current_section = "General"
+            current_lines = []
+            for line in doc_content.splitlines():
+                header_match = re.match(r"^#+\s*(.*)$", line.strip())
+                if header_match:
+                    if current_lines:
+                        sections[current_section] = "\n".join(current_lines).strip()
+                    current_section = header_match.group(1).strip()
+                    current_lines = []
+                else:
+                    current_lines.append(line)
+            if current_lines:
+                sections[current_section] = "\n".join(current_lines).strip()
+                
+            for sec_name, sec_content in sections.items():
+                # Parse ARR
+                arr_parsed = parse_arrs_with_timeframes_from_text(sec_content)
+                for item in arr_parsed:
+                    all_arr_entries.append({
+                        "document": doc_name,
+                        "section": sec_name,
+                        "value": item["value"],
+                        "timeframe": item["timeframe"],
+                        "scope": item["scope"],
+                        "raw_match": item["raw_match"]
+                    })
+                # Parse shares
+                shares_parsed = parse_shares_from_text(sec_content)
+                for item in shares_parsed:
+                    all_shares_entries.append({
+                        "document": doc_name,
+                        "section": sec_name,
+                        "value": item["value"],
+                        "scope": item["scope"],
+                        "raw_match": item["raw_match"]
+                    })
+
+        # 3. Compare ARR entries
+        seen_contradictions = set()
+        con_counter = 1
+        
+        for i in range(len(all_arr_entries)):
+            for j in range(i + 1, len(all_arr_entries)):
+                e1 = all_arr_entries[i]
+                e2 = all_arr_entries[j]
+                
+                # Compare same scope and timeframe
+                if e1["scope"] == e2["scope"] and e1["timeframe"] == e2["timeframe"] and e1["timeframe"] != "unknown":
+                    v1 = e1["value"]
+                    v2 = e2["value"]
+                    if abs(v1 - v2) > 1000:
+                        # Calculate materiality and percentage difference relative to larger value
+                        max_val = max(v1, v2)
+                        diff_pct = (abs(v1 - v2) / max_val * 100.0) if max_val > 0 else 0.0
+                        
+                        if diff_pct < 2.0:
+                            severity = "Minor"
+                            prefix = "⚠️ Minor"
+                            suffix = "Variance"
+                        elif diff_pct < 10.0:
+                            severity = "Moderate"
+                            prefix = "⚠️ Moderate"
+                            suffix = "Variance"
+                        elif diff_pct < 25.0:
+                            severity = "Material"
+                            prefix = "🚨 Material"
+                            suffix = "Discrepancy"
+                        else:
+                            severity = "Critical"
+                            prefix = "🚨 Critical"
+                            suffix = "Discrepancy"
+                            
+                        v1_str = f"${v1:,.0f}" if v1 >= 1000 else str(v1)
+                        v2_str = f"${v2:,.0f}" if v2 >= 1000 else str(v2)
+                        
+                        if e1["document"] != e2["document"]:
+                            msg = f"{prefix} ARR {suffix}: ARR claims contradict for timeframe '{e1['timeframe']}' (scope '{e1['scope']}'). Document '{e1['document']}' claims {v1_str} ARR, but Document '{e2['document']}' claims {v2_str} ARR."
+                        else:
+                            msg = f"{prefix} ARR {suffix}: ARR claims contradict for timeframe '{e1['timeframe']}' (scope '{e1['scope']}'). Section '{e1['section']}' claims {v1_str} ARR, but section '{e2['section']}' reports {v2_str} ARR."
+                            
+                        if msg not in seen_contradictions:
+                            seen_contradictions.add(msg)
+                            contradictions.append({
+                                "id": f"CON-{con_counter:03d}",
+                                "type": "ARR",
+                                "field": "ARR",
+                                "severity": severity,
+                                "doc_a": e1["document"],
+                                "doc_b": e2["document"],
+                                "value_a": v1,
+                                "value_b": v2,
+                                "difference_pct": round(diff_pct, 1),
+                                "message": msg
+                            })
+                            con_counter += 1
+
+        # 4. Compare shares entries
+        for i in range(len(all_shares_entries)):
+            for j in range(i + 1, len(all_shares_entries)):
+                e1 = all_shares_entries[i]
+                e2 = all_shares_entries[j]
+                
+                # Compare same scope (company outstanding shares)
+                if e1["scope"] == e2["scope"] and e1["scope"] == "company":
+                    v1 = e1["value"]
+                    v2 = e2["value"]
+                    if v1 != v2:
+                        max_val = max(v1, v2)
+                        diff_pct = (abs(v1 - v2) / max_val * 100.0) if max_val > 0 else 0.0
+                        
+                        if diff_pct < 2.0:
+                            severity = "Minor"
+                            prefix = "⚠️ Minor"
+                            suffix = "Variance"
+                        elif diff_pct < 10.0:
+                            severity = "Moderate"
+                            prefix = "⚠️ Moderate"
+                            suffix = "Variance"
+                        elif diff_pct < 25.0:
+                            severity = "Material"
+                            prefix = "🚨 Material"
+                            suffix = "Discrepancy"
+                        else:
+                            severity = "Critical"
+                            prefix = "🚨 Critical"
+                            suffix = "Discrepancy"
+                            
+                        v1_str = f"{v1:,}"
+                        v2_str = f"{v2:,}"
+                        
+                        if e1["document"] != e2["document"]:
+                            msg = f"{prefix} Cap Table {suffix}: Share count claims contradict. Document '{e1['document']}' claims {v1_str} shares, but Document '{e2['document']}' claims {v2_str} shares."
+                        else:
+                            msg = f"{prefix} Cap Table {suffix}: Share count claims contradict. Section '{e1['section']}' claims {v1_str} shares, but section '{e2['section']}' reports {v2_str} shares."
+                            
+                        if msg not in seen_contradictions:
+                            seen_contradictions.add(msg)
+                            contradictions.append({
+                                "id": f"CON-{con_counter:03d}",
+                                "type": "Cap Table",
+                                "field": "Cap Table",
+                                "severity": severity,
+                                "doc_a": e1["document"],
+                                "doc_b": e2["document"],
+                                "value_a": v1,
+                                "value_b": v2,
+                                "difference_pct": round(diff_pct, 1),
+                                "message": msg
+                            })
+                            con_counter += 1
+
+        # 5. Sector Contradiction Warning
         has_200 = "200%" in document_text
         has_minus12 = "-12%" in document_text or "declining 12%" in document_text
         if has_200 and has_minus12:
@@ -747,16 +968,59 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     else:
         consistency_score = 100.0
         
-    verdict_confidence = (coverage_score * 0.4) + (evidence_quality_score * 0.4) + (consistency_score * 0.2)
-    verdict_confidence = max(0.0, min(100.0, verdict_confidence))
+    verdict_confidence = (coverage_score * 0.35) + (evidence_quality_score * 0.35) + (consistency_score * 0.2)
+    # Apply penalty for validation warnings and review flags to reflect extraction uncertainty
+    penalty = (review_flags_count * 2.0) + (len(validation_warnings) * 1.5)
+    verdict_confidence = max(0.0, min(80.0, verdict_confidence - penalty))
 
-    # Deal Readiness Score
-    if weighted_score is None:
-        deal_readiness_score = 0.0
-    else:
-        deal_readiness_score = 100.0 - (weighted_score * 5.0) - (len(contradictions) * 15.0) - (len(missing_gaps) * 4.0) - ((100.0 - verdict_confidence) * 0.2)
-    deal_readiness_score = max(0.0, min(100.0, deal_readiness_score))
-    deal_readiness_status = "Ready for IC Review" if (deal_readiness_score >= 70.0 and len(contradictions) == 0) else "Additional Diligence Required"
+    # 1. Document Credibility Score
+    document_credibility_score = 100.0
+    for contra in contradictions:
+        sev = contra.get("severity", "Minor")
+        if sev == "Critical":
+            document_credibility_score -= 25.0
+        elif sev == "Material":
+            document_credibility_score -= 15.0
+        elif sev == "Moderate":
+            document_credibility_score -= 8.0
+        else: # Minor
+            document_credibility_score -= 3.0
+    document_credibility_score = max(0.0, document_credibility_score)
+
+    # 2. Founder Credibility Score
+    founder_credibility_score = 100.0
+    # Prior regulatory investigation or metric misrepresentation: -40
+    if "sec investigation" in str(pitch_data).lower() or "misrepresenting" in str(pitch_data).lower():
+        founder_credibility_score -= 40.0
+    # Operating without required compliance licenses: -30
+    if is_unlicensed_money_transmitter or is_unlicensed_healthcare:
+        founder_credibility_score -= 30.0
+    # Active lawsuit damages > 50% of the raise: -30
+    if has_lawsuit and lit_damages is not None and raise_amt_val is not None and lit_damages > 0.5 * raise_amt_val:
+        founder_credibility_score -= 30.0
+    # Undisclosed data breach history: -20
+    if is_undisclosed_breach:
+        founder_credibility_score -= 20.0
+    # Critical contradictions: -20
+    critical_contradictions = sum(1 for c in contradictions if c.get("severity") == "Critical")
+    if critical_contradictions > 0:
+        founder_credibility_score -= 20.0
+    # Repeated/multiple contradictions: -15
+    if len(contradictions) > 2:
+        founder_credibility_score -= 15.0
+    founder_credibility_score = max(0.0, founder_credibility_score)
+
+    # 3. Weighted IC Readiness Score
+    ic_readiness_penalty = 100.0 - document_credibility_score  # Sum of contradiction penalties
+    ic_readiness_score = 100.0 - ic_readiness_penalty - (8.0 * len(missing_gaps))
+    ic_readiness_score = max(0.0, ic_readiness_score)
+
+    # Data Room Completeness Score
+    data_room_completeness = float(coverage_score)
+
+    # Backwards compatibility for deal_readiness_score and status
+    deal_readiness_score = ic_readiness_score
+    deal_readiness_status = "Ready for IC Review" if (ic_readiness_score >= 70.0 and len(contradictions) == 0) else "Additional Diligence Required"
 
     # Auto-Generated VC Questions
     questions = {"ceo": [], "cto": [], "legal": []}
@@ -803,9 +1067,13 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
         questions["cto"].append(
             f"What is the timeline and migration plan for upgrading the EOL stack ({eol_str}) currently running in production?"
         )
-    if is_plaintext_ssn:
+    if is_plaintext_storage:
         questions["cto"].append(
             "Why is sensitive customer data (SSNs and PII) stored in plaintext, and when will encryption-at-rest be fully implemented?"
+        )
+    if is_public_exposure:
+        questions["cto"].append(
+            "What remediation steps have been taken to secure the publicly exposed S3 buckets/data stores, and has a formal forensic audit been conducted?"
         )
     if is_no_pentest:
         questions["cto"].append(
@@ -862,6 +1130,15 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
         multiple = valuation_val / arr_val if arr_val > 0 else 1.0
         new_valuation = new_arr * multiple
         
+        if new_runway < 3.0:
+            survival = "Critical"
+        elif new_runway < 6.0:
+            survival = "High Risk"
+        elif new_runway < 12.0:
+            survival = "Moderate"
+        else:
+            survival = "Stable"
+            
         scenario = {
             "client_name": client_name,
             "concentration_pct": concentration_val,
@@ -872,8 +1149,156 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
             "new_runway": new_runway,
             "current_valuation": valuation_val,
             "new_valuation": new_valuation,
-            "multiple": multiple
+            "multiple": multiple,
+            "survival_classification": survival
         }
+
+    # Structured Financial Audit Warnings
+    financial_audit_warnings = []
+    aud_counter = 1
+    
+    # Growth-Cash Divergence Check
+    has_high_growth = "200%" in document_text or "140%" in document_text or any(w in document_text.lower() for w in ["growing 100%", "growth of 100%", "doubled", "tripled"])
+    if has_high_growth and runway_val is not None and runway_val < 12:
+        financial_audit_warnings.append({
+            "id": f"AUD-{aud_counter:03d}",
+            "severity": "High",
+            "type": "Revenue Quality",
+            "confidence": 92,
+            "evidence_refs": ["Financials", "Overview"],
+            "message": "Growth-Cash Divergence: Founder claims high growth while cash runway is critical (<12 months)."
+        })
+        aud_counter += 1
+        
+    # Concentration Risk Check
+    if concentration_val is not None and concentration_val > 50:
+        financial_audit_warnings.append({
+            "id": f"AUD-{aud_counter:03d}",
+            "severity": "Medium",
+            "type": "Concentration Risk",
+            "confidence": 95,
+            "evidence_refs": ["Financials"],
+            "message": f"High Customer Concentration: Single client contributes {concentration_val:.0f}% of total ARR."
+        })
+        aud_counter += 1
+        
+    # Runway Masking Check
+    if runway_val is not None and runway_val < 3.0:
+        financial_audit_warnings.append({
+            "id": f"AUD-{aud_counter:03d}",
+            "severity": "High",
+            "type": "Runway Masking",
+            "confidence": 98,
+            "evidence_refs": ["Financials"],
+            "message": f"Critical Runway Alert: Company has only {runway_val:.1f} months of runway remaining."
+        })
+        aud_counter += 1
+        
+    # ASC 606 Revenue Recognition Check
+    has_prepay = any(w in str(pitch_data).lower() for w in ["prepay", "upfront payment", "recognized immediately", "prepayment"])
+    if has_prepay:
+        financial_audit_warnings.append({
+            "id": f"AUD-{aud_counter:03d}",
+            "severity": "High",
+            "type": "ASC 606 Audit",
+            "confidence": 85,
+            "evidence_refs": ["Financials", "Contracts"],
+            "message": "ASC 606 Revenue Recognition: Indicators of lump-sum upfront customer payments recorded directly as ARR without ratable amortization."
+        })
+        aud_counter += 1
+
+    # Diligence Priority List
+    diligence_priorities = []
+    
+    # Priority 1: High
+    if has_lawsuit and lit_damages is not None and raise_amt_val is not None and lit_damages > 0.5 * raise_amt_val:
+        diligence_priorities.append({
+            "priority": "High",
+            "owner": "Legal",
+            "action": "Address pending high-damages litigation and assess impact on company capitalization",
+            "domain": "Legal"
+        })
+    if is_plaintext_storage or is_public_exposure:
+        diligence_priorities.append({
+            "priority": "High",
+            "owner": "CTO",
+            "action": "Remediate plaintext storage of sensitive user PII and secure exposed data stores",
+            "domain": "Technical"
+        })
+    if is_unlicensed_money_transmitter or is_unlicensed_healthcare:
+        diligence_priorities.append({
+            "priority": "High",
+            "owner": "Legal",
+            "action": "Establish regulatory compliance roadmap for required money transmission or healthcare licenses",
+            "domain": "Legal"
+        })
+    if runway_val is not None and runway_val < 3.0:
+        diligence_priorities.append({
+            "priority": "High",
+            "owner": "CFO",
+            "action": "Resolve critical runway limitations by securing bridge financing or immediate capital injection",
+            "domain": "Financials"
+        })
+    for contra in contradictions:
+        if contra["severity"] == "Critical":
+            owner = "CFO" if contra["type"] == "ARR" else "Legal"
+            diligence_priorities.append({
+                "priority": "High",
+                "owner": owner,
+                "action": f"Resolve critical contradiction: {contra['message']}",
+                "domain": "Financials" if contra["type"] == "ARR" else "Legal"
+            })
+            
+    # Priority 2: Medium
+    if concentration_val is not None and concentration_val > 50.0:
+        diligence_priorities.append({
+            "priority": "Medium",
+            "owner": "CEO",
+            "action": f"Audit contract renewal probability and negotiate Master Services Agreement for key client ({client_name})",
+            "domain": "Financials"
+        })
+    for contra in contradictions:
+        if contra["severity"] in ("Material", "Moderate"):
+            owner = "CFO" if contra["type"] == "ARR" else "Legal"
+            diligence_priorities.append({
+                "priority": "Medium",
+                "owner": owner,
+                "action": f"Verify variance: {contra['message']}",
+                "domain": "Financials" if contra["type"] == "ARR" else "Legal"
+            })
+    if len(validation_warnings) > 0:
+        diligence_priorities.append({
+            "priority": "Medium",
+            "owner": "CEO",
+            "action": "Run secondary market research to validate aggressive growth claims in a contracting sector",
+            "domain": "Market"
+        })
+        
+    # Priority 3: Low
+    for contra in contradictions:
+        if contra["severity"] == "Minor":
+            owner = "CFO" if contra["type"] == "ARR" else "Legal"
+            diligence_priorities.append({
+                "priority": "Low",
+                "owner": owner,
+                "action": f"Monitor minor variance: {contra['message']}",
+                "domain": "Financials" if contra["type"] == "ARR" else "Legal"
+            })
+    for gap in missing_gaps:
+        diligence_priorities.append({
+            "priority": "Low",
+            "owner": "Operations",
+            "action": f"Request additional disclosure regarding missing field: {gap}",
+            "domain": "Operations"
+        })
+        
+    if not diligence_priorities:
+        diligence_priorities.append({
+            "priority": "Low",
+            "owner": "Operations",
+            "action": "Proceed with standard pipeline review and schedules",
+            "domain": "Operations"
+        })
 
     return {
         "doctrine_version": "5.2",
@@ -919,5 +1344,11 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
         "deal_readiness_status": deal_readiness_status,
         "questions": questions,
         "scenario": scenario,
-        "internal_validation_error": internal_validation_error
+        "internal_validation_error": internal_validation_error,
+        "document_credibility_score": document_credibility_score,
+        "founder_credibility_score": founder_credibility_score,
+        "data_room_completeness": data_room_completeness,
+        "ic_readiness_score": ic_readiness_score,
+        "financial_audit_warnings": financial_audit_warnings,
+        "diligence_priorities": diligence_priorities
     }

@@ -24,6 +24,7 @@ BG_WHITE = colors.HexColor("#ffffff")
 def clean_unicode_and_emojis(text: str) -> str:
     """Replaces emojis and unsupported high-Unicode characters with safe representations
     or strips them to prevent ReportLab rendering/encoding exceptions.
+    Also escapes XML/HTML special characters to prevent paraparser syntax errors.
     """
     if not text:
         return ""
@@ -32,6 +33,15 @@ def clean_unicode_and_emojis(text: str) -> str:
         "💼": "",
         "📊": "",
         "⚖️": "",
+        "⚖": "",
+        "🚨": "[ALERT]",
+        "📋": "[GAP]",
+        "🛡️": "[CONFIDENCE]",
+        "🛡": "[CONFIDENCE]",
+        "🎯": "[COVERAGE]",
+        "🚦": "[STATUS]",
+        "🏢": "",
+        "💵": "",
         "🔧": "",
         "📈": "",
         "📝": "",
@@ -45,14 +55,18 @@ def clean_unicode_and_emojis(text: str) -> str:
         "─": "-",
         "—": "-",
         "–": "-",
+        "“": '"',
+        "”": '"',
+        "‘": "'",
+        "’": "'",
+        "•": "*",
     }
     
     for emoji, replacement in replacements.items():
         text = text.replace(emoji, replacement)
         
     # Standard Helvetica supports Latin-1 characters (up to codepoint 255).
-    # We strip out any character beyond 255 to ensure zero compilation errors,
-    # but we preserve standard HTML tags used in Paragraphs (like <b>, <i>, <br/>).
+    # We strip out any character beyond 255 to ensure zero compilation errors.
     cleaned = []
     for char in text:
         if ord(char) <= 255:
@@ -61,7 +75,31 @@ def clean_unicode_and_emojis(text: str) -> str:
             # Skip high unicode characters to avoid 'latin-1' encoding crashes
             pass
             
-    return "".join(cleaned)
+    text = "".join(cleaned)
+    
+    # Escape XML/HTML special characters to prevent paraparser syntax errors
+    text = text.replace("&", "&amp;")
+    text = text.replace("&amp;amp;", "&amp;")
+    text = text.replace("&amp;lt;", "&lt;")
+    text = text.replace("&amp;gt;", "&gt;")
+    text = text.replace("&amp;quot;", "&amp;")
+    text = text.replace("&amp;apos;", "&apos;")
+    
+    text = text.replace("<", "&lt;")
+    text = text.replace(">", "&gt;")
+    
+    # Restore allowed tags
+    allowed_tags = ["b", "i", "u", "strong", "em"]
+    for tag in allowed_tags:
+        text = text.replace(f"&lt;{tag}&gt;", f"<{tag}>")
+        text = text.replace(f"&lt;/{tag}&gt;", f"</{tag}>")
+        
+    # Handle self-closing/standard line break tags
+    text = text.replace("&lt;br&gt;", "<br/>")
+    text = text.replace("&lt;br/&gt;", "<br/>")
+    text = text.replace("&lt;br /&gt;", "<br/>")
+    
+    return text
 
 
 class BrandedCanvas(canvas.Canvas):
@@ -287,8 +325,9 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     story.append(Spacer(1, 20))
     
     # Title & Subtitle
+    company_name_clean = clean_unicode_and_emojis(company_name)
     story.append(Paragraph("DUE DILIGENCE AUDIT REPORT", cover_title_style))
-    story.append(Paragraph(f"INVESTMENT INQUIRY: {company_name.upper()}", cover_subtitle_style))
+    story.append(Paragraph(f"INVESTMENT INQUIRY: {company_name_clean.upper()}", cover_subtitle_style))
     
     # Decorative line
     story.append(HRFlowable(width="100%", thickness=4, color=BRAND_GREEN, spaceBefore=0, spaceAfter=200))
@@ -356,13 +395,34 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     story.append(verdict_table)
     story.append(Spacer(1, 15))
     
-    # Verdict Synthesis Memo
+    # Verdict Synthesis Memo / Investment Memo
     if verdict_memo_lines:
-        story.append(Paragraph("Verdict Synthesis Memo", h2_style))
-        memo_text = " ".join(verdict_memo_lines)
-        memo_text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", memo_text)
-        memo_text = clean_unicode_and_emojis(memo_text)
-        story.append(Paragraph(memo_text, body_style))
+        # We process line-by-line to preserve structured markdown headers and lists in the PDF
+        for line in verdict_memo_lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+            
+            line_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", line_str)
+            line_clean = clean_unicode_and_emojis(line_formatted)
+            
+            if line_clean.startswith("# "):
+                title_text = line_clean.replace("# ", "").strip().upper()
+                story.append(Paragraph(f"<b>{title_text}</b>", ParagraphStyle('MemoMainTitle', parent=h1_style, spaceBefore=12, spaceAfter=6, keepWithNext=True)))
+            elif line_clean.startswith("### "):
+                h_text = line_clean.replace("### ", "").strip()
+                story.append(Paragraph(h_text, h2_style))
+            elif line_clean.startswith("* ") or line_clean.startswith("- "):
+                b_text = line_clean[2:].strip()
+                story.append(Paragraph(b_text, bullet_style))
+            elif re.match(r"^\d+\.\s+", line_clean):
+                num_text = re.sub(r"^\d+\.\s+", "", line_clean).strip()
+                story.append(Paragraph(f"{line_clean.split('.')[0]}. {num_text}", bullet_style))
+            elif line_clean.startswith("+--") or line_clean.startswith("|"):
+                # Skip decision card ascii boundary drawing lines to keep layout clean
+                continue
+            else:
+                story.append(Paragraph(line_clean, body_style))
         story.append(Spacer(1, 10))
         
     # ────────────────────────────────────────────────────────
@@ -446,7 +506,7 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
             if line.startswith("### "):
                 if current_partner and partner_findings:
                     # Render the previous partner audit block as a nice card
-                    story.append(create_partner_card(current_partner, partner_findings, body_style, bullet_style))
+                    story.extend(create_partner_card(current_partner, partner_findings, body_style, bullet_style))
                     story.append(Spacer(1, 14))
                 current_partner = line.replace("###", "").strip()
                 partner_findings = []
@@ -466,7 +526,7 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
         
     # Flush the final partner
     if current_partner and partner_findings:
-        story.append(create_partner_card(current_partner, partner_findings, body_style, bullet_style))
+        story.extend(create_partner_card(current_partner, partner_findings, body_style, bullet_style))
         
     # Build Document
     doc.build(story, canvasmaker=BrandedCanvas)
@@ -474,11 +534,11 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     return buffer.getvalue()
 
 
-def create_partner_card(partner_name: str, findings: list, body_style: ParagraphStyle, bullet_style: ParagraphStyle) -> KeepTogether:
-    """Helper that packages a partner's findings inside a beautiful bordered table card."""
+def create_partner_card(partner_name: str, findings: list, body_style: ParagraphStyle, bullet_style: ParagraphStyle) -> list:
+    """Helper that packages a partner's findings as split-friendly flowables inside card blocks."""
     partner_clean = clean_unicode_and_emojis(partner_name)
     
-    card_elements = []
+    elements = []
     
     # Title Style
     title_style = ParagraphStyle(
@@ -488,7 +548,9 @@ def create_partner_card(partner_name: str, findings: list, body_style: Paragraph
         fontSize=11,
         leading=14,
         textColor=BRAND_DARK_GREEN,
-        spaceAfter=2
+        spaceBefore=8,
+        spaceAfter=2,
+        keepWithNext=True
     )
     
     timestamp_style = ParagraphStyle(
@@ -498,39 +560,61 @@ def create_partner_card(partner_name: str, findings: list, body_style: Paragraph
         fontSize=8,
         leading=11,
         textColor=SECONDARY_TEXT,
-        spaceAfter=8
+        spaceAfter=8,
+        keepWithNext=True
     )
     
-    card_elements.append(Paragraph(partner_clean.upper(), title_style))
+    # We keep the partner header together with the first block of findings
+    header_elements = [Paragraph(partner_clean.upper(), title_style)]
     
-    # Separate findings
+    # Find timestamp if present
+    timestamp_text = None
+    first_finding_idx = 0
+    for i, (kind, text) in enumerate(findings):
+        if kind == "timestamp":
+            timestamp_text = text
+            if i == first_finding_idx:
+                first_finding_idx += 1
+            break
+            
+    if timestamp_text:
+        header_elements.append(Paragraph(timestamp_text, timestamp_style))
+        
+    # Now create the findings flowables. We wrap each one in a card table to keep the styling.
+    # To prevent LayoutErrors, each finding is wrapped in its own separate Table that fits on a page.
     for kind, text in findings:
         if kind == "timestamp":
-            card_elements.append(Paragraph(text, timestamp_style))
-        elif kind == "bullet":
-            card_elements.append(Paragraph(f"• {text}", bullet_style))
-        else:
-            card_elements.append(Paragraph(text, body_style))
+            continue
             
-    # Put them inside a Table card with a left green accent line
-    # Left column is the green accent line (width 4pt)
-    # Right column is the content (width 490pt)
-    card_table_data = [
-        ["", card_elements]
-    ]
-    card_table = Table(card_table_data, colWidths=[4, 492])
-    card_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (0,0), BRAND_GREEN),
-        ('BACKGROUND', (1,0), (1,0), BG_LIGHT),
-        ('BOX', (0,0), (-1,-1), 1, BORDER_GREY),
-        ('TOPPADDING', (1,0), (1,0), 12),
-        ('BOTTOMPADDING', (1,0), (1,0), 12),
-        ('LEFTPADDING', (1,0), (1,0), 14),
-        ('RIGHTPADDING', (1,0), (1,0), 14),
-        ('TOPPADDING', (0,0), (0,0), 0),
-        ('BOTTOMPADDING', (0,0), (0,0), 0),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-    ]))
-    
-    # We want to keep the header and first few lines of the card together
-    return KeepTogether([card_table])
+        p_style = bullet_style if kind == "bullet" else body_style
+        p_text = f"• {text}" if kind == "bullet" else text
+        para = Paragraph(p_text, p_style)
+        
+        # Wrap the single paragraph in a Table with a left accent bar and light bg
+        item_table = Table([["", para]], colWidths=[4, 492])
+        item_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,0), BRAND_GREEN),
+            ('BACKGROUND', (1,0), (1,0), BG_LIGHT),
+            ('LINELEFT', (0,0), (0,-1), 1, BORDER_GREY),
+            ('LINERIGHT', (1,0), (1,-1), 1, BORDER_GREY),
+            ('LINETOP', (0,0), (-1,0), 0.5, BORDER_GREY),
+            ('LINEBELOW', (0,0), (-1,-1), 0.5, BORDER_GREY),
+            ('TOPPADDING', (1,0), (1,0), 6),
+            ('BOTTOMPADDING', (1,0), (1,0), 6),
+            ('LEFTPADDING', (1,0), (1,0), 12),
+            ('RIGHTPADDING', (1,0), (1,0), 12),
+            ('TOPPADDING', (0,0), (0,0), 0),
+            ('BOTTOMPADDING', (0,0), (0,0), 0),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ]))
+        item_table.spaceAfter = 2
+        
+        if header_elements:
+            # Keep header and first finding together on the same page
+            header_elements.append(item_table)
+            elements.append(KeepTogether(header_elements))
+            header_elements = None
+        else:
+            elements.append(item_table)
+            
+    return elements

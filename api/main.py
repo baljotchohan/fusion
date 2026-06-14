@@ -351,7 +351,7 @@ async def mock_llm_completions(request: Request):
     # If this agent already completed its work for the current deal,
     # or the deal has been fully concluded, return a short no-op
     # response so the LangGraph turn ends without new tool calls.
-    if sim_state.deal_concluded:
+    if sim_state.deal_concluded and (agent_name in sim_state.completed_agents or agent_name == "managing_partner"):
         logger.info(f"[{agent_name}] Deal already concluded — returning no-op")
         return _build_response(body, f"{agent_name}: Deal already concluded. Standing by.", [])
     if agent_name in sim_state.completed_agents and agent_name != "managing_partner":
