@@ -1,7 +1,7 @@
 // components/SettingsView.tsx — preferences panel.
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Sliders, UserCheck, Trash2 } from 'lucide-react'
+import { Sun, Moon, UserCheck, Trash2 } from 'lucide-react'
 import { AGENTS, API_BASE } from '@/lib/agents'
 
 interface SettingsViewProps {
@@ -97,29 +97,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
         </div>
       </section>
 
-      {/* Deliberation Pacing */}
-      <section className={sectionCls}>
-        <div className="flex items-center gap-2 mb-4">
-          <Sliders className="w-4 h-4 text-text-muted" />
-          <p className={labelCls}>Deliberation Pacing</p>
-        </div>
-        <p className="text-[13px] font-medium text-text-primary mb-1">Agent Response Speed ({mockPace}s)</p>
-        <p className="text-[11.5px] text-text-secondary mb-5">Adjust the simulation tick delay between agent boardroom updates</p>
-        <div className="space-y-2">
-          <input type="range" min={0.1} max={3.0} step={0.1} value={mockPace}
-            onChange={e => setMockPace(Number(e.target.value))}
-            onMouseUp={e => updateSetting({ mock_pace: Number((e.target as HTMLInputElement).value) })}
-            onTouchEnd={e => updateSetting({ mock_pace: Number((e.target as HTMLInputElement).value) })}
-            className="w-full h-1.5 rounded-full appearance-none bg-bg-muted cursor-pointer accent-accent
-                       [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4
-                       [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent
-                       [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
-                       [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white" />
-          <div className="flex justify-between text-[10.5px] text-text-muted font-medium">
-            <span>Rapid (0.1s)</span><span>Careful (3.0s)</span>
-          </div>
-        </div>
-      </section>
+
 
       {/* Active Partners */}
       <section className={sectionCls}>

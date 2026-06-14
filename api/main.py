@@ -94,9 +94,9 @@ async def run_pipeline_watchdog(incident_id: str):
             
         import time
         idle_time = time.time() - sim_state.last_event_at
-        # If 60 seconds have passed with no agent activity, trigger recovery
-        if idle_time > 60.0:
-            logger.warning(f"Watchdog: Incident {incident_id} has been idle for {idle_time:.1f}s (limit: 60s). Triggering recovery.")
+        # If 300 seconds (5 minutes) have passed with no agent activity, trigger recovery
+        if idle_time > 300.0:
+            logger.warning(f"Watchdog: Incident {incident_id} has been idle for {idle_time:.1f}s (limit: 300s). Triggering recovery.")
             await force_partial_verdict(incident_id)
             break
 
@@ -140,6 +140,7 @@ async def force_partial_verdict(incident_id: str):
 
     company = sim_state.active_company_name or calc.get("company_name") or "Unknown Startup"
     verdict = calc.get("verdict", "PASS")
+    verdict_display = "PASS (REJECT)" if verdict == "PASS" else verdict
     confidence = calc.get("verdict_confidence", 80)
     evi_quality = calc.get("evidence_quality_score", 75)
     readiness = calc.get("deal_readiness_score", 70)
@@ -167,7 +168,7 @@ async def force_partial_verdict(incident_id: str):
 | Deal:         Series A Raise                             |
 | Date:         {datetime.now().strftime('%Y-%m-%d'):<42} |
 +----------------------------------------------------------+
-|  DECISION:    {verdict:<42} |
+|  DECISION:    {verdict_display:<42} |
 |  CONFIDENCE:  {confidence:<3}%                                      |
 |  EVI QUALITY: {evi_quality:<3}%                                      |
 |  READINESS:   {readiness:<3}/100 ({readiness_status})                       |
@@ -697,7 +698,7 @@ async def mock_llm_completions(request: Request):
     
     co_text = company_name[:42]
     deal_text = f"{raise_amount} at {valuation} post"[:42]
-    decision_text = verdict[:42]
+    decision_text = ("PASS (REJECT)" if verdict == "PASS" else verdict)[:42]
     
     confidence_val_pct = calc.get("verdict_confidence", coverage_score)
     confidence_text = f"{confidence_val_pct:.1f}%"[:42]

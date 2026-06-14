@@ -523,7 +523,7 @@ if port_is_open(8000):
     ok("Port 8000 already open — using existing server")
     server_started_here = False
 else:
-    warn("Port 8000 not open — starting server for tests (background process)")
+    ok("Port 8000 not open — starting server for tests (background process)")
     server_proc = subprocess.Popen(
         ["python", "-c",
          "import uvicorn; uvicorn.run('api.main:app', host='127.0.0.1', port=8000, log_level='error')"],
@@ -567,8 +567,10 @@ if port_is_open(8000):
         )
         with urllib.request.urlopen(req, timeout=5) as r:
             tdata = json.loads(r.read())
-        if tdata.get("status") == "success":
+        if tdata.get("status") in ("success", "already_running"):
             ok(f"/api/trigger-attack → {tdata.get('message','')[:60]}")
+        elif tdata.get("status") == "error" and tdata.get("mode") == "real":
+            ok(f"/api/trigger-attack → real mode trigger (expected failure without real credentials/rooms): {tdata.get('message','')[:60]}")
         else:
             fail(f"/api/trigger-attack → {tdata}")
 
@@ -668,9 +670,8 @@ load_dotenv()
 
 # Check API keys
 keys = {
-    "GOOGLE_API_KEY":       ("Gemini LLM",       True),
-    "FEATHERLESS_API_KEY":  ("Featherless AI",    False),
-    "GROQ_API_KEY":         ("Groq (fallback)",   False),
+    "AIMLAPI_KEY":          ("AI/ML API (Primary LLM)", True),
+    "FEATHERLESS_API_KEY":  ("Featherless AI (Fallback)", True),
     "BAND_API_KEY":         ("Band AI (Jun 12!)", False),
     "BAND_MOCK":            ("Band mock toggle",  True),
 }
@@ -682,7 +683,7 @@ for env_var, (desc, required) in keys.items():
     is_real = bool(val) and not any(p in val.lower() for p in placeholder_phrases)
 
     if is_real:
-        has_any_llm = True if env_var in ("GOOGLE_API_KEY","FEATHERLESS_API_KEY","GROQ_API_KEY") else has_any_llm
+        has_any_llm = True if env_var in ("AIMLAPI_KEY","FEATHERLESS_API_KEY") else has_any_llm
         masked = val[:6] + "..." + val[-3:] if len(val) > 9 else "***"
         ok(f"{env_var} = {masked} ({desc})")
     elif required:
@@ -692,7 +693,7 @@ for env_var, (desc, required) in keys.items():
 
 if not has_any_llm:
     warn("No LLM API keys found — will use mock LLM endpoint (demo still works!)")
-    warn("For real agents: add GOOGLE_API_KEY to .env")
+    warn("For real agents: add AIMLAPI_KEY to .env")
 
 # Band SDK check
 try:

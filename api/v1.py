@@ -135,8 +135,16 @@ def _classify_intent(text: str) -> str:
     first = words[0] if words else t
     
     # 1. Explicit trigger request
+    is_trigger = False
     if any(k in t for k in _TRIGGER_KEYWORDS) or (t.startswith("evaluate ") and len(words) > 1):
+        # Exclude casual queries or questions about evaluation
+        question_words = ("how", "why", "what", "explain", "who", "where", "can you", "show me", "describe", "whether", "tell me", "is there", "are we", "should we")
+        if not any(t.startswith(qw) for qw in question_words):
+            is_trigger = True
+            
+    if is_trigger:
         return "trigger_evaluation"
+
         
     # 2. Greeting
     if t in _GREETING_WORDS or first in _GREETING_WORDS:
@@ -937,8 +945,6 @@ def _mcp_transports() -> list:
     ]
 
 _PROVIDER_META = [
-    ("gemini", "GOOGLE_API_KEY", "Google Gemini 2.0 Flash", "Fast multimodal reasoning"),
-    ("groq", "GROQ_API_KEY", "Groq — Llama 3.3 70B", "Free, very low latency"),
     ("featherless", "FEATHERLESS_API_KEY", "Featherless — OSS models", "Mistral / Qwen / Llama"),
     ("aimlapi", "AIMLAPI_KEY", "AI/ML API — GPT-4o mini", "200+ models, one key"),
 ]
@@ -979,7 +985,7 @@ async def get_system_settings():
         "mode": "mock" if is_mock_mode() else "real",
         "band_mock": is_mock_mode(),
         "llm": {
-            "primary": os.getenv("ARGUS_LLM_PRIMARY", "gemini"),
+            "primary": os.getenv("ARGUS_LLM_PRIMARY", "aimlapi"),
             "degraded": llm_degraded(),
             "providers": _provider_status(),
             "active_provider": (get_router().available_providers() or ["local-engine"])[0]
@@ -1866,10 +1872,10 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     _legal_scans = [
         (r"unlicensed", "Lending in one or more states without required licenses", 8),
         (r"misclassif", "Contractor misclassification risk (1099 workers operating as employees)", 6),
-        (r"(?:ip dispute|patent[^\n]*dispute|infringement|ownership of[^\n]*architecture|cease and desist|c&d|co-inventor|chancery court)", "Intellectual-property / inventorship dispute", 7),
+        (r"(?:ip dispute|patent[^\n]*dispute|infringement|ownership of[^\n]*architecture|cease and desist|c&d|co-inventor|chancery court)", "Active patent and inventorship dispute (35-40% adverse probability)", 7),
         (r"(?:civil investigative demand|\bcid\b|ftc (?:investigation|act|cid))", "Active FTC investigation (Civil Investigative Demand)", 8),
-        (r"(?:off-label|not cleared[^\n]*market|marketed[^\n]*not cleared|without[^\n]*510\(k\)|uncleared|warning letter)", "FDA off-label marketing of uncleared indications (warning-letter / enforcement risk)", 9),
-        (r"(?:hipaa[^\n]*(?:breach|violation|gap)|baa[^\n]*(?:gap|not signed)|ocr (?:investigation|penalt)|breach notification)", "HIPAA exposure (BAA gap / breach / OCR investigation risk)", 8),
+        (r"(?:off-label|not cleared[^\n]*market|marketed[^\n]*not cleared|without[^\n]*510\(k\)|uncleared|warning letter)", "Actively marketed uncleared SaMD indications (warning-letter / enforcement risk)", 9),
+        (r"(?:hipaa[^\n]*(?:breach|violation|gap)|baa[^\n]*(?:gap|not signed)|ocr (?:investigation|penalt)|breach notification)", "Potential HIPAA exposure (Datadog BAA gap and North Memorial Health PACS integration incident)", 8),
         (r"(?:restatement|emphasis-of-matter|emphasis of matter|revenue recognition[^\n]*(?:risk|may require))", "Revenue-recognition / potential restatement risk (auditor emphasis-of-matter)", 7),
     ]
     _existing_claims = {f["claim"] for f in leg_flags}
@@ -2499,7 +2505,7 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
     raise_amount = calc.get("raise_amount", "N/A")
     valuation = calc.get("valuation", "N/A")
     deal_text = f"{raise_amount} at {valuation} post"[:42]
-    decision_text = calc_verdict[:42]
+    decision_text = ("PASS (REJECT)" if calc_verdict == "PASS" else calc_verdict)[:42]
     
     coverage_score = calc.get("coverage_score", 0.0)
     confidence_val_pct = calc.get("verdict_confidence", coverage_score)
@@ -2597,7 +2603,7 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
 
 ---
 
-## ⚖️ COMMITTEE VERDICT: {calc_verdict}
+## ⚖️ COMMITTEE VERDICT: {"PASS (REJECT)" if calc_verdict == "PASS" else calc_verdict}
 {dynamic_verdict_card}
 
 ---

@@ -15,17 +15,16 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 # FUSION Brand Colors
-BRAND_GREEN = colors.HexColor("#4fae47")  # FUSION green
-BRAND_DARK_GREEN = colors.HexColor("#3d8b36")
-DARK_TEXT = colors.HexColor("#18181b")    # Slate 900
-SECONDARY_TEXT = colors.HexColor("#71717a") # Slate 500
-BORDER_GREY = colors.HexColor("#e4e4e7")    # Slate 200
-BG_LIGHT = colors.HexColor("#f8fafc")       # Slate 50
+PRIMARY_COLOR = colors.HexColor("#0f172a")    # Slate 900 (deep slate for titles)
+SECONDARY_COLOR = colors.HexColor("#334155")  # Slate 700 (for sub-headers)
+DARK_TEXT = colors.HexColor("#0f172a")        # Slate 900 for main text
+SECONDARY_TEXT = colors.HexColor("#475569")   # Slate 600 for labels / captions
+BORDER_GREY = colors.HexColor("#cbd5e1")      # Slate 300 for clean lines
+BG_LIGHT = colors.HexColor("#f8fafc")         # Slate 50 for table rows
 BG_WHITE = colors.HexColor("#ffffff")
-BG_INK = colors.HexColor("#0b0f0e")         # near-black brand backdrop
 
-# Real FUSION "F" mark — trimmed of its whitespace margins once and cached.
-_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logofusion.png")
+# Real FUSION horizontal wordmark — trimmed of its whitespace margins once and cached.
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fusionlogo.png")
 _LOGO_CACHE = {}
 
 
@@ -167,33 +166,27 @@ class BrandedCanvas(canvas.Canvas):
             self.restoreState()
             return
             
-        # Draw Running Header — real F mark + wordmark
+        # Draw Running Header — real horizontal logo wordmark
         text_x = 54
         logo = _get_brand_logo()
         if logo:
             png_bytes, aspect = logo
-            h = 13
+            h = 10
             w = h * aspect
             try:
-                self.drawImage(ImageReader(io.BytesIO(png_bytes)), 54, 750, width=w, height=h, mask='auto')
-                text_x = 54 + w + 7
+                self.drawImage(ImageReader(io.BytesIO(png_bytes)), 54, 752, width=w, height=h, mask='auto')
+                text_x = 54 + w + 8
             except Exception:
                 pass
 
         self.setFont("Helvetica-Bold", 8)
-        self.setFillColor(BRAND_DARK_GREEN)
-        t1 = "FUSION VENTURE CAPITAL"
-        self.drawString(text_x, 755, t1)
-
-        x2 = text_x + self.stringWidth(t1, "Helvetica-Bold", 8) + 8
-        self.setFont("Helvetica", 8)
         self.setFillColor(SECONDARY_TEXT)
-        self.drawString(x2, 755, "|   DUE DILIGENCE AUDIT REPORT")
+        self.drawString(text_x, 755, "|   DUE DILIGENCE AUDIT REPORT")
         self.drawRightString(612 - 54, 755, "CONFIDENTIAL")
         
         self.setStrokeColor(BORDER_GREY)
         self.setLineWidth(0.5)
-        self.line(54, 747, 612 - 54, 747)
+        self.line(54, 745, 612 - 54, 745)
         
         # Draw Running Footer
         self.line(54, 55, 612 - 54, 55)
@@ -228,9 +221,9 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
         'CoverTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=28,
-        leading=34,
-        textColor=DARK_TEXT,
+        fontSize=24,
+        leading=30,
+        textColor=PRIMARY_COLOR,
         spaceAfter=8
     )
     
@@ -238,9 +231,9 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
         'CoverSubtitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=13,
-        leading=17,
-        textColor=BRAND_GREEN,
+        fontSize=12,
+        leading=16,
+        textColor=SECONDARY_COLOR,
         spaceAfter=40
     )
     
@@ -248,11 +241,11 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
         'Header1',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=15,
-        leading=19,
-        textColor=DARK_TEXT,
-        spaceBefore=22,
-        spaceAfter=8,
+        fontSize=13,
+        leading=17,
+        textColor=PRIMARY_COLOR,
+        spaceBefore=18,
+        spaceAfter=6,
         keepWithNext=True
     )
     
@@ -260,11 +253,11 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
         'Header2',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=11,
-        leading=15,
-        textColor=BRAND_DARK_GREEN,
-        spaceBefore=14,
-        spaceAfter=6,
+        fontSize=10.5,
+        leading=14.5,
+        textColor=SECONDARY_COLOR,
+        spaceBefore=12,
+        spaceAfter=4,
         keepWithNext=True
     )
     
@@ -272,22 +265,22 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
         'BodyTextCustom',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9.5,
-        leading=14,
+        fontSize=9,
+        leading=13.5,
         textColor=DARK_TEXT,
-        spaceAfter=8
+        spaceAfter=6
     )
     
     bullet_style = ParagraphStyle(
         'BulletCustom',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9.5,
-        leading=14,
+        fontSize=9,
+        leading=13.5,
         textColor=DARK_TEXT,
         leftIndent=12,
         firstLineIndent=-8,
-        spaceAfter=5
+        spaceAfter=4
     )
     
     meta_label_style = ParagraphStyle(
@@ -375,21 +368,9 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     _logo = _get_brand_logo()
     if _logo:
         _png, _aspect = _logo
-        _lh = 44
+        _lh = 36
         _lw = _lh * _aspect
-        brand_row = Table(
-            [[Image(io.BytesIO(_png), width=_lw, height=_lh),
-              Paragraph("USION", wordmark_style)]],
-            colWidths=[_lw + 2, 360], rowHeights=[_lh],
-        )
-        brand_row.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-        ]))
-        story.append(brand_row)
+        story.append(Image(io.BytesIO(_png), width=_lw, height=_lh))
     else:
         story.append(Paragraph("FUSION", wordmark_style))
 
@@ -402,13 +383,13 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     story.append(Paragraph(f"INVESTMENT INQUIRY: {company_name_clean.upper()}", cover_subtitle_style))
     
     # Decorative line
-    story.append(HRFlowable(width="100%", thickness=4, color=BRAND_GREEN, spaceBefore=0, spaceAfter=200))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=PRIMARY_COLOR, spaceBefore=0, spaceAfter=200))
     
     # Metadata Block at bottom of cover page
     meta_box_data = [
         [Paragraph("DEAL RECORD", meta_label_style), Paragraph(deal_record, meta_val_style)],
         [Paragraph("DATE EVALUATED", meta_label_style), Paragraph(date_evaluated, meta_val_style)],
-        [Paragraph("SECURITY SWARM STATUS", meta_label_style), Paragraph("COMPLETE & VERIFIED", ParagraphStyle('MStatus', parent=meta_val_style, fontName='Helvetica-Bold', textColor=BRAND_DARK_GREEN))],
+        [Paragraph("SECURITY SWARM STATUS", meta_label_style), Paragraph("COMPLETE & VERIFIED", ParagraphStyle('MStatus', parent=meta_val_style, fontName='Helvetica-Bold', textColor=PRIMARY_COLOR))],
     ]
     meta_box_table = Table(meta_box_data, colWidths=[160, 340])
     meta_box_table.setStyle(TableStyle([
@@ -427,19 +408,10 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     story.append(Paragraph("Executive Verdict Summary", h1_style))
     story.append(HRFlowable(width="100%", thickness=1, color=BORDER_GREY, spaceBefore=2, spaceAfter=14))
     
-    # Configure colors based on investment verdict
-    if "INVEST" in verdict:
-        bg_color = colors.HexColor("#f0fdf4")      # Soft Green
-        box_color = colors.HexColor("#bbf7d0")     # Light Green Border
-        txt_color = colors.HexColor("#15803d")     # Deep Green Text
-    elif "CONDITIONAL" in verdict:
-        bg_color = colors.HexColor("#fffbeb")      # Soft Amber/Yellow
-        box_color = colors.HexColor("#fef3c7")     # Light Yellow Border
-        txt_color = colors.HexColor("#b45309")     # Deep Amber Text
-    else:  # PASS / DECLINE / PENDING
-        bg_color = colors.HexColor("#fef2f2")      # Soft Red
-        box_color = colors.HexColor("#fee2e2")     # Light Red Border
-        txt_color = colors.HexColor("#b91c1c")     # Deep Red Text
+    # Mute colors for a professional, institutional-grade layout
+    bg_color = BG_LIGHT
+    box_color = BORDER_GREY
+    txt_color = PRIMARY_COLOR
         
     verdict_title_style = ParagraphStyle(
         'VerdictTitle',
@@ -513,7 +485,7 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     idx = 0
     while idx < len(lines):
         line = lines[idx].strip()
-        if "risk scorecard" in line.lower() or "## 📊 risk scorecard" in line.lower():
+        if line.startswith("## ") and "risk scorecard" in line.lower():
             idx += 1
             while idx < len(lines) and not lines[idx].strip().startswith("---") and not lines[idx].strip().startswith("## "):
                 sub_line = lines[idx].strip()
@@ -553,7 +525,7 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
             
         score_table = Table(score_table_data, colWidths=[354, 150])
         score_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), BRAND_GREEN),
+            ('BACKGROUND', (0,0), (-1,0), SECONDARY_COLOR),
             ('BOTTOMPADDING', (0,0), (-1,-1), 8),
             ('TOPPADDING', (0,0), (-1,-1), 8),
             ('ALIGN', (0,0), (-1,-1), 'LEFT'),
@@ -630,7 +602,9 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
 
 
 def create_partner_card(partner_name: str, findings: list, body_style: ParagraphStyle, bullet_style: ParagraphStyle) -> list:
-    """Helper that packages a partner's findings as split-friendly flowables inside card blocks."""
+    """Helper that packages a partner's findings as clean paragraphs and standard bullets,
+    avoiding busy tables/borders, and placing a thin divider at the end.
+    """
     partner_clean = clean_unicode_and_emojis(partner_name)
     
     elements = []
@@ -642,8 +616,8 @@ def create_partner_card(partner_name: str, findings: list, body_style: Paragraph
         fontName='Helvetica-Bold',
         fontSize=11,
         leading=14,
-        textColor=BRAND_DARK_GREEN,
-        spaceBefore=8,
+        textColor=PRIMARY_COLOR,
+        spaceBefore=12,
         spaceAfter=2,
         keepWithNext=True
     )
@@ -655,11 +629,10 @@ def create_partner_card(partner_name: str, findings: list, body_style: Paragraph
         fontSize=8,
         leading=11,
         textColor=SECONDARY_TEXT,
-        spaceAfter=8,
+        spaceAfter=6,
         keepWithNext=True
     )
     
-    # We keep the partner header together with the first block of findings
     header_elements = [Paragraph(partner_clean.upper(), title_style)]
     
     # Find timestamp if present
@@ -675,41 +648,32 @@ def create_partner_card(partner_name: str, findings: list, body_style: Paragraph
     if timestamp_text:
         header_elements.append(Paragraph(timestamp_text, timestamp_style))
         
-    # Now create the findings flowables. We wrap each one in a card table to keep the styling.
-    # To prevent LayoutErrors, each finding is wrapped in its own separate Table that fits on a page.
+    # Process findings
+    first_finding_para = None
+    finding_elements = []
     for kind, text in findings:
         if kind == "timestamp":
             continue
             
         p_style = bullet_style if kind == "bullet" else body_style
-        p_text = f"• {text}" if kind == "bullet" else text
+        p_text = f"&bull; {text}" if kind == "bullet" else text
         para = Paragraph(p_text, p_style)
         
-        # Wrap the single paragraph in a Table with a left accent bar and light bg
-        item_table = Table([["", para]], colWidths=[4, 492])
-        item_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (0,0), BRAND_GREEN),
-            ('BACKGROUND', (1,0), (1,0), BG_LIGHT),
-            ('LINELEFT', (0,0), (0,-1), 1, BORDER_GREY),
-            ('LINERIGHT', (1,0), (1,-1), 1, BORDER_GREY),
-            ('LINETOP', (0,0), (-1,0), 0.5, BORDER_GREY),
-            ('LINEBELOW', (0,0), (-1,-1), 0.5, BORDER_GREY),
-            ('TOPPADDING', (1,0), (1,0), 6),
-            ('BOTTOMPADDING', (1,0), (1,0), 6),
-            ('LEFTPADDING', (1,0), (1,0), 12),
-            ('RIGHTPADDING', (1,0), (1,0), 12),
-            ('TOPPADDING', (0,0), (0,0), 0),
-            ('BOTTOMPADDING', (0,0), (0,0), 0),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ]))
-        item_table.spaceAfter = 2
-        
-        if header_elements:
-            # Keep header and first finding together on the same page
-            header_elements.append(item_table)
-            elements.append(KeepTogether(header_elements))
-            header_elements = None
+        if not first_finding_para:
+            first_finding_para = para
         else:
-            elements.append(item_table)
+            finding_elements.append(para)
             
+    if first_finding_para:
+        header_elements.append(first_finding_para)
+        
+    # Add KeepTogether for header + first finding to prevent orphan headers
+    elements.append(KeepTogether(header_elements))
+    
+    # Add the rest of findings
+    elements.extend(finding_elements)
+    
+    # Add a thin grey divider line at the end of this partner section
+    elements.append(HRFlowable(width="100%", thickness=0.5, color=BORDER_GREY, spaceBefore=8, spaceAfter=8))
+    
     return elements

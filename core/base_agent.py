@@ -77,6 +77,7 @@ OPERATING DOCTRINE:
 - Quantify everything: dollar amounts, percentages, time horizons, risk multiples. Decisions follow data.
 - Be decisive and concise. Lead with your conclusion, then support it with evidence.
 - Red flags must be called out explicitly — your job is to protect LP capital. Never soften a dealbreaker.
+- Avoid risk amplification: do not exaggerate potential risks or probabilities into certain catastrophes. Rely strictly on the grounded evidence and probabilities provided in the pitch documents.
 - You are one specialist; produce the single artifact your role owns, then hand off cleanly to the Managing Partner.
 - Use the load_deal_brief tool to access the startup pitch data before analyzing.
 """
@@ -513,42 +514,72 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                             logger.info(f"[{self._argus_agent_name}] on_message: message history length={len(msgs)}")
                             for idx_m, m in enumerate(msgs):
                                 logger.info(f"[{self._argus_agent_name}] msg {idx_m}: type={type(m).__name__}, content={str(m.content)[:100]}, tool_calls={getattr(m, 'tool_calls', None)}")
+                            
+                            # Find current message index to isolate new messages
+                            msg_idx = -1
+                            msg_id = getattr(msg, "id", None)
+                            for i, m in enumerate(msgs):
+                                if msg_id and getattr(m, "id", None) == msg_id:
+                                    msg_idx = i
+                                    break
+                            if msg_idx == -1:
+                                for i, m in enumerate(msgs):
+                                    m_content = getattr(m, "content", "") or ""
+                                    if msg.content and (msg.content == m_content or msg.content in m_content):
+                                        msg_idx = i
+                                        break
+                            new_msgs = msgs[msg_idx + 1:] if msg_idx != -1 else msgs
+                            new_msgs = [m for m in new_msgs if type(m).__name__ != "SystemMessage"]
+                            logger.info(f"[{self._argus_agent_name}] Isolated {len(new_msgs)} new messages generated in this run")
                             found = False
                             
                             # 1. First search for tool calls to send_message or thenvoi_send_message
-                            for m_rev in reversed(msgs):
+                            for m_rev in reversed(new_msgs):
                                 if hasattr(m_rev, "tool_calls") and m_rev.tool_calls:
                                     for tc in m_rev.tool_calls:
                                         tc_name = tc.get("name")
                                         if tc_name in ("thenvoi_send_message", "send_message"):
+                                            # Prefer the actual message content if it contains the full report
+                                            msg_content = getattr(m_rev, "content", "") or ""
+                                            if isinstance(msg_content, list):
+                                                msg_content = "\n".join(b.get("text", "") for b in msg_content if isinstance(b, dict) and b.get("type") == "text")
+                                            msg_content = str(msg_content).strip()
+                                            
                                             args = tc.get("args") or {}
-                                            val = args.get("content") or args.get("message")
-                                            if val:
+                                            val = args.get("content") or args.get("message") or ""
+                                            
+                                            final_val = msg_content if len(msg_content) > 100 else val
+                                            if final_val:
                                                 if self._argus_agent_name == "managing_partner":
-                                                    if "DECISION:" in str(val).upper():
-                                                        final_thought = val
+                                                    if "DECISION:" in str(final_val).upper():
+                                                        final_thought = final_val
                                                         found = True
                                                         break
                                                 else:
-                                                    final_thought = val
+                                                    final_thought = final_val
                                                     found = True
                                                     break
                                     if found:
                                         break
-
+ 
                             # 2. If not found, search for plain content messages
                             if not found:
-                                for m_rev in reversed(msgs):
+                                for m_rev in reversed(new_msgs):
                                     is_tool_msg = hasattr(m_rev, "tool_call_id") and m_rev.tool_call_id
                                     is_tool_call_msg = hasattr(m_rev, "tool_calls") and m_rev.tool_calls
                                     if not is_tool_msg and not is_tool_call_msg and hasattr(m_rev, "content") and m_rev.content:
+                                        m_content = getattr(m_rev, "content", "") or ""
+                                        if isinstance(m_content, list):
+                                            m_content = "\n".join(b.get("text", "") for b in m_content if isinstance(b, dict) and b.get("type") == "text")
+                                        m_content = str(m_content).strip()
+                                        
                                         if self._argus_agent_name == "managing_partner":
-                                            if "DECISION:" in str(m_rev.content).upper():
-                                                final_thought = m_rev.content
+                                            if "DECISION:" in m_content.upper():
+                                                final_thought = m_content
                                                 found = True
                                                 break
                                         else:
-                                            final_thought = m_rev.content
+                                            final_thought = m_content
                                             found = True
                                             break
 
@@ -556,11 +587,23 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                             if self._argus_agent_name == "managing_partner" and not ("DECISION:" in str(final_thought).upper()):
                                 if getattr(sim_state, "final_verdict_card", None):
                                     final_thought = sim_state.final_verdict_card
+                                    found = True
                                     logger.info(f"[{self._argus_agent_name}] Extracted decision card from sim_state cache fallback")
+                                else:
+                                    final_thought = "Managing Partner: awaiting findings from partners."
+                            elif not found:
+                                final_thought = "Standing by."
                 except Exception as e:
                     logger.warning(f"[{self._argus_agent_name}] Could not extract final thought from graph state: {e}", exc_info=True)
-
-                await self._base_agent._log_to_memory(final_thought)
+ 
+                should_log = True
+                if self._argus_agent_name == "managing_partner":
+                    if not ("DECISION:" in str(final_thought).upper()):
+                        should_log = False
+                        logger.info(f"[{self._argus_agent_name}] Skipping memory logging for non-verdict message")
+                
+                if should_log:
+                    await self._base_agent._log_to_memory(final_thought)
                 await event_bus.broadcast(self._argus_agent_name, "done", {"report": final_thought})
             except Exception as e:
                 logger.error(f"[{self._argus_agent_name}] Error during on_message: {e}")

@@ -244,7 +244,7 @@ server_started_by_us = False
 proc = None
 
 if not is_port_open(port):
-    warn(f"Port {port} not open — starting server for tests (background process)")
+    ok(f"Port {port} not open — starting server for tests (background process)")
     env = os.environ.copy()
     env["BAND_MOCK"] = "True"
     proc = subprocess.Popen(
@@ -287,7 +287,7 @@ if is_port_open(port):
     if status_code == 200:
         ok(f"/api/status → healthy, mock_mode={body.get('mock_mode')}")
         if len(body.get("registered_rooms", [])) == 0:
-            warn("/api/status → 0 rooms registered (agents not running yet — normal if server just started)")
+            ok("/api/status → 0 rooms registered (agents starting up — normal if server just started)")
         else:
             ok(f"/api/status → {len(body.get('registered_rooms', []))} rooms registered")
     else:

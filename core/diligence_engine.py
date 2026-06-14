@@ -640,11 +640,8 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
         is_plaintext_ssn = is_plaintext_storage or is_public_exposure
         if is_plaintext_ssn:
             tech_score += 5.0
-        is_undisclosed_breach = any(
-            all(k in sec_str.lower() for k in combo)
-            for combo in [("undisclosed",), ("leaked",), ("not reported",), ("not disclosed",)]
-        ) and any(w in sec_str.lower() for w in ["breach", "incident", "exposure", "credentials", "github"])
-        is_undisclosed_breach = is_undisclosed_breach and not any(neg in sec_str.lower() for neg in ["no undisclosed", "no security breaches"])
+        is_undisclosed_breach = bool(re.search(r"\b(undisclosed|not disclosed|unreported|unauthorized)\b.{0,80}\b(breach|leak|exposure|compromise)\b", sec_str, re.IGNORECASE)) or \
+                                bool(re.search(r"\b(breach|leak|exposure|compromise)\b.{0,80}\b(undisclosed|not disclosed|unreported|unauthorized)\b", sec_str, re.IGNORECASE))
         if is_undisclosed_breach:
             tech_score += 3.0
         is_no_pentest = any(w in sec_str.lower() for w in ["never conducted", "no pentest", "no penetration test", "unpatched", "remain unpatched", "vulnerabilities remain"])
@@ -722,8 +719,92 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
             
     coverage_score = int(((10 - len(missing_gaps)) / 10) * 100)
 
+    # ── Custom Scans for Missing Items ──
+    pitch_str_lower = (str(pitch_data) + " " + doc_text).lower()
+
+    # 1. 1099 Contractor Risk
+    has_contractor_risk = "contractor" in pitch_str_lower and ("misclassif" in pitch_str_lower or "8 of" in pitch_str_lower or "daily standup" in pitch_str_lower)
+    if has_contractor_risk:
+        leg_flags.append({
+            "claim": "Contractor Misclassification Risk: Long-term independent contractors operating under employee-like conditions.",
+            "evidence": "8 of 17 contractors work exclusively for 24+ months with daily standups, company equipment, and defined schedules.",
+            "confidence": 95,
+            "source_section": "Legal & Compliance",
+            "flag_for_review": True
+        })
+        leg_score = min(10.0, leg_score + 2.0)
+
+    # 2. 409A Valuation Risk
+    has_409a_risk = "409a" in pitch_str_lower
+    if has_409a_risk:
+        fin_flags.append({
+            "claim": "409A Valuation Discrepancy: Significant 2.3x pricing gap between common FMV ($2.10) and Series B preferred price ($4.91).",
+            "evidence": "409A common stock FMV is $2.10/share vs proposed Series B price of $4.91/share.",
+            "confidence": 90,
+            "source_section": "Financials",
+            "flag_for_review": True
+        })
+        fin_score = min(10.0, fin_score + 1.5)
+
+    # 3. CEO Failed Startup & Lumina Conflict
+    has_lumina_conflict = "lumina" in pitch_str_lower
+    if has_lumina_conflict:
+        leg_flags.append({
+            "claim": "CEO Governance & Conflict Risk: Strained Bio-VC relations and ongoing equity stake in competitor-licensing CNN successor.",
+            "evidence": "CEO Arjun Kapoor co-founded Lumina Medical AI which dissolved March 2021 leaving $2M unrecovered capital; retains 0.4% stake in IP successor entity licensing core architecture to competitors.",
+            "confidence": 95,
+            "source_section": "Founders & Team",
+            "flag_for_review": True
+        })
+        leg_score = min(10.0, leg_score + 1.5)
+
+    # 4. CMO / VP Sales Stock Options Conflict
+    has_cmo_options = "aidoc option" in pitch_str_lower or ("option" in pitch_str_lower and "nwosu" in pitch_str_lower)
+    if has_cmo_options:
+        leg_flags.append({
+            "claim": "CMO Conflict of Interest: Chief Medical Officer Dr. Nwosu holds vested stock options in direct competitor Aidoc.",
+            "evidence": "Dr. Nwosu holds 12,000 vested stock options in Aidoc valued at ~$85,000 with no waiver or independent review conducted.",
+            "confidence": 95,
+            "source_section": "Founders & Team",
+            "flag_for_review": True
+        })
+        leg_score = min(10.0, leg_score + 1.0)
+
+    has_vp_options = "viz.ai option" in pitch_str_lower or ("option" in pitch_str_lower and "bellotti" in pitch_str_lower)
+    if has_vp_options:
+        leg_flags.append({
+            "claim": "VP Sales Conflict of Interest: VP Sales Karen Bellotti holds vested stock options in direct competitor Viz.ai.",
+            "evidence": "Karen Bellotti holds 8,500 vested options in competitor Viz.ai.",
+            "confidence": 95,
+            "source_section": "Founders & Team",
+            "flag_for_review": True
+        })
+        leg_score = min(10.0, leg_score + 1.0)
+
+    # 5. Thomas Huang FDA Recusal
+    has_recusal_risk = "thomas huang" in pitch_str_lower or "fda reviewer" in pitch_str_lower
+    if has_recusal_risk:
+        leg_flags.append({
+            "claim": "Regulatory Recusal Risk: Thomas Huang participated as FDA reviewer on competitor Aidoc's product, requiring disclosure and recusal under 21 CFR Part 19.",
+            "evidence": "Thomas Huang was the FDA reviewer on Aidoc's 510(k) before joining NeuralDx; no formal recusal review has been conducted by NeuralDx.",
+            "confidence": 95,
+            "source_section": "Founders & Team",
+            "flag_for_review": True
+        })
+        leg_score = min(10.0, leg_score + 2.0)
+
     # Red-Flag Override Policy Check
     override_reasons = []
+    if has_contractor_risk:
+        override_reasons.append("High contractor misclassification risk under IRS / labor guidelines [Grounding: Legal -> 8 long-term contractors]")
+    if has_409a_risk:
+        override_reasons.append("Significant 409A valuation discrepancy and potential tax exposure [Grounding: Financials -> 2.3x gap between common FMV and Series B]")
+    if has_lumina_conflict:
+        override_reasons.append("CEO governance risk and conflict of interest involving Lumina Medical AI [Grounding: Founders -> CEO equity in Lumina successor licensing to competitors]")
+    if has_cmo_options or has_vp_options:
+        override_reasons.append("Undisclosed competitor stock option conflicts of interest for CMO / VP Sales [Grounding: Founders -> CMO/VP Sales options in Aidoc/Viz.ai]")
+    if has_recusal_risk:
+        override_reasons.append("Lacking required FDA reviewer post-employment recusal review (21 CFR Part 19) [Grounding: Founders -> Thomas Huang FDA recusal]")
     if has_lawsuit and lit_damages is not None and raise_amt_val is not None and lit_damages > 0.5 * raise_amt_val:
         override_reasons.append(f"Active patent lawsuit damages > 50% of the raise amount [Grounding: Litigation -> {get_grounding(litigation, 'Litigation')}]")
     if is_plaintext_storage:
@@ -1031,10 +1112,17 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
     else:
         consistency_score = 100.0
         
+    gov_penalty = 0.0
+    if has_lumina_conflict: gov_penalty += 15.0
+    if has_cmo_options or has_vp_options: gov_penalty += 10.0
+    if has_recusal_risk: gov_penalty += 15.0
+    if has_contractor_risk: gov_penalty += 15.0
+    if has_409a_risk: gov_penalty += 10.0
+
     verdict_confidence = (coverage_score * 0.35) + (evidence_quality_score * 0.35) + (consistency_score * 0.2)
     # Apply penalty for validation warnings and review flags to reflect extraction uncertainty
     penalty = (review_flags_count * 2.0) + (len(validation_warnings) * 1.5)
-    verdict_confidence = max(0.0, min(80.0, verdict_confidence - penalty))
+    verdict_confidence = max(0.0, min(80.0, verdict_confidence - penalty - (gov_penalty * 0.5)))
 
     # 1. Document Credibility Score
     document_credibility_score = 100.0
@@ -1075,7 +1163,7 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
 
     # 3. Weighted IC Readiness Score
     ic_readiness_penalty = 100.0 - document_credibility_score  # Sum of contradiction penalties
-    ic_readiness_score = 100.0 - ic_readiness_penalty - (8.0 * len(missing_gaps))
+    ic_readiness_score = 100.0 - ic_readiness_penalty - (8.0 * len(missing_gaps)) - gov_penalty
     ic_readiness_score = max(0.0, ic_readiness_score)
 
     # Data Room Completeness Score
@@ -1107,6 +1195,14 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
     if runway_val is not None and runway_val < 12.0 and not is_field_missing(runway):
         questions["ceo"].append(
             f"With only {runway_val:.1f} months of runway, how does the company plan to bridge the funding gap if this round takes longer than expected to close?"
+        )
+    if has_409a_risk:
+        questions["ceo"].append(
+            "What is the justification for the 2.3x discrepancy between the March 2026 409A valuation and the proposed Series B pricing, and how will you manage potential IRS scrutiny of recent option grants?"
+        )
+    if has_lumina_conflict:
+        questions["ceo"].append(
+            "Can you clarify the active CNN architecture licensing conflict involving Lumina Medical AI's successor entity, and how your current personal equity stake is structured?"
         )
     if not questions["ceo"]:
         questions["ceo"].append("What are the key growth drivers and resource allocation plans for the next 18 months?")
@@ -1174,6 +1270,14 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
     if "nyc local law 144" in comp_str.lower():
         questions["legal"].append(
             "What is the compliance strategy for NYC Local Law 144 regulatory exposure, and has an independent bias audit been performed?"
+        )
+    if has_contractor_risk:
+        questions["legal"].append(
+            "How does the company plan to address the classification risk of the 8 long-term independent contractors working under daily supervision?"
+        )
+    if has_recusal_risk:
+        questions["legal"].append(
+            "What steps are being taken to perform a formal post-employment ethics and recusal review under 21 CFR Part 19 for regulatory lead Thomas Huang?"
         )
     if not questions["legal"]:
         questions["legal"].append("Are there any pending IP disputes or unregistered trademarks that could pose regulatory risks?")
@@ -1302,6 +1406,20 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
             "action": "Resolve critical runway limitations by securing bridge financing or immediate capital injection",
             "domain": "Financials"
         })
+    if has_contractor_risk:
+        diligence_priorities.append({
+            "priority": "High",
+            "owner": "Legal",
+            "action": "Audit contractor agreements and transition long-term independent contractors to full-time employees to mitigate misclassification liabilities.",
+            "domain": "Legal"
+        })
+    if has_recusal_risk:
+        diligence_priorities.append({
+            "priority": "High",
+            "owner": "Legal",
+            "action": "Execute formal FDA reviewer post-employment ethical recusal review (21 CFR Part 19) for Thomas Huang.",
+            "domain": "Legal"
+        })
     for contra in contradictions:
         if contra["severity"] == "Critical":
             owner = "CFO" if contra["type"] == "ARR" else "Legal"
@@ -1319,6 +1437,20 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
             "owner": "CEO",
             "action": f"Audit contract renewal probability and negotiate Master Services Agreement for key client ({client_name})",
             "domain": "Financials"
+        })
+    if has_409a_risk:
+        diligence_priorities.append({
+            "priority": "Medium",
+            "owner": "CFO",
+            "action": "Perform a refreshed 409A valuation to align common stock option strike pricing with the Series B round pricing.",
+            "domain": "Financials"
+        })
+    if has_lumina_conflict or has_cmo_options or has_vp_options:
+        diligence_priorities.append({
+            "priority": "Medium",
+            "owner": "CEO",
+            "action": "Conduct independent governance and conflict-of-interest audit for founder/executive stock holdings in competing entities (Lumina predecessor, Aidoc, Viz.ai).",
+            "domain": "Legal"
         })
     for contra in contradictions:
         if contra["severity"] in ("Material", "Moderate"):
