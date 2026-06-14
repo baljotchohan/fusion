@@ -2120,9 +2120,19 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
     
     pitch_data = None
     try:
-        pitch_data = _load_pitch_file(f"pitch_{incident_id}.json")
+        import os
+        from core.demo_registry import resolve_pitch_file
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
+        pitch_file = f"pitch_{incident_id}.json"
+        if not os.path.exists(os.path.join(data_dir, pitch_file)):
+            demo_file = resolve_pitch_file(company_name)
+            if demo_file:
+                pitch_file = demo_file
+            else:
+                pitch_file = "novapay_pitch.json"
+        pitch_data = _load_pitch_file(pitch_file)
     except Exception as e:
-        logger.warning(f"Failed to load pitch file pitch_{incident_id}.json: {e}")
+        logger.warning(f"Failed to load pitch file for incident {incident_id}: {e}")
         
     if not pitch_data:
         raise HTTPException(
