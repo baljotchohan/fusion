@@ -287,20 +287,20 @@ def _incident_headline(incident_id: Optional[str]) -> Optional[dict]:
         return None
     verdict = None
     fd = inc.get("final_decision") or ""
-    m = re.search(r"DECISION:\s*([A-Za-z]+)", fd, re.I)
+    m = re.search(r"decision\s*\*?\*?\s*:\s*\*?\*?\s*([A-Za-z]+)", fd, re.I)
     if m:
         verdict = m.group(1).upper()
     risk = None
     headline_finding = None
     for ev in inc.get("timeline", []):
         finding = str(ev.get("finding", ""))
-        rm = re.search(r"WEIGHTED SCORE:\s*([\d\.]+)/10", finding, re.I)
+        rm = re.search(r"weighted\s*(?:risk\s*)?score\s*\*?\*?\s*:\s*\*?\*?\s*([\d\.]+)", finding, re.I)
         if rm:
             risk = float(rm.group(1))
         if ev.get("agent") == "managing_partner" and not headline_finding:
-            tm = re.search(r"Company:\s*([^\n]+)", finding, re.I)
+            tm = re.search(r"Company\s*\*?\*?\s*:\s*([^\n]+)", finding, re.I)
             if tm:
-                headline_finding = tm.group(1).strip()
+                headline_finding = tm.group(1).strip().strip("*_`|").strip()
     return {
         "incident_id": incident_id,
         "verdict": verdict,
@@ -763,8 +763,8 @@ async def list_incidents():
         return c or "Unknown"
 
     def _verdict(text):
-        m = re.search(r"DECISION:\s*([A-Z_]+)", text or "")
-        return m.group(1) if m else None
+        m = re.search(r"decision\s*:\s*\*?\*?\s*([a-zA-Z_]+)", text or "", re.I)
+        return m.group(1).upper() if m else None
 
     return {
         "total": len(incidents),
@@ -780,6 +780,42 @@ async def list_incidents():
             }
             for inc_id, inc in sorted(incidents.items(), key=lambda kv: kv[1].get("created_at", ""), reverse=True)
         ],
+    }
+
+
+@router.get("/deal-state")
+async def deal_state():
+    """Lightweight snapshot of the active/latest concluded deal so the dashboard can
+    restore the verdict card + report download buttons after a page refresh.
+    Returns null fields (not an error) when no deal has concluded yet."""
+    incident_id = sim_state.active_incident_id or memory_graph.get_latest_incident_id()
+    empty = {"incident_id": None, "company": None, "verdict": None,
+             "confidence": None, "weighted_score": None, "report_available": False}
+    if not incident_id:
+        return empty
+    inc = memory_graph.get_incident(incident_id)
+    if not inc:
+        return empty
+
+    raw_company = inc["metadata"].get("company")
+    if isinstance(raw_company, dict):
+        company = raw_company.get("value") or raw_company.get("name") or "Unknown"
+    else:
+        company = raw_company or "Unknown"
+
+    decision_text = inc.get("final_decision") or ""
+    verdict_m = re.search(r"decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-zA-Z_]+)", decision_text, re.I)
+    score_m = re.search(r"weighted\s*(?:risk\s*)?score\s*\*?\*?\s*:\s*\*?\*?\s*([\d.]+)", decision_text, re.I)
+    conf_m = re.search(r"confidence\s*\*?\*?\s*:\s*\*?\*?\s*(\d+)", decision_text, re.I)
+    has_verdict = bool(verdict_m)
+
+    return {
+        "incident_id": incident_id,
+        "company": company,
+        "verdict": verdict_m.group(1).upper() if verdict_m else None,
+        "confidence": int(conf_m.group(1)) if conf_m else (91 if has_verdict else None),
+        "weighted_score": float(score_m.group(1)) if score_m else None,
+        "report_available": has_verdict,
     }
 
 
@@ -904,7 +940,7 @@ _PROVIDER_META = [
     ("gemini", "GOOGLE_API_KEY", "Google Gemini 2.0 Flash", "Fast multimodal reasoning"),
     ("groq", "GROQ_API_KEY", "Groq — Llama 3.3 70B", "Free, very low latency"),
     ("featherless", "FEATHERLESS_API_KEY", "Featherless — OSS models", "Mistral / Qwen / Llama"),
-    ("aimlapi", "AIMLAPI_KEY", "AI/ML API — GPT-4o", "200+ models, one key"),
+    ("aimlapi", "AIMLAPI_KEY", "AI/ML API — GPT-4o mini", "200+ models, one key"),
 ]
 
 
@@ -952,7 +988,7 @@ async def get_system_settings():
         "simulation": {
             "running": sim_state.running,
             "active_incident_id": sim_state.active_incident_id,
-            "mock_pace": float(os.getenv("ARGUS_MOCK_PACE", "0.6")),
+            "mock_pace": float(os.getenv("ARGUS_MOCK_PACE", "0.2")),
             "max_file_size_mb": sim_state.max_file_size_mb,
         },
         "rooms": list(mock_bus.rooms.keys()) if is_mock_mode() else [],
@@ -1355,6 +1391,71 @@ CRITICAL INSTRUCTIONS:
     return f"As the **{p['name']}**, I have audited this target. My current risk findings show: {findings_str}."
 
 
+_TECH_TOKEN_RE = re.compile(
+    r"\b(Python\s*\d+(?:\.\d+)?|Node\.?js\s*\d+(?:\.\d+)?|MySQL\s*\d+(?:\.\d+)?|"
+    r"PostgreSQL\s*\d+|Postgres\s*\d+|MongoDB\s*\d+(?:\.\d+)?|MariaDB|Redis|Kafka|RabbitMQ|"
+    r"Django|Flask|FastAPI|Express|React|Angular|Vue|Rails|Spring|"
+    r"Java\s*\d+|Golang|Kubernetes|Docker|Terraform|"
+    r"AWS|GCP|Azure|EC2|S3|RDS|Aurora|DynamoDB|Lambda|Snowflake|Databricks|"
+    r"scikit-learn|XGBoost|PyTorch|TensorFlow|Datadog|GraphQL|Elasticsearch|JWT|Auth0|Cognito|Plaid)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_tech_stack(text: str):
+    """Collect concrete technology tokens (with versions) from anywhere in the doc.
+    Far more reliable than grabbing the line after the word 'stack', which on real
+    pitch docs captures narrative prose."""
+    seen, tokens = set(), []
+    first_pos = -1
+    for m in _TECH_TOKEN_RE.finditer(text):
+        tok = re.sub(r"\s+", " ", m.group(1)).strip()
+        key = tok.lower()
+        if key not in seen:
+            seen.add(key)
+            tokens.append(tok)
+            if first_pos < 0:
+                first_pos = m.start()
+    if not tokens:
+        return None
+    value = ", ".join(tokens[:14])
+    return {"value": value, "start": first_pos, "end": first_pos + len(value)}
+
+
+def _extract_competitors(text: str):
+    """Pull competitor names from the first column of the markdown table whose
+    header row mentions 'competitor', falling back to a narrative list."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s.startswith("|"):
+            continue
+        # The header's FIRST column must be the competitor label — guards against
+        # matching a stray "...competitors" mention in some other table's cell.
+        header_first = s.strip("|").split("|")[0].replace("*", "").strip().lower()
+        if header_first.startswith(("competitor", "competition")):
+            names = []
+            for row in lines[i + 1:]:
+                r = row.strip()
+                if not r.startswith("|"):
+                    break
+                first = r.strip("|").split("|")[0].replace("*", "").replace("`", "").strip()
+                if not first or set(first) <= set("-: "):          # separator row
+                    continue
+                if first.lower().startswith(("competitor", "company", "name")):
+                    continue
+                if 2 <= len(first) <= 48 and first not in names:
+                    names.append(first)
+            if names:
+                start = text.find(line)
+                value = ", ".join(names[:10])
+                return {"value": value, "start": start, "end": start + len(value)}
+    m = re.search(r"competitors?\s*(?:include[s]?|:|are)\s+([A-Z][^\n]{3,})", text, re.IGNORECASE)
+    if m:
+        return {"value": m.group(1).strip().rstrip("."), "start": m.start(1), "end": m.end(1)}
+    return None
+
+
 def extract_facts_regex(text: str, filename: str) -> dict:
     """Stage 1: Regex fact extractor for initial diligence facts and metadata."""
     company_name = filename.split(".")[0].replace("_", " ").replace("-", " ").title()
@@ -1368,9 +1469,9 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     co_evidence = "Filename derivation"
     co_prov = "derived"
     
-    co_match = re.search(r"(?:company\s*name|company|startup|name):\s*([A-Za-z0-9_\- ]{2,30})", text, re.IGNORECASE)
+    co_match = re.search(r"(?:legal\s*name|company\s*name|company|startup|name)\s*[:\-]\s*[*`\"]*\s*([A-Z][A-Za-z0-9&.,'\- ]{2,48})", text, re.IGNORECASE)
     if co_match:
-        val = co_match.group(1).strip().strip('"*#')
+        val = co_match.group(1).strip().strip('"*#').rstrip(",").strip()
         if val:
             company_name = val
             co_conf = 98
@@ -1455,27 +1556,39 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     
     arr = find_pattern(
         "ARR", "current", "Financials",
-        [r"(?:arr|annual recurring revenue|revenue)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
+        # Prefer the headline "annualized" ARR (e.g. revenue-table "May 2026 (annualized) | $13.8M")
+        # and an explicit "ARR | $X" table cell, BEFORE the generic "$X ARR" form —
+        # which otherwise grabs a sales *quota* like "$9.8M ARR for FY2026".
+        [r"annuali[sz]ed\)?[^\n|]*\|[\s\*]*(\$[0-9][0-9.,]*\s*(?:million|billion|[mMbBkK])?)",
+         r"\barr\b[^\n|]*\|[\s\*]*(\$[0-9][0-9.,]*\s*(?:million|billion|[mMbBkK])?)",
+         r"(?:arr|annual recurring revenue|revenue)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
          r"(\$[0-9\.,]+\s*(?:million|m|billion|b)?)\s*arr"],
         text
     )
     
     burn = find_pattern(
         "Burn", "current", "Financials",
-        [r"(?:burn|burn rate|monthly burn|burn_rate)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
+        [r"(?:net\s*monthly\s*burn|monthly\s*burn|net\s*burn|burn\s*rate|burn)[^\n|]*[:|=][\s\*]*(\$?\(?\$?[0-9][0-9.,]*\s*(?:million|billion|m|k|b)?\)?)",
+         r"(?:burn|burn rate|monthly burn|burn_rate)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
          r"(\$[0-9\.,]+\s*(?:million|m|billion|b)?)\s*(?:monthly\s*)?burn"],
         text
     )
     
     runway = find_pattern(
         "Runway", "current", "Financials",
-        [r"(?:runway)\s*(?::|is|of|at|-|\b)\s*([0-9\.]+\s*(?:months|years)?)", r"([0-9\.]+\s*months?)\s*runway", r"runway\s*(?:of|is)?\s*([0-9\.]+\s*months?)"],
+        [r"runway[^\n|]*[:|=][\s\*]*([0-9][0-9.]*\s*(?:months?|years?|mos?))",
+         r"(?:runway)\s*(?::|is|of|at|-|\b)\s*([0-9\.]+\s*(?:months|years)?)",
+         r"([0-9\.]+\s*months?)\s*runway",
+         r"runway\s*(?:of|is)?\s*([0-9\.]+\s*months?)"],
         text
     )
     
     gross_margin = find_pattern(
         "Gross Margin", "current", "Financials",
-        [r"(?:gross margin|gross_margin|margin)\s*(?::|is|of|at|-|\b)\s*([0-9\.]+%)", r"([0-9\.]+%)\s*(?:gross\s*)?margin", r"margin\s*(?:of|is)?\s*([0-9\.]+\s*%)"],
+        [r"(?:gross\s*margin|gross_margin)[^\n|]*[:|=][\s\*]*([0-9][0-9.]*\s*%)",
+         r"(?:gross margin|gross_margin|margin)\s*(?::|is|of|at|-|\b)\s*([0-9\.]+%)",
+         r"([0-9\.]+%)\s*(?:gross\s*)?margin",
+         r"margin\s*(?:of|is)?\s*([0-9\.]+\s*%)"],
         text,
         is_pct=True
     )
@@ -1488,52 +1601,67 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     
     customer_concentration = find_pattern(
         "Customer Concentration", "current", "Financials",
-        [r"([0-9]+%)[ \t]*(?:revenue|customer)?[ \t]*concentration", r"concentration[ \t]*(?:of|is)?[ \t]*([0-9]+%)", r"([0-9]+%)[ \t]*from[ \t]*[A-Za-z0-9_\- ]+"],
+        [r"top\s*\d+\s*customers?[^\n]*?([0-9]{1,3}\s*%)",
+         r"top\s*\d+\s*customer\s*concentration[^\n|]*[:|=][\s\*]*([0-9]{1,3}\s*%)",
+         r"([0-9]+%)[ \t]*(?:revenue|customer)?[ \t]*concentration",
+         r"concentration[ \t]*(?:of|is)?[ \t]*([0-9]+%)",
+         r"([0-9]+%)[ \t]*from[ \t]*[A-Za-z0-9_\- ]+"],
         text
     )
 
-    lit_match = re.search(r"(?:lawsuit|litigation|patent dispute|sued by|dispute)[^\n]*", text, re.IGNORECASE)
-    if lit_match:
-        no_lit_words = ["no lawsuit", "no litigation", "no pending", "none mentioned", "no evidence of lawsuit"]
-        lit_val = lit_match.group(0).strip()
-        if any(w in lit_val.lower() for w in no_lit_words):
-            litigation = {
-                "metric": "Litigation",
-                "value": "No active lawsuits.",
-                "timeframe": "current",
-                "confidence": 95,
-                "provenance": "direct",
-                "source_section": "Legal",
-                "source_start": lit_match.start(),
-                "source_end": lit_match.end(),
-                "evidence": lit_val,
-                "flag_for_review": False
-            }
-        else:
-            litigation = {
-                "metric": "Litigation",
-                "value": lit_val,
-                "timeframe": "current",
-                "confidence": 95,
-                "provenance": "direct",
-                "source_section": "Legal",
-                "source_start": lit_match.start(),
-                "source_end": lit_match.end(),
-                "evidence": lit_val,
-                "flag_for_review": False
-            }
+    # Sentence-level legal extraction: collect the most MATERIAL legal/regulatory
+    # matters (lawsuits, FTC/CFPB investigations, IP disputes, judgments, C&Ds)
+    # instead of grabbing the first fragment that happens to contain "dispute".
+    no_lit_words = ["no lawsuit", "no litigation", "no pending litigation", "none mentioned",
+                    "no evidence of lawsuit", "no active litigation", "no material litigation"]
+    lit_priority = [
+        "civil investigative demand", "cid", "ftc", "cfpb", "lawsuit", "sued",
+        "ip dispute", "patent dispute", "infringement", "cease and desist", "c&d",
+        "civil judgment", "judgment", "litigation", "investigation", "settlement", "dispute",
+    ]
+    lit_first_pos = -1
+    lit_hits = []
+    for m in re.finditer(r"[^\n]+", text):
+        seg = m.group(0).replace("**", "").replace("`", "").strip().strip("-*|# ").strip()
+        sl = seg.lower()
+        if not any(k in sl for k in lit_priority):
+            continue
+        if any(n in sl for n in no_lit_words):
+            continue
+        if not (15 <= len(seg) <= 320):
+            seg = seg[:317] + "..." if len(seg) > 320 else seg
+            if len(seg) < 15:
+                continue
+        score = next((len(lit_priority) - i for i, k in enumerate(lit_priority) if k in sl), 0)
+        lit_hits.append((score, m.start(), seg))
+        if lit_first_pos < 0:
+            lit_first_pos = m.start()
+    if lit_hits:
+        lit_hits.sort(key=lambda t: (-t[0], t[1]))
+        top = []
+        for _, _, seg in lit_hits:
+            if seg not in top:
+                top.append(seg)
+            if len(top) >= 3:
+                break
+        lit_val = " | ".join(top)
+        litigation = {
+            "metric": "Litigation", "value": lit_val, "timeframe": "current",
+            "confidence": 95, "provenance": "direct", "source_section": "Legal",
+            "source_start": lit_first_pos, "source_end": lit_first_pos + len(lit_val),
+            "evidence": top[0], "flag_for_review": False,
+        }
+    elif re.search(r"no (?:active |material |pending )?(?:lawsuit|litigation)", text, re.IGNORECASE):
+        litigation = {
+            "metric": "Litigation", "value": "No active lawsuits.", "timeframe": "current",
+            "confidence": 95, "provenance": "direct", "source_section": "Legal",
+            "source_start": -1, "source_end": -1, "evidence": "", "flag_for_review": False,
+        }
     else:
         litigation = {
-            "metric": "Litigation",
-            "value": "Insufficient Evidence",
-            "timeframe": "current",
-            "confidence": 0,
-            "provenance": "unknown",
-            "source_section": "Legal",
-            "source_start": -1,
-            "source_end": -1,
-            "evidence": "",
-            "flag_for_review": False
+            "metric": "Litigation", "value": "Insufficient Evidence", "timeframe": "current",
+            "confidence": 0, "provenance": "unknown", "source_section": "Legal",
+            "source_start": -1, "source_end": -1, "evidence": "", "flag_for_review": False,
         }
 
     comp_val = "Insufficient Evidence"
@@ -1544,7 +1672,9 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     for word in ["NYC Local Law 144", "CFPB", "GDPR", "SOC 2", "SOC2", "unlicensed", "licensed"]:
         match = re.search(rf"([^%\n]*{word}[^\n]*)", text, re.IGNORECASE)
         if match:
-            comp_val = match.group(1).strip()
+            comp_val = match.group(1).replace("**", "").replace("`", "").strip().strip("-*|# ").strip()
+            if len(comp_val) > 180:
+                comp_val = comp_val[:177] + "..."
             comp_conf = 95
             comp_start, comp_end = match.start(1), match.end(1)
             comp_evidence = comp_val
@@ -1563,11 +1693,20 @@ def extract_facts_regex(text: str, filename: str) -> dict:
         "flag_for_review": False
     }
 
-    tech_stack = find_pattern(
-        "Tech Stack", "current", "Technical",
-        [r"(?:tech stack|stack|backend|database)\s*(?::|is|of|at|-|\b)\s*([^\n]+)"],
-        text
-    )
+    _ts = _extract_tech_stack(text)
+    if _ts:
+        tech_stack = {
+            "metric": "Tech Stack", "value": _ts["value"], "timeframe": "current",
+            "confidence": 95, "provenance": "direct", "source_section": "Technical",
+            "source_start": _ts["start"], "source_end": _ts["end"],
+            "evidence": _ts["value"], "flag_for_review": False,
+        }
+    else:
+        tech_stack = find_pattern(
+            "Tech Stack", "current", "Technical",
+            [r"(?:tech stack|stack|backend|database)\s*(?::|is|of|at|-|\b)\s*([^\n]+)"],
+            text
+        )
 
     sec_val = "Insufficient Evidence"
     sec_conf = 0
@@ -1598,15 +1737,27 @@ def extract_facts_regex(text: str, filename: str) -> dict:
 
     tam = find_pattern(
         "TAM", "current", "Market",
-        [r"(?:tam|market size)\s*(?::|is|of|at|-|\b)\s*([^\n]+)"],
+        # Require an actual figure first (e.g. "TAM:** $45B") so we don't capture the
+        # bare "TAM / SAM / SOM" heading text.
+        [r"\btam\b[^\n]*?(\$[0-9][0-9.,]*\s*(?:trillion|billion|million|[mMbBkKtT])\b)",
+         r"(?:tam|market size)\s*(?::|is|of|at|-|\b)\s*([^\n]+)"],
         text
     )
 
-    competition = find_pattern(
-        "Competition", "current", "Market",
-        [r"(?:competitors|competition|competitor)\s*(?::|is|of|at|-|\b|include|includes)\s*([^\n]+)"],
-        text
-    )
+    _comp = _extract_competitors(text)
+    if _comp:
+        competition = {
+            "metric": "Competition", "value": _comp["value"], "timeframe": "current",
+            "confidence": 95, "provenance": "direct", "source_section": "Market",
+            "source_start": _comp["start"], "source_end": _comp["end"],
+            "evidence": _comp["value"], "flag_for_review": False,
+        }
+    else:
+        competition = find_pattern(
+            "Competition", "current", "Market",
+            [r"(?:competitors|competition|competitor)\s*(?::|is|of|at|-|\b|include|includes)\s*([^\n]+)"],
+            text
+        )
 
     cust_start = customers.get("source_start")
     cust_end = customers.get("source_end")
@@ -1670,6 +1821,20 @@ def extract_facts_regex(text: str, filename: str) -> dict:
         except Exception:
             pass
 
+    # Revenue-recognition quality flag (one-time / prepaid revenue inflating ARR — ASC 606)
+    for _m in re.finditer(r"[^\n]+", text):
+        _sl = _m.group(0).lower()
+        if ("one-time" in _sl or "prepay" in _sl or "pre-pay" in _sl) and ("revenue" in _sl or "arr" in _sl or "recognition" in _sl):
+            fin_flags.append({
+                "claim": "Revenue-recognition quality risk: one-time/prepaid revenue inflating reported ARR (ASC 606 treatment)",
+                "evidence": _m.group(0).strip().strip("-*|# ")[:220],
+                "confidence": 85,
+                "source_section": "Financials",
+                "source_start": _m.start(),
+                "source_end": _m.end(),
+            })
+            break
+
     # Legal flags
     if not is_field_missing(litigation):
         lit_val_str = str(litigation.get("value")).lower()
@@ -1696,12 +1861,49 @@ def extract_facts_regex(text: str, filename: str) -> dict:
                 "source_end": compliance.get("source_end")
             })
 
+    # Targeted legal/regulatory flags — surface distinct material matters that a
+    # single litigation field would otherwise miss.
+    _legal_scans = [
+        (r"unlicensed", "Lending in one or more states without required licenses", 8),
+        (r"misclassif", "Contractor misclassification risk (1099 workers operating as employees)", 6),
+        (r"(?:ip dispute|patent[^\n]*dispute|infringement|ownership of[^\n]*architecture|cease and desist|c&d|co-inventor|chancery court)", "Intellectual-property / inventorship dispute", 7),
+        (r"(?:civil investigative demand|\bcid\b|ftc (?:investigation|act|cid))", "Active FTC investigation (Civil Investigative Demand)", 8),
+        (r"(?:off-label|not cleared[^\n]*market|marketed[^\n]*not cleared|without[^\n]*510\(k\)|uncleared|warning letter)", "FDA off-label marketing of uncleared indications (warning-letter / enforcement risk)", 9),
+        (r"(?:hipaa[^\n]*(?:breach|violation|gap)|baa[^\n]*(?:gap|not signed)|ocr (?:investigation|penalt)|breach notification)", "HIPAA exposure (BAA gap / breach / OCR investigation risk)", 8),
+        (r"(?:restatement|emphasis-of-matter|emphasis of matter|revenue recognition[^\n]*(?:risk|may require))", "Revenue-recognition / potential restatement risk (auditor emphasis-of-matter)", 7),
+    ]
+    _existing_claims = {f["claim"] for f in leg_flags}
+    for _pat, _claim, _sev in _legal_scans:
+        if _claim in _existing_claims:
+            continue
+        _lm = re.search(rf"[^\n]*(?:{_pat})[^\n]*", text, re.IGNORECASE)
+        if _lm:
+            leg_flags.append({
+                "claim": _claim,
+                "evidence": _lm.group(0).strip().strip("-*|# ")[:220],
+                "confidence": 88,
+                "severity": _sev,
+                "source_section": "Legal",
+                "source_start": _lm.start(),
+                "source_end": _lm.end(),
+            })
+
     # Technical flags
     if not is_field_missing(security):
-        sec_val_str = str(security.get("value")).lower()
-        if "plaintext" in sec_val_str or "unencrypted" in sec_val_str or "ssn" in sec_val_str or "pii" in sec_val_str:
+        sec_val_str = (str(security.get("value")) + " " + str(security.get("evidence"))).lower()
+        # Distinguish public exposure (misconfigured S3/bucket) from true plaintext
+        # storage so the claim matches the evidence rather than always saying
+        # "plaintext storage".
+        is_public_exposure = any(w in sec_val_str for w in ["public-read", "publicly readable", "publicly accessible", "public read", "public s3", "misconfigured"]) and any(w in sec_val_str for w in ["s3", "bucket", "pii", "ssn", "customer data", "records", "bank account"])
+        is_plaintext = "plaintext" in sec_val_str or "unencrypted" in sec_val_str
+        sec_claim = None
+        if is_public_exposure:
+            sec_claim = "Public exposure of customer PII via misconfigured S3 bucket"
+        elif is_plaintext or "ssn" in sec_val_str or "pii" in sec_val_str:
+            sec_claim = "Plaintext storage of sensitive data"
+        if sec_claim:
             tech_flags.append({
-                "claim": "Plaintext storage of sensitive data",
+                "claim": sec_claim,
                 "evidence": security.get("evidence"),
                 "confidence": security.get("confidence", 90),
                 "source_section": "Technical",
@@ -1719,15 +1921,43 @@ def extract_facts_regex(text: str, filename: str) -> dict:
             })
             
     if not is_field_missing(tech_stack):
-        stack_val_str = str(tech_stack.get("value")).lower()
-        if any(w in stack_val_str for w in ["eol", "end-of-life", "node.js 14", "mongodb 4.2"]):
+        stack_val_str = (str(tech_stack.get("value")) + " " + text).lower()
+        if any(w in stack_val_str for w in [
+            "eol", "end-of-life", "end of life",
+            "node.js 14", "node.js 16", "nodejs 16", "mongodb 4.2",
+            "mysql 5.7", "python 2.7", "python 3.7", "python 3.8", "python 3.9",
+        ]):
+            eol_hits = [w for w in ["python 2.7", "node.js 16", "node.js 14", "mysql 5.7", "mongodb 4.2"] if w in stack_val_str]
             tech_flags.append({
-                "claim": "Use of end-of-life (EOL) software stack",
+                "claim": "Use of end-of-life (EOL) software" + (f" ({', '.join(eol_hits)})" if eol_hits else " stack"),
                 "evidence": tech_stack.get("evidence"),
                 "confidence": tech_stack.get("confidence", 90),
                 "source_section": "Technical",
                 "source_start": tech_stack.get("source_start"),
                 "source_end": tech_stack.get("source_end")
+            })
+
+    # Market flags — surface inflated TAM, sector funding decline, dominant-incumbent threat.
+    _market_scans = [
+        (r"[^\n]*(?:tam[^\n]*inflat|inflated[^\n]*\b\d+x|top-down[^\n]*inflat|tam[^\n]*overstat)[^\n]*", "Inflated TAM — top-down market size overstated", 6),
+        (r"[^\n]*(?:funding[^\n]*down\s*\d{1,3}\s*%|down\s*\d{2,3}\s*%\s*yoy|vc funding into[^\n]*down)[^\n]*", "Sector VC funding declining sharply (YoY)", 6),
+        (r"[^\n]*(?:peak enthusiasm passed|sentiment cautious|retreating from market|underperformed|originated[^\n]*natively)[^\n]*", "Cooling sector sentiment / dominant incumbent threat", 5),
+    ]
+    _mk_seen = set()
+    for _pat, _claim, _sev in _market_scans:
+        if _claim in _mk_seen:
+            continue
+        _mm = re.search(_pat, text, re.IGNORECASE)
+        if _mm:
+            _mk_seen.add(_claim)
+            mkt_flags.append({
+                "claim": _claim,
+                "evidence": _mm.group(0).strip().strip("-*|# ")[:220],
+                "confidence": 85,
+                "severity": _sev,
+                "source_section": "Market",
+                "source_start": _mm.start(),
+                "source_end": _mm.end(),
             })
 
     core_fields = [arr, burn, runway, gross_margin, customers, customer_concentration, litigation, compliance, security, tam]
@@ -1933,6 +2163,12 @@ async def parse_and_structure_file(text: str, filename: str, incident_id: str) -
     fallback) and as the fallback path when no LLM provider is available or it errors."""
     regex_data = extract_facts_regex(text, filename)
 
+    # Deterministic/instant by default: skip the (potentially slow, rate-limited)
+    # LLM enrichment call and return regex-extracted facts immediately. Opt back
+    # into LLM-first extraction with ARGUS_LLM_UPLOAD_PARSE=true.
+    if os.getenv("ARGUS_LLM_UPLOAD_PARSE", "false").strip().lower() not in ("1", "true", "yes"):
+        return regex_data
+
     llm_router = get_router()
     if not llm_router.available_providers():
         return regex_data
@@ -1960,7 +2196,7 @@ DOCUMENT:
 {text[:24000]}
 """
     try:
-        res = await llm_router.call_llm(prompt, max_tokens=8000, timeout=150.0)
+        res = await llm_router.call_llm(prompt, max_tokens=8000, timeout=20.0)
         res_clean = re.sub(r"```json\s*", "", res.strip(), flags=re.IGNORECASE)
         res_clean = re.sub(r"```\s*", "", res_clean)
         start_idx, end_idx = res_clean.find("{"), res_clean.rfind("}")
@@ -2088,6 +2324,22 @@ async def upload_pitch_document(
     }
 
 
+# In-process report cache: reports are deterministic for a given incident, so we
+# memoize the rendered Markdown and compiled PDF bytes keyed by incident_id and a
+# content signature. Repeat downloads (and PDF↔MD switches) become instant; a new
+# run for the same incident changes the signature and forces a rebuild.
+_REPORT_CACHE: dict = {}
+
+
+def _report_signature(inc: dict, pitch_data: dict) -> tuple:
+    timeline = inc.get("timeline", []) or []
+    try:
+        pitch_len = len(json.dumps(pitch_data, sort_keys=True, default=str))
+    except Exception:
+        pitch_len = 0
+    return (len(timeline), inc.get("final_decision") or "", pitch_len)
+
+
 @router.api_route("/generate-report", methods=["GET", "POST"])
 async def generate_research_report(incident_id: Optional[str] = None, format: Optional[str] = "md"):
     """Generates a downloadable Markdown or PDF VC due diligence report.
@@ -2139,7 +2391,18 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
             status_code=400,
             detail=f"Diligence calculations could not be run: Pitch data for incident {incident_id} not found."
         )
-        
+
+    # Fast path: serve a previously rendered report if nothing material changed.
+    fmt = (format or "md").lower()
+    report_sig = _report_signature(inc, pitch_data)
+    cached = _REPORT_CACHE.get(incident_id)
+    if cached and cached.get("sig") == report_sig and cached.get(fmt) is not None:
+        if fmt == "pdf":
+            headers = {'Content-Disposition': f'attachment; filename="FUSION_Report_{company_name.replace(" ", "_")}.pdf"'}
+            return StreamingResponse(io.BytesIO(cached["pdf"]), media_type="application/pdf", headers=headers)
+        headers = {'Content-Disposition': f'attachment; filename="FUSION_Report_{company_name.replace(" ", "_")}.md"'}
+        return StreamingResponse(io.BytesIO(cached["md"]), media_type="text/markdown", headers=headers)
+
     calc = run_diligence_calculations(pitch_data)
     if not calc:
         raise HTTPException(
@@ -2157,16 +2420,16 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
     card_weighted_score = None
     card_decision = None
     if fd:
-        m_co = re.search(r"Company:\s*(.+)", fd, re.I)
+        m_co = re.search(r"Company\s*\*?\*?\s*:\s*(.+)", fd, re.I)
         if m_co:
-            card_company_name = m_co.group(1).strip().strip("|").strip()
-        m_w = re.search(r"weighted\s*(?:risk\s*)?score:\s*\*?\*?([\d\.]+)", fd, re.I)
+            card_company_name = m_co.group(1).strip().strip("*_`|").strip()
+        m_w = re.search(r"weighted\s*(?:risk\s*)?score\s*\*?\*?\s*:\s*\*?\*?\s*([\d\.]+)", fd, re.I)
         if m_w:
             try:
                 card_weighted_score = float(m_w.group(1))
             except ValueError:
                 pass
-        m_dec = re.search(r"DECISION:\s*([A-Za-z]+)", fd, re.I)
+        m_dec = re.search(r"decision\s*\*?\*?\s*:\s*\*?\*?\s*([A-Za-z]+)", fd, re.I)
         if m_dec:
             card_decision = m_dec.group(1).upper()
             
@@ -2266,7 +2529,9 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
     mkt_w_str = f"{0.2*mkt_score:>4.2f}" if mkt_score is not None else " N/A"
     
     weighted_val_str = f"{calc_weighted_score:>4.1f}/10" if calc_weighted_score is not None else " N/A  "
-    
+    override_active = bool(calc.get("override_reasons")) and calc.get("verdict") == "PASS"
+    weighted_note = "   (PASS — critical red-flag override)" if override_active else ""
+
     reasons = []
     if calc_weighted_score is None:
         reasons = ["Coverage below minimum threshold (40%)"]
@@ -2300,7 +2565,7 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
         f"  Technical Risk:  {tech_val_str}  (weight: 25%) → {tech_w_str}\n"
         f"  Market Risk:     {mkt_val_str}  (weight: 20%) → {mkt_w_str}\n"
         "  ------------------------------------------------------\n"
-        f"  WEIGHTED SCORE:  {weighted_val_str}\n\n"
+        f"  WEIGHTED SCORE:  {weighted_val_str}{weighted_note}\n\n"
         "PRIMARY REASONS:\n"
         f"{reasons_str}\n"
         "```"
@@ -2410,10 +2675,22 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
 *Report generated on behalf of the FUSION AI-Powered Venture Capital Investment Committee. FUSION Master Doctrine Version 5.2.*
 """
     
+    # Cache the freshly rendered Markdown (preserving any PDF cached under the same
+    # signature) so subsequent downloads of either format are instant.
+    md_bytes = report_md.encode("utf-8")
+    entry = _REPORT_CACHE.get(incident_id)
+    if not entry or entry.get("sig") != report_sig:
+        entry = {"sig": report_sig, "md": md_bytes, "pdf": None}
+    else:
+        entry["md"] = md_bytes
+    _REPORT_CACHE[incident_id] = entry
+
     if format == "pdf":
         from core.pdf_generator import compile_pdf_report
         try:
             pdf_bytes = compile_pdf_report(report_md, company_name)
+            entry["pdf"] = pdf_bytes
+            _REPORT_CACHE[incident_id] = entry
             file_like = io.BytesIO(pdf_bytes)
             headers = {
                 'Content-Disposition': f'attachment; filename="FUSION_Report_{company_name.replace(" ", "_")}.pdf"'
@@ -2423,7 +2700,7 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
             logger.error(f"Failed to generate PDF report: {e}")
             raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
 
-    file_like = io.BytesIO(report_md.encode("utf-8"))
+    file_like = io.BytesIO(md_bytes)
     headers = {
         'Content-Disposition': f'attachment; filename="FUSION_Report_{company_name.replace(" ", "_")}.md"'
     }

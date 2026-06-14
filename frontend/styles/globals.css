@@ -246,6 +246,15 @@ body {
   animation: slideInFromLeft 0.22s ease-out both;
 }
 
+@keyframes slideInFromRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slideInFromRight 0.24s ease-out both;
+}
+
 /* Honor reduced-motion preference */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

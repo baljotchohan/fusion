@@ -83,6 +83,13 @@ def _load_pitch_file(filename: str = None) -> dict:
 def clear_pitch_cache():
     """Clear the pitch cache so the next load picks up a newly uploaded file."""
     _PITCH_CACHE.clear()
+    # Memoized diligence numbers are derived from pitch content — drop them too so
+    # a re-uploaded/edited pitch recomputes instead of serving stale scores.
+    try:
+        from core.diligence_engine import clear_diligence_cache
+        clear_diligence_cache()
+    except Exception:
+        pass
 
 
 def _company_name_of(data: dict) -> str:

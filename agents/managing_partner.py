@@ -34,30 +34,34 @@ Call load_deal_brief('company') to get the company overview.
 Call get_company_name() to confirm the deal name.
 
 STEP 2 — Brief all 4 partners simultaneously
-Send each specialist the SAME briefing message. Use thenvoi_send_message for EACH:
+You MUST call thenvoi_send_message exactly 4 times (one separate call for each partner). Do NOT combine them into a single call. Use the actual platform handles:
+- @baljotchohan23/financial-partner
+- @baljotchohan23/legal-partner
+- @baljotchohan23/technical-partner
+- @baljotchohan23/market-partner
 
-Financial Partner (finance-partner-room):
+Financial Partner:
 thenvoi_send_message(
-  content='@financial-partner New deal in committee: [company name] — Series A, $[amount] raise. Full pitch loaded in deal brief. Run your financial due diligence now and report back to managing-partner-room.',
-  mentions=['@financial-partner']
+  content='@baljotchohan23/financial-partner New deal in committee: [company name] — Series A, $[amount] raise. Full pitch loaded in deal brief. Run your financial due diligence now and report back to managing-partner-room.',
+  mentions=['@baljotchohan23/financial-partner']
 )
 
-Legal Partner (legal-partner-room):
+Legal Partner:
 thenvoi_send_message(
-  content='@legal-partner New deal in committee: [company name] — Series A, $[amount] raise. Full pitch loaded in deal brief. Run your legal due diligence now and report back to managing-partner-room.',
-  mentions=['@legal-partner']
+  content='@baljotchohan23/legal-partner New deal in committee: [company name] — Series A, $[amount] raise. Full pitch loaded in deal brief. Run your legal due diligence now and report back to managing-partner-room.',
+  mentions=['@baljotchohan23/legal-partner']
 )
 
-Technical Partner (tech-partner-room):
+Technical Partner:
 thenvoi_send_message(
-  content='@technical-partner New deal in committee: [company name] — Series A, $[amount] raise. Full pitch loaded in deal brief. Run your technical due diligence now and report back to managing-partner-room.',
-  mentions=['@technical-partner']
+  content='@baljotchohan23/technical-partner New deal in committee: [company name] — Series A, $[amount] raise. Full pitch loaded in deal brief. Run your technical due diligence now and report back to managing-partner-room.',
+  mentions=['@baljotchohan23/technical-partner']
 )
 
-Market Partner (market-partner-room):
+Market Partner:
 thenvoi_send_message(
-  content='@market-partner New deal in committee: [company name] — Series A, $[amount] raise. Full pitch loaded in deal brief. Run your market due diligence now and report back to managing-partner-room.',
-  mentions=['@market-partner']
+  content='@baljotchohan23/market-partner New deal in committee: [company name] — Series A, $[amount] raise. Full pitch loaded in deal brief. Run your market due diligence now and report back to managing-partner-room.',
+  mentions=['@baljotchohan23/market-partner']
 )
 
 STEP 3 — Confirm committee is convened
@@ -159,4 +163,6 @@ class ManagingPartner(BaseAgent):
             tools=[load_deal_brief, get_company_name, get_red_flags, get_calculated_scores],
             model_name="gemini-2.0-flash"
         )
+
+# Target rooms: finance-partner-room, legal-partner-room, tech-partner-room, market-partner-room
 

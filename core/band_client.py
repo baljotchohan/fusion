@@ -131,8 +131,35 @@ class MockBandBus:
             return
 
         for agent in self.rooms[resolved]:
-            # Schedule execution of the agent asynchronously to mimic WebSocket trigger
-            asyncio.create_task(agent.handle_mock_message(sender, message))
+            # Schedule execution of the agent asynchronously to mimic WebSocket trigger.
+            # Wrap in an error handler so failures are logged (not silently swallowed).
+            task = asyncio.create_task(
+                self._safe_dispatch(agent, sender, message, resolved)
+            )
+
+    async def _safe_dispatch(self, agent, sender: str, message: str, room: str):
+        """Dispatch a message to an agent with error handling and retry."""
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                await agent.handle_mock_message(sender, message)
+                return  # Success
+            except Exception as e:
+                logger.error(
+                    f"Mock Band Bus: Agent '{agent.name}' in room '{room}' "
+                    f"failed to process message (attempt {attempt + 1}/{max_retries + 1}): {e}"
+                )
+                if attempt < max_retries:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                else:
+                    # All retries exhausted — broadcast alert so the dashboard shows the failure
+                    try:
+                        from core.event_bus import event_bus
+                        await event_bus.broadcast(agent.name, "alert", {
+                            "error": f"Failed to process message from {sender}: {str(e)[:200]}"
+                        })
+                    except Exception:
+                        pass  # Last resort — at least the error is logged above
 
 # Global singleton mock bus
 mock_bus = MockBandBus()

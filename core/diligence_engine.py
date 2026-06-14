@@ -1,9 +1,40 @@
 # core/diligence_engine.py
 import re
+import json
+import hashlib
 import logging
 from typing import Dict, Any, List
 
 logger = logging.getLogger("fusion.diligence_engine")
+
+# Content-addressed cache: the same pitch payload always yields the same numbers,
+# and the calc runs once per agent in the mock-LLM loop *and* again on every
+# report download. Memoizing by a hash of the input collapses all of that into a
+# single computation per distinct pitch.
+_DILIGENCE_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _pitch_cache_key(pitch_data: Dict[str, Any]) -> str:
+    try:
+        blob = json.dumps(pitch_data, sort_keys=True, default=str)
+    except Exception:
+        return ""
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+
+
+def clear_diligence_cache():
+    """Drop memoized calculations (call when the active pitch changes)."""
+    _DILIGENCE_CACHE.clear()
+
+
+def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
+    key = _pitch_cache_key(pitch_data) if pitch_data else ""
+    if key and key in _DILIGENCE_CACHE:
+        return _DILIGENCE_CACHE[key]
+    result = _run_diligence_calculations_impl(pitch_data)
+    if key:
+        _DILIGENCE_CACHE[key] = result
+    return result
 
 def get_citation(f: Dict[str, Any], section_name: str) -> str:
     if not isinstance(f, dict):
@@ -231,7 +262,7 @@ def parse_arr_from_text(text: str) -> float:
         return arrs[0]["value"]
     return None
 
-def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
+def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     if not pitch_data:
         pitch_data = {}
         
@@ -721,9 +752,13 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
         tech_score = None
         mkt_score = None
     elif override_reasons:
+        # A critical red flag forces a PASS regardless of the weighted average.
+        # Report the TRUE weighted score so the per-domain contributions shown on
+        # the card actually add up — the PASS is driven by the override policy,
+        # not by inflating the headline number (which previously floored to 7.5
+        # and contradicted the component math).
         verdict = "PASS"
-        raw_weighted = 0.3 * fin_score + 0.25 * leg_score + 0.25 * tech_score + 0.2 * mkt_score
-        weighted_score = max(7.5, raw_weighted)
+        weighted_score = 0.3 * fin_score + 0.25 * leg_score + 0.25 * tech_score + 0.2 * mkt_score
     else:
         weighted_score = 0.3 * fin_score + 0.25 * leg_score + 0.25 * tech_score + 0.2 * mkt_score
         if weighted_score <= 4.0: verdict = "INVEST"
@@ -731,7 +766,13 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
         else: verdict = "PASS"
         if verdict == "INVEST" and (fin_score >= 7.0 or leg_score >= 7.0 or tech_score >= 7.0 or mkt_score >= 7.0):
             verdict = "CONDITIONAL"
-            
+
+    # Canonicalize to 1 decimal so the value MATCHES its ".1f" display everywhere
+    # (the decision card + the report-generation integrity check). Without this a
+    # raw 9.35 renders as "9.3" but recomputes as 9.35, tripping the mismatch guard.
+    if weighted_score is not None:
+        weighted_score = round(weighted_score, 1)
+
     fin_rec = "INSUFFICIENT_EVIDENCE" if fin_score is None else ("INVEST" if fin_score <= 4.0 else ("CONDITIONAL" if fin_score <= 6.5 else "PASS"))
     leg_rec = "INSUFFICIENT_EVIDENCE" if leg_score is None else ("INVEST" if leg_score <= 4.0 else ("CONDITIONAL" if leg_score <= 6.5 else "PASS"))
     tech_rec = "INSUFFICIENT_EVIDENCE" if tech_score is None else ("INVEST" if tech_score <= 4.0 else ("CONDITIONAL" if tech_score <= 6.5 else "PASS"))
@@ -1047,21 +1088,21 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     # Auto-Generated VC Questions
     questions = {"ceo": [], "cto": [], "legal": []}
     
-    # Dynamically extract client name to avoid startup-specific hardcoding
-    client_name = "primary client"
-    combined_cust_str = str(customer_concentration.get("value", "")) + " " + str(customers.get("value", ""))
-    m_client = re.search(r"\b(?:from|in|of|with|concentration\s+in)\s+([A-Z][A-Za-z0-9\s\&]+?)(?:\s+contributes|\s+represents|\s+concentration|\.|\,|\(|total|\s+client|$)", combined_cust_str)
-    if m_client:
+    # Dynamically extract the concentrated customer name from the concentration
+    # field/evidence. Do NOT fall back to scanning the whole doc for big-tech brand
+    # names — that misattributes concentration to a *competitor* (e.g. "Microsoft")
+    # that merely appears elsewhere. When no name is parseable, stay generic.
+    client_name = "the company's top customers"
+    combined_cust_str = (str(customer_concentration.get("value", "")) + " "
+                         + str(customer_concentration.get("evidence", "")) + " "
+                         + str(customers.get("value", "")))
+    m_client = re.search(r"\b(?:from|in|of|with|concentration\s+in)\s+([A-Z][A-Za-z0-9\s\&\.]+?)(?:\s+contributes|\s+represents|\s+concentration|\.|\,|\(|total|\s+client|$)", combined_cust_str)
+    if m_client and len(m_client.group(1).strip()) > 2 and not m_client.group(1).strip().lower().startswith("top "):
         client_name = m_client.group(1).strip()
-    else:
-        for word in ["Microsoft", "Amazon", "Google", "Apple", "Meta", "Klarna"]:
-            if word.lower() in str(pitch_data).lower():
-                client_name = word
-                break
 
     if concentration_val is not None and concentration_val > 50.0:
         questions["ceo"].append(
-            f"Given that {client_name} contributes {concentration_val:.0f}% of total ARR, what is the contract renewal probability and what contingency plans exist if they do not renew?"
+            f"Given that {client_name} account for {concentration_val:.0f}% of total ARR, what is the contract renewal probability and what contingency plans exist if they do not renew?"
         )
     if runway_val is not None and runway_val < 12.0 and not is_field_missing(runway):
         questions["ceo"].append(

@@ -89,13 +89,13 @@ export function useAgentWebSocket() {
 
           if (update.agent === 'managing_partner' && update.output) {
             if (update.output.report) {
-              const riskMatch = update.output.report.match(/WEIGHTED SCORE:\s*([\d\.]+)/i)
+              const riskMatch = update.output.report.match(/weighted\s*(?:risk\s*)?score\s*\*?\*?\s*:\s*\*?\*?\s*([\d\.]+)/i)
               if (riskMatch) {
                 setThreatScore(Number(riskMatch[1]))
               }
 
-              const decisionMatch = update.output.report.match(/DECISION:\s*([A-Za-z]+)/i)
-              const confidenceMatch = update.output.report.match(/CONFIDENCE:\s*(\d+)/i)
+              const decisionMatch = update.output.report.match(/decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-z_]+)/i)
+              const confidenceMatch = update.output.report.match(/confidence\s*\*?\*?\s*:\s*\*?\*?\s*(\d+)/i)
               const justificationMatch = update.output.report.match(/PRIMARY REASONS:\s*([^\0]+)/i)
               if (decisionMatch) {
                 setCeoDecision({
@@ -125,12 +125,30 @@ export function useAgentWebSocket() {
     }
   }, [])
 
+  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
+
+  useEffect(() => {
+    const specialists = ['financial_partner', 'legal_partner', 'technical_partner', 'market_partner']
+    const allSpecialistsDone = specialists.every(agent => agentStates[agent] === 'done')
+    const managingPartnerNotDone = agentStates['managing_partner'] !== 'done'
+
+    if (allSpecialistsDone && managingPartnerNotDone) {
+      const timer = setTimeout(() => {
+        setShowRecoveryPrompt(true)
+      }, 30000) // 30 seconds
+      return () => clearTimeout(timer)
+    } else {
+      setShowRecoveryPrompt(false)
+    }
+  }, [agentStates])
+
   function resetAll() {
     setThreatScore(0)
     setCeoDecision(null)
     setLogEvents([])
     setStoryFeed([])
     setAgentOutputs({})
+    setShowRecoveryPrompt(false)
     setAgentStates({
       managing_partner: 'idle',
       financial_partner: 'idle',
@@ -143,5 +161,6 @@ export function useAgentWebSocket() {
   return {
     agentStates, agentOutputs, logEvents, storyFeed, threatScore, ceoDecision, isConnected,
     setAgentStates, setAgentOutputs, setThreatScore, setCeoDecision, setLogEvents, resetAll,
+    showRecoveryPrompt, setShowRecoveryPrompt
   }
 }

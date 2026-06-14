@@ -50,3 +50,15 @@ We have successfully resolved the issues causing the FUSION agents to loop endle
 3. **Successful Simulation Run**:
    - Backend server task `task-1121` running on port 8000 successfully.
    - Verified in the logs that the event bus, Websocket stream, local mock LLM fallback, and agent roundtable synthesis conclude cleanly with the final compiled decision scorecard.
+
+## Real Band Platform Activation
+
+To make the FUSION agents active on the live Band platform (`app.thenvoi.com`), we performed the following steps:
+
+1. **Configured Environment**: Modified `.env` to set `BAND_MOCK=false`.
+2. **Validated Credentials**: Verified that the individual agent ID and API key credentials in `agent_config.yaml` are correctly populated and functional.
+3. **Restarted the Swarm Server**: Stopped the background mock mode server process and started the server using `.venv/bin/python run.py`.
+4. **Verified Live Connection**: 
+   - Inspected the server logs (`task-434.log`) and verified that all 5 specialized partner agents (`managing_partner`, `financial_partner`, `legal_partner`, `technical_partner`, `market_partner`) successfully initialized their `PlatformRuntime` adapters.
+   - Verified that all 5 agents successfully connected to the platform Websocket (`wss://app.thenvoi.com/api/v1/socket/websocket`), subscribed to their respective chat rooms (e.g. `agent_rooms:4695d3aa...`), synchronized execution contexts, and transitioned to **Online/Active** status.
+

@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { AGENTS } from '@/lib/agents'
 
 type Section = 'overview' | 'quickstart' | 'agents' | 'chat' | 'memory'
-  | 'mcp' | 'api' | 'providers' | 'architecture' | 'glossary'
+  | 'mcp' | 'api' | 'architecture' | 'glossary'
 
 const NAV: { id: Section; label: string; icon: string; group: string }[] = [
   { id: 'overview', label: 'What is FUSION', icon: '💼', group: 'Start here' },
@@ -13,7 +13,6 @@ const NAV: { id: Section; label: string; icon: string; group: string }[] = [
   { id: 'memory', label: 'Shared Deal Vault', icon: '🧠', group: 'Concepts' },
   { id: 'mcp', label: 'MCP integration', icon: '🔌', group: 'Integrate' },
   { id: 'api', label: 'API reference', icon: '⌘', group: 'Integrate' },
-  { id: 'providers', label: 'AI providers', icon: '⚡', group: 'Operate' },
   { id: 'architecture', label: 'Architecture', icon: '🏗️', group: 'Operate' },
   { id: 'glossary', label: 'Glossary', icon: '📖', group: 'Operate' },
 ]
@@ -147,8 +146,7 @@ python run.py`}</Code>
 npm install
 npm run dev`}</Code>
             <Step n={3} title="Run a deal evaluation">Open the Boardroom tab and click Evaluate Startup Deal, or tell the Managing Partner in chat &ldquo;Evaluate NovaPay Inc.&rdquo;</Step>
-            <P>No API keys required — FUSION ships with a built-in mock LLM engine so the full chain runs offline out-of-the-box. Add provider
-            keys in your <span className="font-mono">.env</span> to enable live LLM reasoning (see the AI providers section).</P>
+            <P>No API keys required — FUSION ships with a built-in deterministic engine so the full chain runs offline out-of-the-box.</P>
           </div>
         )}
 
@@ -250,20 +248,8 @@ npm run dev`}</Code>
               <EndpointRow method="GET" path="/api/v1/incidents" desc="List all evaluated startup deal records." />
               <EndpointRow method="GET" path="/api/v1/incident/{id}" desc="Retrieve specific deal timelines and scorecards." />
               <EndpointRow method="GET" path="/api/v1/memory/stats" desc="Read database aggregate audit counts and findings." />
-              <EndpointRow method="GET" path="/api/v1/system/settings" desc="Retrieve AI providers, LLM configuration, and mock pace." />
+              <EndpointRow method="GET" path="/api/v1/system/settings" desc="Retrieve committee configuration and deliberation pace." />
             </div>
-          </div>
-        )}
-
-        {section === 'providers' && (
-          <div>
-            <H>AI providers & automatic fallback</H>
-            <P>FUSION is provider-agnostic, supporting <B>Gemini, Groq, Featherless, or AI/ML API</B> keys configured in <span className="font-mono">.env</span>.</P>
-            <P>If live LLMs hit rate limits or fail, FUSION automatically falls back to its built-in <B>offline simulation engine</B> so evaluations and committee debates always resolve smoothly without stalling. Primary providers can be customized dynamically in Settings.</P>
-            <Code label=".env">{`# Configure at least one provider to enable live LLM debate
-GOOGLE_API_KEY=AIzaSy...
-GROQ_API_KEY=gsk_...
-ARGUS_LLM_PRIMARY=gemini # Model to try first`}</Code>
           </div>
         )}
 

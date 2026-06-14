@@ -28,7 +28,7 @@ DEFAULT_TIMEOUT = 30.0
 OPENAI_COMPAT_ENDPOINTS = {
     "groq": ("https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
     "featherless": ("https://api.featherless.ai/v1/chat/completions", "mistralai/Mistral-Small-24B-Instruct-2501"),
-    "aimlapi": ("https://api.aimlapi.com/v1/chat/completions", "gpt-4o"),
+    "aimlapi": ("https://api.aimlapi.com/v1/chat/completions", "gpt-4o-mini"),
 }
 
 SYSTEM_PROMPT = (

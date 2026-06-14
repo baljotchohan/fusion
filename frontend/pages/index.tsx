@@ -1,11 +1,12 @@
 // pages/index.tsx — FUSION VC Command Center
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 // @ts-ignore — suppress missing type defs for lucide-react icons
 import Head from 'next/head'
 import { useAgentWebSocket } from '@/hooks/useAgentWebSocket'
 import { AGENTS, API_BASE } from '@/lib/agents'
 import { renderMarkdown } from '@/lib/markdown'
 import Logo from '@/components/Logo'
+import Wordmark from '@/components/Wordmark'
 import AgentGraph from '@/components/AgentGraph'
 import LiveLog from '@/components/LiveLog'
 import AgentDetailPanel from '@/components/AgentDetailPanel'
@@ -99,6 +100,7 @@ function riskTone(score: number): { cls: string; bar: string } {
 export default function FUSION() {
   const {
     agentStates, agentOutputs, logEvents, threatScore, ceoDecision, isConnected, resetAll,
+    setCeoDecision, setThreatScore, showRecoveryPrompt, setShowRecoveryPrompt,
   } = useAgentWebSocket()
 
   const [tab, setTab] = useState<Tab>('overview')
@@ -111,7 +113,51 @@ export default function FUSION() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
 
   const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null)
+  const [activeCompany, setActiveCompany] = useState<string | null>(null)
   const maxFileSizeMb = 2
+
+  const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now())
+  const [showStalledWarning, setShowStalledWarning] = useState(false)
+
+  useEffect(() => {
+    setLastActivityTime(Date.now())
+  }, [logEvents, isSimulating])
+
+  useEffect(() => {
+    if (!isSimulating) {
+      setShowStalledWarning(false)
+      return
+    }
+
+    const interval = setInterval(() => {
+      const secondsSinceLastActivity = (Date.now() - lastActivityTime) / 1000
+      if (secondsSinceLastActivity > 90) {
+        setShowStalledWarning(true)
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [isSimulating, lastActivityTime])
+
+  const handleRetrySimulation = () => {
+    setShowStalledWarning(false)
+    setShowRecoveryPrompt(false)
+    if (activeCompany) {
+      triggerDealSimulation(activeCompany)
+    } else {
+      triggerDealSimulation('NovaPay Inc')
+    }
+  }
+
+  const forceVerdictSynthesis = async () => {
+    try {
+      setShowRecoveryPrompt(false)
+      setShowStalledWarning(false)
+      await fetch(`${API_BASE}/api/force-verdict?incident_id=${activeIncidentId || ''}`, { method: 'POST' })
+    } catch (err) {
+      console.error('Failed to force verdict synthesis:', err)
+    }
+  }
 
   // Resizable chat width (persisted)
   const [chatWidth, setChatWidth] = useState<number>(CHAT_DEFAULT)
@@ -211,6 +257,33 @@ export default function FUSION() {
     }).catch(() => {})
   }, [])
 
+  // Restore the active deal's verdict + report buttons after a page refresh.
+  // The backend can always re-derive the report from the persisted incident, so
+  // we just re-seed the transient UI state from /deal-state on mount.
+  useEffect(() => {
+    const cached = localStorage.getItem('fusion.activeIncidentId')
+    if (cached) setActiveIncidentId(cached)
+    fetch(`${API_BASE}/api/v1/deal-state`).then(r => r.json()).then(d => {
+      if (!d || !d.incident_id) return
+      setActiveIncidentId(d.incident_id)
+      if (d.company) setActiveCompany(d.company)
+      if (d.report_available && d.verdict) {
+        setCeoDecision({
+          verdict: String(d.verdict).toUpperCase(),
+          confidence: typeof d.confidence === 'number' ? d.confidence : 91,
+          justification: 'Committee review completed.',
+        })
+        if (typeof d.weighted_score === 'number') setThreatScore(d.weighted_score)
+      }
+    }).catch(() => {})
+  }, [setCeoDecision, setThreatScore])
+
+  // Keep the active incident id durable across refreshes.
+  useEffect(() => {
+    if (activeIncidentId) localStorage.setItem('fusion.activeIncidentId', activeIncidentId)
+    else localStorage.removeItem('fusion.activeIncidentId')
+  }, [activeIncidentId])
+
   // File Upload
   const handleFileDrop = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFileUpload(f) }
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f) }
@@ -236,6 +309,7 @@ export default function FUSION() {
       }
       const data = await response.json()
       setActiveIncidentId(data.incident_id)
+      if (data.company_name) setActiveCompany(data.company_name)
       setUploadStatus('complete')
       triggerDealSimulation(data.company_name)
     } catch (err: any) {
@@ -246,7 +320,8 @@ export default function FUSION() {
   }
 
   const triggerDealSimulation = async (companyName: string = 'NovaPay Inc') => {
-    setIsSimulating(true); setTab('overview'); setOverviewTab('roundtable')
+    resetAll()
+    setIsSimulating(true); setActiveCompany(companyName); setTab('overview'); setOverviewTab('roundtable')
     try {
       const res = await fetch(`${API_BASE}/api/trigger-deal?company=${encodeURIComponent(companyName)}`, { method: 'POST' })
       const data = await res.json()
@@ -259,7 +334,7 @@ export default function FUSION() {
   }
 
   const resetSimulation = async () => {
-    setIsSimulating(false); setUploadStatus('idle'); setUploadedFile(null); setActiveIncidentId(null); setUploadError(null); resetAll()
+    setIsSimulating(false); setUploadStatus('idle'); setUploadedFile(null); setActiveIncidentId(null); setActiveCompany(null); setUploadError(null); resetAll()
     try { await fetch(`${API_BASE}/api/reset`, { method: 'POST' }) } catch {}
   }
 
@@ -284,12 +359,13 @@ export default function FUSION() {
       })
       const data = await response.json()
       if (data.incident_id) setActiveIncidentId(data.incident_id)
-      if (data.dispatched) { setIsSimulating(true); setUploadStatus('processing'); setTab('overview') }
+      if (data.company || data.company_name) setActiveCompany(data.company || data.company_name)
+      if (data.dispatched) { resetAll(); setIsSimulating(true); setUploadStatus('processing'); setTab('overview') }
       setChatHistory(prev => [...prev, { role: 'assistant', content: data.commander_response, incidentId: data.incident_id, intent: data.intent }])
     } catch {
       setChatHistory(prev => [...prev, { role: 'assistant', content: 'Cannot reach the Managing Partner — is the FUSION backend running?' }])
     } finally { setChatThinking(false) }
-  }, [chatInput, chatThinking, activeIncidentId])
+  }, [chatInput, chatThinking, activeIncidentId, resetAll])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value; setChatInput(val)
@@ -326,6 +402,24 @@ export default function FUSION() {
   const partnersDone = Object.values(agentStates).filter(s => s === 'done').length
   const partnersTotal = AGENTS.length
 
+  // Context-aware starter prompts: tailored to the active deal when one is loaded,
+  // otherwise generic onboarding prompts.
+  const chatSuggestions = useMemo(() => {
+    const co = activeCompany?.trim()
+    if (co && co.toLowerCase() !== 'unknown') {
+      return [
+        `What are the biggest red flags for ${co}?`,
+        `Summarize the financial & legal risks for ${co}`,
+        'What would change the committee verdict?',
+      ]
+    }
+    return [
+      'Evaluate the demo deal (NovaPay Inc)',
+      'What does FUSION look for in a deal?',
+      'How does the committee score risk?',
+    ]
+  }, [activeCompany])
+
   /* ── Shared chat fragments (rendered in either side panel or full-screen) ── */
   const chatMessages = (big: boolean) => (
     <div className={`flex-1 overflow-y-auto flex flex-col gap-3 bg-bg-base ${big ? 'px-4 sm:px-6 py-4 sm:py-6' : 'p-3 sm:p-4'}`}>
@@ -337,7 +431,7 @@ export default function FUSION() {
           <h4 className="text-[12px] sm:text-[13px] font-semibold text-text-primary mb-1">Managing Partner</h4>
           <p className="text-[11px] sm:text-[11.5px] text-text-secondary mb-5 max-w-[260px]">Ask about deal financials, lawsuits, tech vulnerabilities, or market validation — or just say hello.</p>
           <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
-            {['Evaluate NovaPay Inc', 'What should I look for in this deal?', 'How does FUSION work?'].map(s => (
+            {chatSuggestions.map(s => (
               <button key={s} onClick={() => sendChatMessage(s)} className="text-[11.5px] text-left px-3 py-2 bg-bg-subtle border border-border rounded-lg hover:border-accent/50 hover:text-accent transition-colors text-text-secondary">
                 {s}
               </button>
@@ -400,9 +494,9 @@ export default function FUSION() {
             ))}
           </div>
         )}
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-1.5 bg-bg-subtle border border-border rounded-2xl px-2 py-1.5 focus-within:border-accent transition-colors">
           <button onClick={() => fileInputRef.current?.click()}
-            className="w-9 h-9 rounded-lg bg-bg-subtle border border-border hover:border-accent/50 hover:text-accent text-text-muted flex items-center justify-center transition shrink-0" title="Upload document">
+            className="w-8 h-8 rounded-lg text-text-muted hover:bg-bg-muted hover:text-accent flex items-center justify-center transition shrink-0 self-end" title="Upload document">
             <Plus className="w-4 h-4" />
           </button>
           <textarea
@@ -412,11 +506,11 @@ export default function FUSION() {
             onKeyDown={handleInputKeyDown}
             placeholder="Ask your partner…  (@ to mention, Shift+Enter for newline)"
             rows={1}
-            className="flex-1 resize-none bg-bg-subtle border border-border rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed focus:outline-none focus:border-accent transition-colors text-text-primary placeholder:text-text-muted max-h-40"
+            className="flex-1 resize-none bg-transparent border-0 px-1 py-1.5 text-[13px] leading-relaxed focus:outline-none text-text-primary placeholder:text-text-muted max-h-40"
             disabled={chatThinking}
           />
           <button onClick={() => sendChatMessage()} disabled={!chatInput.trim() || chatThinking}
-            className={`w-9 h-9 flex items-center justify-center rounded-lg transition shrink-0 ${chatInput.trim() && !chatThinking ? 'bg-accent text-white hover:bg-accent-hover' : 'bg-bg-muted text-text-muted cursor-not-allowed'}`}>
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition shrink-0 self-end ${chatInput.trim() && !chatThinking ? 'bg-accent text-white hover:bg-accent-hover' : 'bg-bg-muted text-text-muted cursor-not-allowed'}`}>
             <Send className="w-4 h-4" />
           </button>
         </div>
@@ -466,8 +560,7 @@ export default function FUSION() {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <aside className="absolute left-0 top-0 h-full w-[260px] bg-bg-subtle border-r border-border flex flex-col animate-slide-in-left" onClick={e => e.stopPropagation()}>
             <div className="h-[52px] flex items-center border-b border-border px-4 gap-2.5">
-              <Logo className="w-7 h-7 text-accent shrink-0" />
-              <span className="font-bold text-[15px] tracking-tight text-text-primary">FUSION</span>
+              <Wordmark className="text-[15px]" logoClassName="w-7 h-7" />
               <button onClick={() => setMobileMenuOpen(false)} className="ml-auto w-8 h-8 flex items-center justify-center rounded-lg hover:bg-bg-muted text-text-muted">
                 <X className="w-4 h-4" />
               </button>
@@ -508,8 +601,9 @@ export default function FUSION() {
       {/* ═══════════ LEFT SIDEBAR (desktop) ═══════════ */}
       <aside className={`relative h-full bg-bg-subtle border-r border-border transition-all duration-300 flex-col z-40 hidden md:flex ${sidebarCollapsed ? 'w-16' : 'w-[220px]'}`}>
         <div className="h-[52px] flex items-center border-b border-border pl-5 gap-2.5">
-          <Logo className="w-7 h-7 text-accent shrink-0" />
-          {!sidebarCollapsed && <span className="font-bold text-[15px] tracking-tight text-text-primary whitespace-nowrap">FUSION</span>}
+          {sidebarCollapsed
+            ? <Logo className="w-7 h-7 text-accent shrink-0" />
+            : <Wordmark className="text-[15px] whitespace-nowrap" logoClassName="w-7 h-7" />}
         </div>
 
         <div className="flex-1 overflow-y-auto py-4 noscrollbar">
@@ -645,6 +739,52 @@ export default function FUSION() {
                         </div>
                       )}
 
+                      {/* Warning if simulation appears stalled */}
+                      {showStalledWarning && (
+                        <div className="rounded-xl bg-danger-soft border border-danger/20 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-slide-in-right">
+                          <div className="flex items-center gap-3">
+                            <AlertCircle className="w-5 h-5 text-danger shrink-0" />
+                            <div>
+                              <h4 className="text-[12px] font-semibold text-danger">Simulation may have stalled</h4>
+                              <p className="text-[10px] text-text-muted mt-0.5">No activity detected from committee agents for over 90 seconds.</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={handleRetrySimulation}
+                            className="h-8 px-3 rounded-lg text-[11px] font-semibold bg-danger text-white hover:bg-danger/90 active:scale-95 transition shrink-0"
+                          >
+                            Restart Diligence
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Warning if managing partner is stuck but specialists are done */}
+                      {showRecoveryPrompt && (
+                        <div className="rounded-xl bg-warning-soft border border-warning/20 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-slide-in-right">
+                          <div className="flex items-center gap-3">
+                            <AlertCircle className="w-5 h-5 text-warning shrink-0" />
+                            <div>
+                              <h4 className="text-[12px] font-semibold text-warning">Diligence complete, awaiting synthesis</h4>
+                              <p className="text-[10px] text-text-muted mt-0.5">All 4 specialists have submitted findings. The managing partner has not yet rendered a decision.</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={forceVerdictSynthesis}
+                              className="h-8 px-3 rounded-lg text-[11px] font-semibold bg-warning text-bg-base hover:bg-warning/90 active:scale-95 transition shrink-0"
+                            >
+                              Force Synthesis
+                            </button>
+                            <button
+                              onClick={handleRetrySimulation}
+                              className="h-8 px-3 rounded-lg text-[11px] font-semibold border border-border hover:bg-bg-muted active:scale-95 transition shrink-0 text-text-primary"
+                            >
+                              Restart
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Verdict hero */}
                       <VerdictHero
                         decision={ceoDecision}
@@ -652,8 +792,8 @@ export default function FUSION() {
                         partnersDone={partnersDone}
                         partnersTotal={partnersTotal}
                         isSimulating={isSimulating}
-                        onDownloadPdf={activeIncidentId ? () => window.open(`${API_BASE}/api/v1/generate-report?incident_id=${activeIncidentId}&format=pdf`, '_blank') : undefined}
-                        onDownloadMd={activeIncidentId ? () => window.open(`${API_BASE}/api/v1/generate-report?incident_id=${activeIncidentId}&format=md`, '_blank') : undefined}
+                        onDownloadPdf={() => window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=pdf`, '_blank')}
+                        onDownloadMd={() => window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=md`, '_blank')}
                       />
 
                       {/* Tabs */}

@@ -1,4 +1,4 @@
-# core/base_agent.py
+# core/base_agent.py — FUSION Investment Committee
 """
 Base agent class that handles credentials loading, LLM setup,
 LangGraph compilation, and tool mapping for both real Band SDK
@@ -196,7 +196,7 @@ class ResilientChatModel(BaseChatModel):
             message = await self.fallback_llm.ainvoke(messages, stop=stop, **kwargs)
             return ChatResult(generations=[ChatGeneration(message=message)])
 
-        max_attempts = 12
+        max_attempts = 2
         for attempt in range(max_attempts):
             try:
                 message = await self.primary_llm.ainvoke(messages, stop=stop, **kwargs)
@@ -209,7 +209,7 @@ class ResilientChatModel(BaseChatModel):
                     "429" in err or "RESOURCE_EXHAUSTED" in err or "rate limit" in err_lower
                 )
                 if not fatal and transient_429 and attempt < max_attempts - 1:
-                    delay = 4 + attempt * 2 + random.uniform(0, 2)
+                    delay = 1.5 + attempt + random.uniform(0, 0.5)
                     logger.warning(
                         f"[{self.display_name}] Rate limited — retrying in {delay:.1f}s... Error: {err[:150]}"
                     )
@@ -219,7 +219,11 @@ class ResilientChatModel(BaseChatModel):
                     await asyncio.sleep(delay)
                     continue
                 logger.error(f"[{self.display_name}] LLM failed: {err[:200]}")
-                if fatal:
+                # Trip the process-wide degradation window on ANY unrecoverable
+                # provider failure (fatal error OR persistent rate limit) so the
+                # rest of the committee instantly runs on the deterministic engine
+                # instead of each agent re-hitting the limited provider.
+                if fatal or transient_429:
                     degrade_llm(err)
                 break
 
@@ -240,6 +244,83 @@ class ResilientChatModel(BaseChatModel):
 from thenvoi.adapters.langgraph import LangGraphAdapter
 from thenvoi.core.types import PlatformMessage
 from thenvoi.core.protocols import AgentToolsProtocol
+
+class WrappedTools:
+    def __init__(self, original_tools, agent_id: str, base_agent: 'BaseAgent'):
+        self._original_tools = original_tools
+        self._agent_id = agent_id
+        self._base_agent = base_agent
+
+    def __getattr__(self, name):
+        return getattr(self._original_tools, name)
+
+    async def send_message(self, content: str, mentions: list = None, *args, **kwargs):
+        logger.info(f"[{self._base_agent.name}] send_message called with mentions={mentions}")
+        
+        is_specialist = self._base_agent.name in ("financial_partner", "legal_partner", "technical_partner", "market_partner")
+        if is_specialist:
+            mp_id = "mock-id"
+            try:
+                config_path = "agent_config.yaml"
+                if not os.path.exists(config_path):
+                    config_path = "agent_config.example.yaml"
+                with open(config_path, "r") as f:
+                    config = yaml.safe_load(f) or {}
+                mp_conf = config.get("agents", {}).get("managing_partner") or config.get("managing_partner", {})
+                mp_id = mp_conf.get("agent_id", "mock-id")
+            except Exception as e:
+                logger.warning(f"Failed to load managing partner credentials in send_message: {e}")
+            
+            if mentions is None:
+                mentions = []
+            
+            # Check if managing_partner is already mentioned
+            has_mp = False
+            for m in mentions:
+                if isinstance(m, str):
+                    if str(m) == str(mp_id) or "managing-partner" in m.lower():
+                        has_mp = True
+                        break
+                elif isinstance(m, dict):
+                    m_id = m.get("id")
+                    m_handle = m.get("handle") or ""
+                    if m_id is not None and str(m_id) == str(mp_id) or "managing-partner" in m_handle.lower():
+                        has_mp = True
+                        break
+                else:
+                    m_id = getattr(m, "id", None)
+                    m_handle = getattr(m, "handle", None) or ""
+                    if m_id is not None and str(m_id) == str(mp_id) or "managing-partner" in str(m_handle).lower():
+                        has_mp = True
+                        break
+            
+            if not has_mp and mp_id != "mock-id":
+                logger.info(f"[{self._base_agent.name}] Automatically adding managing_partner ({mp_id}) to mentions")
+                mentions.append(mp_id)
+                if not ("@managing-partner" in content.lower()):
+                    content = f"@managing-partner {content}"
+        
+        if mentions:
+            filtered_mentions = []
+            clean_name = self._base_agent.name.replace("_", "-").replace("-agent", "").lower()
+            for m in mentions:
+                if isinstance(m, str):
+                    if str(m) == str(self._agent_id) or clean_name in m.lower():
+                        continue
+                elif isinstance(m, dict):
+                    m_id = m.get("id")
+                    m_handle = m.get("handle") or ""
+                    if m_id is not None and str(m_id) == str(self._agent_id) or clean_name in m_handle.lower():
+                        continue
+                else:
+                    m_id = getattr(m, "id", None)
+                    m_handle = getattr(m, "handle", None) or ""
+                    if m_id is not None and str(m_id) == str(self._agent_id) or clean_name in str(m_handle).lower():
+                        continue
+                filtered_mentions.append(m)
+            logger.info(f"[{self._base_agent.name}] send_message filtered mentions to={filtered_mentions}")
+            mentions = filtered_mentions
+        return await self._original_tools.send_message(content, mentions, *args, **kwargs)
 
 class ArgusLangGraphAdapter(LangGraphAdapter):
     def __init__(self, agent_name: str, agent_id: str, base_agent: 'BaseAgent', *args, **kwargs):
@@ -262,7 +343,8 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
         is_session_bootstrap: bool,
         room_id: str,
     ) -> None:
-        if msg.sender_id == self._argus_agent_id:
+        tools = WrappedTools(tools, self._argus_agent_id, self._base_agent)
+        if msg.sender_id is not None and str(msg.sender_id) == str(self._argus_agent_id):
             logger.debug(f"[{self._argus_agent_name}] Skipping own message")
             return
 
@@ -295,7 +377,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                 m_handle = getattr(m, "handle", None)
                 m_username = getattr(m, "username", None)
 
-            if m_id == self._argus_agent_id:
+            if m_id is not None and str(m_id) == str(self._argus_agent_id):
                 is_mentioned = True
                 break
             if m_handle and agent_name_clean in m_handle.lstrip("@").lower():
@@ -372,9 +454,13 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
             if is_historical:
                 logger.info(f"[{self._argus_agent_name}] Skipping historical backlog message (created at {msg.created_at}): '{msg.content[:100]}'")
                 return
-        if is_session_bootstrap:
-            logger.info(f"[{self._argus_agent_name}] Fresh message arrived during bootstrap — processing instead of skipping: '{msg.content[:80]}'")
-            is_session_bootstrap = False  # treat as live so the SDK actually runs the agent
+        # Force is_session_bootstrap = True on the very first message we actually process
+        # for this room to ensure LangGraphAdapter injects the system prompt.
+        if room_id not in self._bootstrapped_rooms:
+            logger.info(f"[{self._argus_agent_name}] First processed message for room {room_id} — forcing is_session_bootstrap=True to inject system prompt")
+            is_session_bootstrap = True
+        else:
+            is_session_bootstrap = False
 
         # If any other agent is mentioned in the message, the Incident Commander should
         # stay silent and let that agent handle it, unless the IC is also mentioned.
@@ -382,7 +468,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
         if is_ic and is_from_user and raw_mentions:
             for m in raw_mentions:
                 m_id = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
-                if m_id != self._argus_agent_id:
+                if str(m_id) != str(self._argus_agent_id):
                     is_other_agent_mentioned = True
                     break
 
@@ -424,49 +510,48 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                         state = await graph.aget_state(config)
                         if state and state.values and "messages" in state.values:
                             msgs = state.values["messages"]
+                            logger.info(f"[{self._argus_agent_name}] on_message: message history length={len(msgs)}")
+                            for idx_m, m in enumerate(msgs):
+                                logger.info(f"[{self._argus_agent_name}] msg {idx_m}: type={type(m).__name__}, content={str(m.content)[:100]}, tool_calls={getattr(m, 'tool_calls', None)}")
                             found = False
                             
-                            # 1. If managing_partner, prioritize finding the decision scorecard anywhere in history
-                            if self._argus_agent_name == "managing_partner":
-                                for m_rev in reversed(msgs):
-                                    # check tool calls first
-                                    if hasattr(m_rev, "tool_calls") and m_rev.tool_calls:
-                                        for tc in m_rev.tool_calls:
-                                            tc_name = tc.get("name")
-                                            if tc_name in ("thenvoi_send_message", "send_message"):
-                                                args = tc.get("args") or {}
-                                                val = args.get("content") or args.get("message")
-                                                if val and "DECISION:" in str(val).upper():
+                            # 1. First search for tool calls to send_message or thenvoi_send_message
+                            for m_rev in reversed(msgs):
+                                if hasattr(m_rev, "tool_calls") and m_rev.tool_calls:
+                                    for tc in m_rev.tool_calls:
+                                        tc_name = tc.get("name")
+                                        if tc_name in ("thenvoi_send_message", "send_message"):
+                                            args = tc.get("args") or {}
+                                            val = args.get("content") or args.get("message")
+                                            if val:
+                                                if self._argus_agent_name == "managing_partner":
+                                                    if "DECISION:" in str(val).upper():
+                                                        final_thought = val
+                                                        found = True
+                                                        break
+                                                else:
                                                     final_thought = val
                                                     found = True
                                                     break
-                                    # check plain content (in case it returned it directly)
-                                    if not found and hasattr(m_rev, "content") and m_rev.content and not hasattr(m_rev, "tool_call_id"):
-                                        if "DECISION:" in str(m_rev.content).upper():
-                                            final_thought = m_rev.content
-                                            found = True
                                     if found:
                                         break
-                                        
-                            # 2. Fallback to standard message traversal if not found
+
+                            # 2. If not found, search for plain content messages
                             if not found:
                                 for m_rev in reversed(msgs):
-                                    if hasattr(m_rev, "tool_calls") and m_rev.tool_calls:
-                                        for tc in m_rev.tool_calls:
-                                            tc_name = tc.get("name")
-                                            if tc_name in ("thenvoi_send_message", "send_message"):
-                                                args = tc.get("args") or {}
-                                                val = args.get("content") or args.get("message")
-                                                if val and "DECISION:" in str(val).upper():
-                                                    final_thought = val
-                                                    found = True
-                                                    break
-                                        if found:
+                                    is_tool_msg = hasattr(m_rev, "tool_call_id") and m_rev.tool_call_id
+                                    is_tool_call_msg = hasattr(m_rev, "tool_calls") and m_rev.tool_calls
+                                    if not is_tool_msg and not is_tool_call_msg and hasattr(m_rev, "content") and m_rev.content:
+                                        if self._argus_agent_name == "managing_partner":
+                                            if "DECISION:" in str(m_rev.content).upper():
+                                                final_thought = m_rev.content
+                                                found = True
+                                                break
+                                        else:
+                                            final_thought = m_rev.content
+                                            found = True
                                             break
-                                    if hasattr(m_rev, "content") and m_rev.content and not hasattr(m_rev, "tool_call_id"):
-                                        final_thought = m_rev.content
-                                        break
-                                        
+
                             # 3. Last resort fallback for managing_partner: check cached card in sim_state
                             if self._argus_agent_name == "managing_partner" and not ("DECISION:" in str(final_thought).upper()):
                                 if getattr(sim_state, "final_verdict_card", None):
@@ -498,9 +583,22 @@ class BaseAgent:
         self.display_name = display_name
         self.room = room
         self.system_prompt = CORE_SYSTEM_RULES + "\n\n" + load_fusion_doctrine() + "\n\n" + system_prompt + MEMORY_PROTOCOL_PROMPT
-        self.custom_tools = (tools or []) + self._get_memory_tools()
+        
+        # Enforce domain-scoping of tools for specialist agents
+        self.custom_tools = []
+        for t in (tools or []):
+            if hasattr(t, "name") and t.name == "load_deal_brief":
+                self.custom_tools.append(self._make_scoped_load_deal_brief(t))
+            elif hasattr(t, "name") and t.name == "get_red_flags":
+                self.custom_tools.append(self._make_scoped_get_red_flags(t))
+            else:
+                self.custom_tools.append(t)
+        self.custom_tools.extend(self._get_memory_tools())
+        
         self.model_name = model_name
-        self._is_busy = False  # Re-entrancy guard — drop duplicate wakeups
+        self._is_busy = False  # Re-entrancy guard
+        self._message_queue: asyncio.Queue = asyncio.Queue()
+        self._queue_processor_running = False  # True while the drain-loop is active
         
         load_dotenv(override=True)
         try:
@@ -511,17 +609,82 @@ class BaseAgent:
         self.agent_executor = None
         self._local_executor = None
 
+    def _make_scoped_load_deal_brief(self, original_tool):
+        agent_name = self.name
+        from core.pitch_loader import load_deal_brief
+        
+        @tool("load_deal_brief")
+        def scoped_load_deal_brief(section: str = "all") -> str:
+            """Load the startup pitch data for due diligence analysis.
+
+            Args:
+                section: Which section to retrieve. Options:
+                    'all'        - Full pitch (use sparingly — large)
+                    'company'    - Company overview and claims
+                    'financials' - Revenue, burn, unit economics, customer breakdown
+                    'legal'      - Litigation, IP, regulatory compliance
+                    'technical'  - Tech stack, security posture, architecture
+                    'market'     - Market size, competitors, regulatory trends
+                    'team'       - Founding team backgrounds and gaps
+                    'deal_summary' - Raise amount, valuation, use of funds
+
+            Returns:
+                JSON string of the requested pitch section.
+            """
+            # Enforce domain scoping for specialists
+            if agent_name == "financial_partner":
+                if section in ("all", "legal", "technical", "market"):
+                    section = "financials"
+            elif agent_name == "legal_partner":
+                if section in ("all", "financials", "technical", "market"):
+                    section = "legal"
+            elif agent_name == "technical_partner":
+                if section in ("all", "financials", "legal", "market"):
+                    section = "technical"
+            elif agent_name == "market_partner":
+                if section in ("all", "financials", "legal", "technical"):
+                    section = "market"
+            return load_deal_brief.invoke({"section": section})
+            
+        return scoped_load_deal_brief
+
+    def _make_scoped_get_red_flags(self, original_tool):
+        agent_name = self.name
+        from core.pitch_loader import get_red_flags
+        
+        @tool("get_red_flags")
+        def scoped_get_red_flags(domain: str = "all") -> str:
+            """Get the pre-catalogued red flags for a specific domain.
+
+            Args:
+                domain: 'financials', 'legal', 'technical', 'market', or 'all'
+
+            Returns:
+                List of red flag strings for the specified domain.
+            """
+            if agent_name == "financial_partner":
+                domain = "financials"
+            elif agent_name == "legal_partner":
+                domain = "legal"
+            elif agent_name == "technical_partner":
+                domain = "technical"
+            elif agent_name == "market_partner":
+                domain = "market"
+            return get_red_flags.invoke({"domain": domain})
+            
+        return scoped_get_red_flags
+
     def _build_provider_llm(self, provider: str):
         """Construct a chat model for one provider. All are OpenAI-tool-calling
         capable so they slot into the LangGraph react agent identically."""
         if provider == "aiml":
-            # AIML API (OpenAI-compatible). Default to Claude Sonnet 4.6 — the
-            # strongest agentic / tool-calling model AIML serves. Override with
+            # AIML API (OpenAI-compatible). Default to gpt-4o-mini — the
+            # cost-effective, reliable tool-calling model. Override with
             # ARGUS_AIMLAPI_MODEL.
             return ChatOpenAI(
                 base_url="https://api.aimlapi.com/v1",
                 api_key=os.getenv("AIMLAPI_KEY"),
-                model=os.getenv("ARGUS_AIMLAPI_MODEL", "anthropic/claude-sonnet-4.6"),
+                model=os.getenv("ARGUS_AIMLAPI_MODEL", "gpt-4o-mini"),
                 temperature=0.1,
                 max_tokens=1500,
                 max_retries=2,
@@ -594,7 +757,7 @@ class BaseAgent:
         primary_llm = self._build_provider_llm(primary_provider)
         logger.info(
             f"[{self.display_name}] LLM primary={primary_provider} "
-            f"({os.getenv('ARGUS_AIMLAPI_MODEL', 'anthropic/claude-sonnet-4.6') if primary_provider == 'aiml' else primary_provider}), "
+            f"({os.getenv('ARGUS_AIMLAPI_MODEL', 'gpt-4o-mini') if primary_provider == 'aiml' else primary_provider}), "
             f"fallback={secondary_provider or 'local-engine'}"
         )
 
@@ -699,11 +862,31 @@ class BaseAgent:
         """Creates mock versions of Band SDK platform tools for offline testing."""
 
         @tool("thenvoi_send_message")
-        def mock_thenvoi_send_message(room: str, message: str) -> str:
+        def mock_thenvoi_send_message(
+            room: Optional[str] = None,
+            message: Optional[str] = None,
+            content: Optional[str] = None,
+            mentions: Optional[List[str]] = None,
+        ) -> str:
             """Send a message to another agent room on the Band platform.
             Use this to @mention and collaborate with other agents."""
-            self._schedule_async(mock_bus.send_message(self.display_name, room, message))
-            return f"Message sent successfully to room {room}."
+            target_room = room
+            msg_content = message
+            
+            if content is not None:
+                msg_content = content
+                
+            if target_room is None and mentions:
+                target_room = mentions[0] if mentions else ""
+                
+            if target_room is None:
+                target_room = "managing-partner-room"
+                
+            if msg_content is None:
+                msg_content = ""
+                
+            self._schedule_async(mock_bus.send_message(self.display_name, target_room, msg_content))
+            return f"Message sent successfully to room {target_room}."
 
         @tool("thenvoi_send_event")
         def mock_thenvoi_send_event(event: str, data: Optional[Dict[str, Any]] = None) -> str:
@@ -806,19 +989,36 @@ class BaseAgent:
         return await self.agent_executor.ainvoke(inputs, config=config)
 
     async def handle_mock_message(self, sender: str, message: str):
-        """Handles a message arriving in Mock Mode, runs LangGraph executor, and broadcasts updates."""
-        # Wait if we are already processing a message — prevents infinite cascades while ensuring no reports are dropped
-        for _ in range(60):  # Wait up to 30 seconds
-            if not self._is_busy:
-                break
-            await asyncio.sleep(0.5)
+        """Handles a message arriving in Mock Mode.
 
-        if self._is_busy:
-            logger.info(f"[{self.display_name}] Timeout waiting for agent to become free — dropping duplicate wakeup from '{sender}'")
-            return
+        Messages are queued and drained sequentially so that specialist
+        reports arriving near-simultaneously are NEVER silently dropped.
+        Previously a 40-second polling timeout would discard late arrivals
+        and wedge the pipeline on 'Deliberating' forever.
+        """
+        logger.info(f"[{self.display_name}] Enqueueing message from '{sender}': {message[:80]}...")
+        await self._message_queue.put((sender, message))
+
+        # Kick off the drain loop if it isn't already running.
+        if not self._queue_processor_running:
+            self._queue_processor_running = True
+            asyncio.create_task(self._drain_message_queue())
+
+    async def _drain_message_queue(self):
+        """Process queued messages one at a time until the queue is empty."""
+        try:
+            while not self._message_queue.empty():
+                sender, message = await self._message_queue.get()
+                await self._handle_single_message(sender, message)
+        except Exception as e:
+            logger.error(f"[{self.display_name}] Queue drain error: {e}")
+        finally:
+            self._queue_processor_running = False
+
+    async def _handle_single_message(self, sender: str, message: str):
+        """Process one message: run the LangGraph executor and broadcast updates."""
         self._is_busy = True
-
-        logger.info(f"[{self.display_name}] Wakeup! Message from '{sender}': {message[:80]}...")
+        logger.info(f"[{self.display_name}] Processing message from '{sender}': {message[:80]}...")
 
         # Broadcast "working" state to event bus/dashboard
         await event_bus.broadcast(self.name, "working", {"current_action": f"Analyzing input from {sender}"})

@@ -28,6 +28,8 @@ class SimulationState:
         # Wall-clock time of the last agent event — used to detect a stalled
         # run so the trigger lock can never stay stuck forever.
         self.last_event_at: float = 0.0
+        # Wall-clock time when the current simulation was triggered
+        self.started_at: float = 0.0
         # SaaS upload limit
         self.max_file_size_mb: int = 10
         # Active company name for current analysis
@@ -54,6 +56,7 @@ class SimulationState:
         self.active_pitch_file = "novapay_pitch.json"
         self.verdict_dispatched = False
         self.final_verdict_card = None
+        self.started_at = 0.0
 
 
 sim_state = SimulationState()

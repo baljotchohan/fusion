@@ -4,12 +4,14 @@ PDF Report Generator — compiles markdown due diligence reports into
 professional, publication-quality PDF documents using ReportLab.
 """
 import io
+import os
 import re
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether, HRFlowable, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 # FUSION Brand Colors
@@ -20,6 +22,43 @@ SECONDARY_TEXT = colors.HexColor("#71717a") # Slate 500
 BORDER_GREY = colors.HexColor("#e4e4e7")    # Slate 200
 BG_LIGHT = colors.HexColor("#f8fafc")       # Slate 50
 BG_WHITE = colors.HexColor("#ffffff")
+BG_INK = colors.HexColor("#0b0f0e")         # near-black brand backdrop
+
+# Real FUSION "F" mark — trimmed of its whitespace margins once and cached.
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logofusion.png")
+_LOGO_CACHE = {}
+
+
+def _get_brand_logo():
+    """Return (png_bytes, aspect_ratio=w/h) for the trimmed green 'F' mark, or None.
+    The source PNG has wide white margins, so we crop to the glyph for crisp,
+    tightly-aligned placement in the PDF. Result is cached for reuse across pages."""
+    if "logo" in _LOGO_CACHE:
+        return _LOGO_CACHE["logo"]
+    result = None
+    try:
+        from PIL import Image as PILImage
+        img = PILImage.open(_LOGO_PATH).convert("RGBA")
+        # Knock the near-white photo background out to transparent so the green
+        # mark blends seamlessly onto any page colour (no grey box).
+        px = img.load()
+        w, h = img.size
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = px[x, y]
+                if r > 226 and g > 226 and b > 226:
+                    px[x, y] = (r, g, b, 0)
+        bbox = img.split()[3].getbbox()  # trim to the non-transparent glyph
+        if bbox:
+            img = img.crop(bbox)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        result = (buf.getvalue(), img.width / float(img.height))
+    except Exception:
+        result = None
+    _LOGO_CACHE["logo"] = result
+    return result
+
 
 def clean_unicode_and_emojis(text: str) -> str:
     """Replaces emojis and unsupported high-Unicode characters with safe representations
@@ -128,14 +167,28 @@ class BrandedCanvas(canvas.Canvas):
             self.restoreState()
             return
             
-        # Draw Running Header
+        # Draw Running Header — real F mark + wordmark
+        text_x = 54
+        logo = _get_brand_logo()
+        if logo:
+            png_bytes, aspect = logo
+            h = 13
+            w = h * aspect
+            try:
+                self.drawImage(ImageReader(io.BytesIO(png_bytes)), 54, 750, width=w, height=h, mask='auto')
+                text_x = 54 + w + 7
+            except Exception:
+                pass
+
         self.setFont("Helvetica-Bold", 8)
         self.setFillColor(BRAND_DARK_GREEN)
-        self.drawString(54, 755, "FUSION VENTURE CAPITAL")
-        
+        t1 = "FUSION VENTURE CAPITAL"
+        self.drawString(text_x, 755, t1)
+
+        x2 = text_x + self.stringWidth(t1, "Helvetica-Bold", 8) + 8
         self.setFont("Helvetica", 8)
         self.setFillColor(SECONDARY_TEXT)
-        self.drawString(175, 755, "|   DUE DILIGENCE AUDIT REPORT")
+        self.drawString(x2, 755, "|   DUE DILIGENCE AUDIT REPORT")
         self.drawRightString(612 - 54, 755, "CONFIDENTIAL")
         
         self.setStrokeColor(BORDER_GREY)
@@ -307,23 +360,42 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     # ────────────────────────────────────────────────────────
     # 1. COVER PAGE
     # ────────────────────────────────────────────────────────
-    story.append(Spacer(1, 100))
-    
-    # Top Logo Accent
-    logo_data = [[
-        Paragraph("<b>F U S I O N</b>", ParagraphStyle('LogoText', fontName='Helvetica-Bold', fontSize=12, leading=14, textColor=colors.white))
-    ]]
-    logo_table = Table(logo_data, colWidths=[80], rowHeights=[24])
-    logo_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), BRAND_GREEN),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-    ]))
-    story.append(logo_table)
-    story.append(Spacer(1, 20))
-    
+    story.append(Spacer(1, 78))
+
+    # ── Brand lockup: real green "F" mark + "USION" wordmark = FUSION ──
+    wordmark_style = ParagraphStyle(
+        'Wordmark', parent=styles['Normal'], fontName='Helvetica-Bold',
+        fontSize=34, leading=38, textColor=DARK_TEXT,
+    )
+    tagline_style = ParagraphStyle(
+        'Tagline', parent=styles['Normal'], fontName='Helvetica-Bold',
+        fontSize=9.5, leading=13, textColor=SECONDARY_TEXT, spaceBefore=10,
+    )
+
+    _logo = _get_brand_logo()
+    if _logo:
+        _png, _aspect = _logo
+        _lh = 44
+        _lw = _lh * _aspect
+        brand_row = Table(
+            [[Image(io.BytesIO(_png), width=_lw, height=_lh),
+              Paragraph("USION", wordmark_style)]],
+            colWidths=[_lw + 2, 360], rowHeights=[_lh],
+        )
+        brand_row.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ]))
+        story.append(brand_row)
+    else:
+        story.append(Paragraph("FUSION", wordmark_style))
+
+    story.append(Paragraph("VENTURE CAPITAL · AI INVESTMENT COMMITTEE", tagline_style))
+    story.append(Spacer(1, 34))
+
     # Title & Subtitle
     company_name_clean = clean_unicode_and_emojis(company_name)
     story.append(Paragraph("DUE DILIGENCE AUDIT REPORT", cover_title_style))
@@ -414,12 +486,20 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
                 story.append(Paragraph(h_text, h2_style))
             elif line_clean.startswith("* ") or line_clean.startswith("- "):
                 b_text = line_clean[2:].strip()
+                if not b_text or set(b_text) <= set("-+=_ "):  # empty / rule-only bullet
+                    continue
                 story.append(Paragraph(b_text, bullet_style))
             elif re.match(r"^\d+\.\s+", line_clean):
                 num_text = re.sub(r"^\d+\.\s+", "", line_clean).strip()
                 story.append(Paragraph(f"{line_clean.split('.')[0]}. {num_text}", bullet_style))
-            elif line_clean.startswith("+--") or line_clean.startswith("|"):
-                # Skip decision card ascii boundary drawing lines to keep layout clean
+            elif line_clean.startswith("|"):
+                # Strip ASCII box pipe borders, keep the inner content as a line
+                inner = line_clean.strip("|").strip()
+                if not inner or set(inner) <= set("-+=_ `"):
+                    continue
+                story.append(Paragraph(inner, body_style))
+            elif line_clean.startswith("```") or line_clean.startswith("+--") or (line_clean and set(line_clean) <= set("-+=_ `")):
+                # Skip code fences and decision-card ASCII border/rule lines
                 continue
             else:
                 story.append(Paragraph(line_clean, body_style))
@@ -503,6 +583,18 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
             continue
             
         if in_timeline:
+            # Clean ASCII-card noise from an embedded verdict card: strip the pipe
+            # borders but KEEP the inner content (DECISION/CONFIDENCE/etc.); drop
+            # pure rules, +---+ borders, and ``` code fences.
+            if line.startswith("|"):
+                inner = line.strip("|").strip()
+                if not inner or set(inner) <= set("-+=_ "):
+                    idx += 1
+                    continue
+                line = inner
+            elif line.startswith("```") or line.startswith("+--") or (line and set(line) <= set("-+=_ ")):
+                idx += 1
+                continue
             if line.startswith("### "):
                 if current_partner and partner_findings:
                     # Render the previous partner audit block as a nice card
@@ -515,6 +607,9 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
                 partner_findings.append(("timestamp", timestamp_clean))
             elif line.startswith("-") or line.startswith("* "):
                 bullet_text = line[2:].strip()
+                if not bullet_text or set(bullet_text) <= set("-+=_ "):  # empty / rule-only bullet
+                    idx += 1
+                    continue
                 bullet_text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", bullet_text)
                 bullet_text = clean_unicode_and_emojis(bullet_text)
                 partner_findings.append(("bullet", bullet_text))
