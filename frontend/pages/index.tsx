@@ -111,7 +111,7 @@ export default function FUSION() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
 
   const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null)
-  const [maxFileSizeMb, setMaxFileSizeMb] = useState<number>(10)
+  const maxFileSizeMb = 2
 
   // Resizable chat width (persisted)
   const [chatWidth, setChatWidth] = useState<number>(CHAT_DEFAULT)
@@ -119,16 +119,8 @@ export default function FUSION() {
   const resizingRef = useRef(false)
   useEffect(() => { chatWidthRef.current = chatWidth }, [chatWidth])
 
-  // Load max file size + persisted chat width on mount
+  // Load persisted chat width on mount
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/system/settings`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.simulation && typeof d.simulation.max_file_size_mb === 'number') {
-          setMaxFileSizeMb(d.simulation.max_file_size_mb)
-        }
-      })
-      .catch(() => {})
     const w = localStorage.getItem('fusion.chatWidth')
     if (w) setChatWidth(Math.min(CHAT_MAX, Math.max(CHAT_MIN, Number(w))))
   }, [])
@@ -227,7 +219,7 @@ export default function FUSION() {
     setUploadError(null)
     const fileSizeMb = file.size / (1024 * 1024)
     if (fileSizeMb > maxFileSizeMb) {
-      setUploadError(`That file is ${fileSizeMb.toFixed(1)} MB — the current limit is ${maxFileSizeMb} MB. Raise it in Settings or upload a smaller brief.`)
+      setUploadError(`That file is ${fileSizeMb.toFixed(1)} MB — the limit is 2 MB. Please upload a smaller document.`)
       return
     }
 

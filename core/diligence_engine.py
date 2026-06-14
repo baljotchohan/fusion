@@ -470,7 +470,7 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
         has_lawsuit = any(w in lit_val_str.lower() for w in ["lawsuit", "litigation", "patent dispute", "dispute", "sued", "active lawsuit", "damages", "malpractice", "false claims", "whistleblower"]) and not any(neg in lit_val_str.lower() for neg in ["no active", "no pending", "no lawsuits", "none", "no litigation"])
         if has_lawsuit:
             leg_score += 5.0
-            if lit_damages > 0.5 * raise_amt_val:
+            if lit_damages is not None and raise_amt_val is not None and lit_damages > 0.5 * raise_amt_val:
                 leg_score += 3.0
     is_non_compliant = False
     is_unlicensed = False
@@ -486,19 +486,29 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
             leg_score += 4.0
     leg_score = min(10.0, leg_score)
 
+    # Raw uploaded document text, when present (uploaded pitches carry it;
+    # curated demo JSONs do not). The regex span extractor often mis-captures
+    # the stack/security scalar fields on free-form markdown, so for uploads we
+    # also scan the full document text. Demo deals are unaffected (no doc_text).
+    doc_text = str(pitch_data.get("document_text", "")).lower() if isinstance(pitch_data, dict) else ""
+
     tech_score = 1.0
     is_eol = False
-    if not is_field_missing(stack):
-        stack_str = str(stack.get("value", ""))
-        is_eol = any(w in stack_str.lower() for w in ["eol", "end-of-life", "end of life", "unsupported", "node.js 14", "mongodb 4.2", "python 3.9", "python 3.8", "python 3.7"])
+    if not is_field_missing(stack) or doc_text:
+        stack_str = (str(stack.get("value", "")) + " " + doc_text).lower()
+        is_eol = any(w in stack_str for w in [
+            "eol", "end-of-life", "end of life", "unsupported",
+            "node.js 14", "node.js 16", "mongodb 4.2", "mysql 5.7",
+            "python 2.7", "python 3.9", "python 3.8", "python 3.7",
+        ])
         if is_eol:
             tech_score += 3.0
     is_plaintext_ssn = False
     is_undisclosed_breach = False
     is_no_pentest = False
-    if not is_field_missing(security):
-        sec_str = str(security.get("value", ""))
-        is_plaintext_ssn = any(w in sec_str.lower() for w in ["plaintext", "unencrypted"]) and any(w in sec_str.lower() for w in ["ssn", "pii", "phi", "patient", "identifiers", "credential", "data", "record"])
+    if not is_field_missing(security) or doc_text:
+        sec_str = (str(security.get("value", "")) + " " + doc_text).lower()
+        is_plaintext_ssn = any(w in sec_str for w in ["plaintext", "unencrypted", "public-read", "publicly readable", "publicly accessible"]) and any(w in sec_str for w in ["ssn", "pii", "phi", "patient", "identifiers", "credential", "data", "record", "bank account"])
         if is_plaintext_ssn:
             tech_score += 5.0
         is_undisclosed_breach = any(
@@ -517,10 +527,11 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
 
     mkt_score = 1.0
     pitch_str_lower = str(pitch_data).lower()
-    is_declining = any(w in pitch_str_lower for w in ["declining", "shrinking", "negative sector growth", "-12%", "flat to declining", "flat/declining", "cost reduction", "budget cuts"])
+    is_declining = any(w in pitch_str_lower for w in ["declining", "shrinking", "negative sector growth", "-12%", "flat to declining", "flat/declining", "cost reduction", "budget cuts", "retreating from market", "sector sentiment cautious", "peak enthusiasm passed", "underperformed"])
     if is_declining:
         mkt_score += 4.0
-    is_funding_down = any(w in pitch_str_lower for w in ["funding down", "down 67%", "vc funding down", "down 31%", "funding.*down", "passing on this round"])
+    is_funding_down = any(w in pitch_str_lower for w in ["funding down", "down 67%", "vc funding down", "down 31%", "passing on this round"]) \
+        or bool(re.search(r"(funding|vc|venture|investment)[^.]{0,80}down\s*\d{1,3}\s*%", pitch_str_lower))
     if is_funding_down:
         mkt_score += 2.0
     comp_val_lower = (str(competition.get("value", "")) + " " + str(competition.get("evidence", ""))).lower()
@@ -528,6 +539,38 @@ def run_diligence_calculations(pitch_data: Dict[str, Any]) -> Dict[str, Any]:
     if is_heavy_comp:
         mkt_score += 3.0
     mkt_score = min(10.0, mkt_score)
+
+    # ── Evidence-aware scoring (uploaded documents only) ─────────────────────
+    # The keyword heuristics above are tuned to the curated demo deals. For a
+    # real uploaded document we cannot rely on those exact phrasings, so we let
+    # the red flags surfaced during extraction drive a generic per-domain risk
+    # floor. Each flag contributes by severity (LLM-provided, else inferred from
+    # its text). Demo deals carry no document_text, so they are unaffected.
+    if doc_text:
+        def _flag_floor(flags) -> float:
+            if not flags:
+                return 1.0
+            total = 0.0
+            for f in flags:
+                if isinstance(f, dict):
+                    sev = f.get("severity")
+                    blob = (str(f.get("claim", "")) + " " + str(f.get("evidence", ""))).lower()
+                else:
+                    sev, blob = None, str(f).lower()
+                if not isinstance(sev, (int, float)):
+                    if any(w in blob for w in ["critical", "plaintext", "unencrypted", "breach", "lawsuit", "litigation", "unlicensed", "fraud", "sec investigation", "ftc", "material weakness", "going concern"]):
+                        sev = 8
+                    elif any(w in blob for w in ["high", "non-compliant", "eol", "end-of-life", "no pentest", "undisclosed", "concentration", "decline", "declining", "churn", "dispute", "investigation"]):
+                        sev = 7
+                    else:
+                        sev = 5
+                total += min(4.0, float(sev) / 2.5)
+            return min(10.0, 1.0 + total)
+
+        fin_score = max(fin_score, _flag_floor(fin_flags))
+        leg_score = max(leg_score, _flag_floor(leg_flags))
+        tech_score = max(tech_score, _flag_floor(tech_flags))
+        mkt_score = max(mkt_score, _flag_floor(mkt_flags))
 
     # Missing Information Gaps Detector (10 Core Fields)
     core_fields_map = {

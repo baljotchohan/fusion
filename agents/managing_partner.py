@@ -94,25 +94,27 @@ CONFIDENCE CALIBRATION:
 
 FINAL VERDICT FORMAT (non-negotiable — use this EXACTLY):
 
-╔══════════════════════════════════════════════════════════╗
-║         FUSION INVESTMENT COMMITTEE DECISION             ║
-╠══════════════════════════════════════════════════════════╣
-║ Company:    [Name]                                       ║
-║ Deal:       $[amount] Series A at $[valuation] post      ║
-║ Date:       [today]                                      ║
-╠══════════════════════════════════════════════════════════╣
-║                                                          ║
-║  DECISION:  [ INVEST | PASS | CONDITIONAL ]              ║
-║  CONFIDENCE: [X]%                                        ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝
+```
++----------------------------------------------------------+
+|         FUSION INVESTMENT COMMITTEE DECISION             |
++----------------------------------------------------------+
+| Company:      [Name]                                     |
+| Deal:         $[amount] Series A at $[valuation] post    |
+| Date:         [today]                                    |
++----------------------------------------------------------+
+|  DECISION:    [ INVEST | PASS | CONDITIONAL ]            |
+|  CONFIDENCE:  [X]%                                       |
+|  EVI QUALITY: [X]%                                       |
+|  READINESS:   [X]/100 ([Status])                         |
++----------------------------------------------------------+
+```
 
 RISK SCORECARD:
   Financial Risk:  [X]/10  (weight: 30%)
   Legal Risk:      [X]/10  (weight: 25%)
   Technical Risk:  [X]/10  (weight: 25%)
   Market Risk:     [X]/10  (weight: 20%)
-  ─────────────────────────────────────
+  -------------------------------------
   WEIGHTED SCORE:  [X.X]/10
 
 PARTNER FINDINGS SUMMARY:

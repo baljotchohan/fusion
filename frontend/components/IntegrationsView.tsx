@@ -160,9 +160,9 @@ function McpConnectCard() {
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-semibold ${
             online === false
               ? 'bg-bg-muted text-text-muted'
-              : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              : 'bg-success-soft text-success'
           }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${online === false ? 'bg-text-muted' : 'bg-emerald-500 animate-pulse'}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${online === false ? 'bg-text-muted' : 'bg-success animate-pulse'}`} />
             {online === false ? 'Offline — start the server' : `Live · ${toolCount} tools`}
           </span>
         </div>

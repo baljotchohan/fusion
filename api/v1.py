@@ -622,7 +622,7 @@ async def chat_with_commander(msg: ChatMessage):
         })
         await _dispatch_incident(incident_id, msg.user_message)
         dispatched = True
-    elif msg.incident_id is None and memory_graph.get_latest_incident_id():
+    elif msg.incident_id is None and not sim_state.active_incident_id and memory_graph.get_latest_incident_id():
         incident_id = memory_graph.get_latest_incident_id()
         
     thinking_steps = _build_thinking_steps(intent, dispatched, incident_id)
@@ -755,15 +755,27 @@ async def analyze_threat(request: ThreatRequest):
 async def list_incidents():
     """List all deals in the shared team memory graph."""
     incidents = memory_graph.list_incidents()
+
+    def _company(meta):
+        c = meta.get("company")
+        if isinstance(c, dict):
+            return c.get("value") or c.get("name") or "Unknown"
+        return c or "Unknown"
+
+    def _verdict(text):
+        m = re.search(r"DECISION:\s*([A-Z_]+)", text or "")
+        return m.group(1) if m else None
+
     return {
         "total": len(incidents),
         "incidents": [
             {
                 "incident_id": inc_id,
-                "threat_level": inc["metadata"].get("threat_level"),
+                "company": _company(inc["metadata"]),
+                "verdict": _verdict(inc.get("final_decision")),
                 "trigger": inc["metadata"].get("trigger"),
                 "findings": len(inc.get("timeline", [])),
-                "final_decision": (inc.get("final_decision") or "")[:120] or None,
+                "final_decision": (inc.get("final_decision") or "")[:160] or None,
                 "created_at": inc.get("created_at"),
             }
             for inc_id, inc in sorted(incidents.items(), key=lambda kv: kv[1].get("created_at", ""), reverse=True)
@@ -1033,7 +1045,29 @@ async def _agent_reply(agent_name: str, user_message: str, incident_id: str) -> 
         from core.pitch_loader import _load_pitch_file
         from core.diligence_engine import run_diligence_calculations
         from api.state import sim_state
-        pitch_file = getattr(sim_state, "active_pitch_file", None) or (f"pitch_{incident_id}.json" if incident_id else None)
+        from core.demo_registry import resolve_pitch_file
+        
+        pitch_file = None
+        if incident_id:
+            inc = memory_graph.get_incident(incident_id)
+            if inc and "metadata" in inc:
+                company_name = inc["metadata"].get("company")
+                if company_name:
+                    demo_pitch = resolve_pitch_file(company_name)
+                    if demo_pitch:
+                        pitch_file = demo_pitch
+                    else:
+                        data_dir = os.path.join(os.path.dirname(__file__), "../data")
+                        up_filename = f"pitch_{incident_id}.json"
+                        if os.path.exists(os.path.join(data_dir, up_filename)):
+                            pitch_file = up_filename
+                            
+        if not pitch_file:
+            pitch_file = getattr(sim_state, "active_pitch_file", None)
+            
+        if not pitch_file and incident_id:
+            pitch_file = f"pitch_{incident_id}.json"
+            
         pitch_data = _load_pitch_file(pitch_file)
         if pitch_data:
             calc = run_diligence_calculations(pitch_data)
@@ -1843,51 +1877,105 @@ def merge_and_resolve_conflicts(r: Any, l: Any) -> Any:
     return r
 
 
+def _merge_llm_first(regex_data: dict, llm_data: dict) -> dict:
+    """Overlay the LLM extraction onto the regex seed. The LLM is authoritative
+    for field values and red flags (it reads the whole document); the regex seed
+    supplies durable structure: document_text, filename-derived company fallback,
+    and any field the LLM left empty. Red flags from both are unioned (deduped)."""
+    out = dict(regex_data)  # keeps document_text, coverage seed, company fallback
+
+    # Company: prefer a confident LLM name, else keep the regex/filename one.
+    llm_co = (llm_data.get("company") or {})
+    reg_co = (out.get("company") or {})
+    if isinstance(reg_co, dict):
+        merged_co = dict(reg_co)
+        for k, v in llm_co.items():
+            if isinstance(v, dict) and not is_field_missing(v):
+                merged_co[k] = v
+            elif isinstance(v, str) and v.strip():
+                merged_co[k] = v
+        out["company"] = merged_co
+
+    for domain in ("financials", "legal", "technical", "market"):
+        reg_dom = dict(out.get(domain) or {})
+        llm_dom = llm_data.get(domain) or {}
+        # Scalar fields: LLM value wins when present, else keep regex.
+        for field, val in llm_dom.items():
+            if field == "red_flags":
+                continue
+            if isinstance(val, dict) and not is_field_missing(val):
+                val.setdefault("provenance", "direct")
+                val.setdefault("source_section", domain.title())
+                reg_dom[field] = val
+        # Red flags: union LLM + regex, dedup by claim (first 60 chars).
+        merged_flags = []
+        seen = set()
+        for src in (llm_dom.get("red_flags") or [], reg_dom.get("red_flags") or []):
+            for f in src:
+                if isinstance(f, dict):
+                    key = str(f.get("claim", "")).strip().lower()[:60]
+                else:
+                    key = str(f).strip().lower()[:60]
+                    f = {"claim": str(f), "evidence": "", "confidence": 70}
+                if key and key not in seen:
+                    seen.add(key)
+                    merged_flags.append(f)
+        reg_dom["red_flags"] = merged_flags
+        out[domain] = reg_dom
+
+    return out
+
+
 async def parse_and_structure_file(text: str, filename: str, incident_id: str) -> dict:
-    """Uses LLM to map raw unstructured text into the FUSION structured pitch JSON schema."""
+    """LLM-first extraction: a strong model reads the WHOLE document and emits the
+    FUSION structured-facts schema directly (clean values + comprehensive, severity-
+    rated red flags). The regex extractor is kept as a seed (document_text, company
+    fallback) and as the fallback path when no LLM provider is available or it errors."""
     regex_data = extract_facts_regex(text, filename)
-    
-    from core.base_agent import llm_degraded
+
     llm_router = get_router()
-    if llm_router.available_providers():
-        try:
-            prompt = f"""You are a professional VC investment analyst.
-Ingest the following raw startup pitch text and the pre-extracted facts JSON (Stage 1).
-Refine the values, source spans (char offsets), and confidence scores (0-100) based strictly on the raw text.
+    if not llm_router.available_providers():
+        return regex_data
 
-CRITICAL RULES (NEVER VIOLATE):
-1. NEVER invent, fabricate, or estimate default values for any missing metrics.
-2. If a metric is not explicitly mentioned in the raw document text, do NOT guess or fill in default values. Keep its value as "Insufficient Evidence", confidence as 0, evidence as "", and provenance as "unknown".
-3. Under no circumstances should you output default estimates or fake evidence strings like "Default monthly burn estimate" or "Injected SnapHire...". If you cannot find evidence, you must leave it as Insufficient Evidence.
+    field_shape = '{"value": <string|"Insufficient Evidence">, "confidence": <0-100>, "evidence": "<verbatim quote from the document>", "provenance": "direct"}'
+    flag_shape = '{"claim": "<the risk in one sentence>", "evidence": "<verbatim quote>", "severity": <1-10>, "confidence": <0-100>}'
+    prompt = f"""You are a meticulous VC due-diligence analyst. Read the FULL startup document below and extract a structured facts JSON. You are evaluating this company for an investment committee, so SURFACE EVERY RISK.
 
-CRITICAL: Return ONLY valid raw JSON matching the FUSION structured facts schema. Do not include markdown code block tags or any other commentary.
+Return ONLY raw JSON (no markdown, no commentary) with EXACTLY this schema:
+{{
+  "company": {{"name": {field_shape}, "industry": {field_shape}, "stage": {field_shape}, "raise_amount": {field_shape}, "post_money_valuation": {field_shape}}},
+  "financials": {{"arr": {field_shape}, "burn": {field_shape}, "runway": {field_shape}, "gross_margin": {field_shape}, "customers": {field_shape}, "customer_concentration": {field_shape}, "red_flags": [{flag_shape}]}},
+  "legal": {{"litigation": {field_shape}, "compliance": {field_shape}, "red_flags": [{flag_shape}]}},
+  "technical": {{"stack": {field_shape}, "security": {field_shape}, "red_flags": [{flag_shape}]}},
+  "market": {{"tam": {field_shape}, "competition": {field_shape}, "red_flags": [{flag_shape}]}}
+}}
 
-FUSION Structured Facts Schema:
-{json.dumps(regex_data, indent=2)}
+RULES (NEVER VIOLATE):
+1. NEVER invent or estimate. If a metric is not stated in the document, set value to "Insufficient Evidence", confidence 0, evidence "", provenance "unknown".
+2. "evidence" MUST be a verbatim substring quoted from the document — never paraphrase a number. Keep each evidence quote UNDER 160 characters.
+3. For each domain, list ALL material red flags you can justify from the text (financial fragility, litigation/regulatory exposure, EOL/insecure tech, undisclosed breaches, customer concentration, weak/declining market, competitive threats, governance issues). severity: 1-3 minor, 4-6 moderate, 7-8 serious, 9-10 dealbreaker. Be thorough — these drive the risk score.
+4. For "stack" capture the actual technologies/versions; for "security" capture the security posture; for "competition" capture named competitors. Do not capture unrelated prose.
 
-Raw document text:
-{text[:8000]}
+DOCUMENT:
+{text[:24000]}
 """
-            res = await llm_router.call_llm(prompt, max_tokens=2500)
-            res_clean = res.strip()
-            # Remove markdown code block fences if present anywhere
-            res_clean = re.sub(r"```json\s*", "", res_clean, flags=re.IGNORECASE)
-            res_clean = re.sub(r"```\s*", "", res_clean)
-            
-            # Find the first '{' and last '}'
-            start_idx = res_clean.find("{")
-            end_idx = res_clean.rfind("}")
-            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                res_clean = res_clean[start_idx:end_idx+1]
-                
-            llm_data = json.loads(res_clean.strip())
-            
-            merged_data = merge_and_resolve_conflicts(regex_data, llm_data)
-            return merged_data
-        except Exception as e:
-            logger.warning(f"Stage 2 LLM parsing failed: {e}. Falling back to Stage 1 Regex extraction.")
-            
-    return regex_data
+    try:
+        res = await llm_router.call_llm(prompt, max_tokens=8000, timeout=150.0)
+        res_clean = re.sub(r"```json\s*", "", res.strip(), flags=re.IGNORECASE)
+        res_clean = re.sub(r"```\s*", "", res_clean)
+        start_idx, end_idx = res_clean.find("{"), res_clean.rfind("}")
+        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+            res_clean = res_clean[start_idx:end_idx + 1]
+        llm_data = json.loads(res_clean.strip())
+        merged = _merge_llm_first(regex_data, llm_data)
+        logger.info(f"LLM-first extraction OK for {filename}: "
+                    f"flags fin/leg/tech/mkt="
+                    f"{len(merged['financials']['red_flags'])}/{len(merged['legal']['red_flags'])}/"
+                    f"{len(merged['technical']['red_flags'])}/{len(merged['market']['red_flags'])}")
+        return merged
+    except Exception as e:
+        logger.warning(f"LLM-first extraction failed ({e}). Falling back to regex Stage 1.")
+        return regex_data
 
 
 @router.post("/upload-pitch")

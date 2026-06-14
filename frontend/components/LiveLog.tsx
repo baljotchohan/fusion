@@ -25,27 +25,27 @@ const BADGE_CONFIG: Record<
 > = {
   working: {
     label: 'Auditing…',
-    dot: 'bg-amber-500 animate-pulse',
-    text: 'text-amber-700 dark:text-amber-400',
-    bg: 'bg-amber-50 dark:bg-amber-500/10 border-amber-200/60 dark:border-amber-500/20',
+    dot: 'bg-warning animate-pulse',
+    text: 'text-warning',
+    bg: 'bg-warning-soft border-warning/20',
   },
   done: {
     label: 'Findings Logged',
-    dot: 'bg-emerald-500',
-    text: 'text-emerald-700 dark:text-emerald-400',
-    bg: 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200/60 dark:border-emerald-500/20',
+    dot: 'bg-success',
+    text: 'text-success',
+    bg: 'bg-success-soft border-success/20',
   },
   idle: {
     label: 'Stand-by',
-    dot: 'bg-slate-400 dark:bg-slate-600',
-    text: 'text-slate-500 dark:text-slate-400',
-    bg: 'bg-slate-50 dark:bg-slate-800/40 border-slate-200/60 dark:border-slate-700/40',
+    dot: 'bg-text-muted',
+    text: 'text-text-secondary',
+    bg: 'bg-bg-muted border-border',
   },
   alert: {
     label: 'Attention',
-    dot: 'bg-red-500 animate-pulse',
-    text: 'text-red-700 dark:text-red-400',
-    bg: 'bg-red-50 dark:bg-red-500/10 border-red-200/60 dark:border-red-500/20',
+    dot: 'bg-danger animate-pulse',
+    text: 'text-danger',
+    bg: 'bg-danger-soft border-danger/20',
   },
 }
 
@@ -106,17 +106,17 @@ export function LiveLog({ events }: LiveLogProps) {
   const isEmpty = events.length === 0
 
   return (
-    <div className="glassmorphic border border-slate-200/60 dark:border-slate-800/60 rounded-2xl shadow-sm flex flex-col h-full">
+    <div className="glassmorphic border border-border rounded-2xl shadow-sm flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-3">
         <div className="flex items-center gap-2">
-          <ScrollText className="w-4 h-4 text-slate-400 dark:text-slate-500" />
-          <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <ScrollText className="w-4 h-4 text-text-muted" />
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-secondary">
             Meeting Minutes
           </h2>
         </div>
         {!isEmpty && (
-          <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500 tabular-nums">
+          <span className="text-[9px] font-mono text-text-muted tabular-nums">
             {events.length} entr{events.length === 1 ? 'y' : 'ies'}
           </span>
         )}
@@ -130,13 +130,13 @@ export function LiveLog({ events }: LiveLogProps) {
         {isEmpty ? (
           /* ---- Empty state ---- */
           <div className="flex flex-col items-center justify-center h-full py-12">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/50 flex items-center justify-center mb-4">
-              <ScrollText className="w-5 h-5 text-slate-300 dark:text-slate-600" />
+            <div className="w-12 h-12 rounded-2xl bg-bg-muted flex items-center justify-center mb-4">
+              <ScrollText className="w-5 h-5 text-text-muted" />
             </div>
-            <p className="text-[12px] text-slate-500 dark:text-slate-400 font-medium mb-1">
+            <p className="text-[12px] text-text-secondary font-medium mb-1">
               No minutes recorded yet
             </p>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center max-w-[200px] leading-relaxed">
+            <p className="text-[11px] text-text-muted text-center max-w-[200px] leading-relaxed">
               Submit a deal to begin the committee deliberation.
             </p>
           </div>
@@ -159,19 +159,19 @@ export function LiveLog({ events }: LiveLogProps) {
                     className="flex items-start gap-3"
                   >
                     {/* Avatar circle */}
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50 flex items-center justify-center text-sm select-none">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-bg-muted border border-border flex items-center justify-center text-sm select-none">
                       {agent?.icon ?? '🤖'}
                     </div>
 
                     {/* Bubble */}
-                    <div className="flex-1 min-w-0 rounded-xl bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/50 p-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
+                    <div className="flex-1 min-w-0 rounded-xl bg-bg-card border border-border p-3.5 shadow-sm">
                       {/* Top row: name + time + badge */}
                       <div className="flex items-center justify-between gap-2 mb-1.5">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-[12px] font-semibold text-slate-800 dark:text-slate-100 truncate">
+                          <span className="text-[12px] font-semibold text-text-primary truncate">
                             {agent?.displayName ?? evt.agent}
                           </span>
-                          <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500 tabular-nums flex-shrink-0">
+                          <span className="text-[9px] font-mono text-text-muted tabular-nums flex-shrink-0">
                             {fmtTime(evt.timestamp)}
                           </span>
                         </div>
@@ -189,7 +189,7 @@ export function LiveLog({ events }: LiveLogProps) {
 
                       {/* Summary text */}
                       {summary && (
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-3">
+                        <p className="text-[11px] text-text-secondary leading-relaxed line-clamp-2 overflow-hidden text-ellipsis">
                           {summary}
                         </p>
                       )}

@@ -1,7 +1,7 @@
 // components/SettingsView.tsx — preferences panel.
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Cpu, ShieldAlert, Sliders, HardDrive, UserCheck, Trash2 } from 'lucide-react'
+import { Sun, Moon, Sliders, UserCheck, Trash2 } from 'lucide-react'
 import { AGENTS, API_BASE } from '@/lib/agents'
 
 interface SettingsViewProps {
@@ -11,11 +11,6 @@ interface SettingsViewProps {
 
 export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps) {
   const [mockPace, setMockPace] = useState(0.6)
-  const [maxFileSizeMb, setMaxFileSizeMb] = useState(10)
-  const [primaryProvider, setPrimaryProvider] = useState('gemini')
-  const [providers, setProviders] = useState<any[]>([])
-  const [activeProvider, setActiveProvider] = useState('local-engine')
-  const [llmDegraded, setLlmDegraded] = useState(false)
   const [, setLoading] = useState(true)
 
   const [confirmReset, setConfirmReset] = useState(false)
@@ -32,13 +27,6 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
       const data = await response.json()
       if (data.simulation) {
         setMockPace(data.simulation.mock_pace ?? 0.6)
-        setMaxFileSizeMb(data.simulation.max_file_size_mb ?? 10)
-      }
-      if (data.llm) {
-        setPrimaryProvider(data.llm.primary ?? 'gemini')
-        setProviders(data.llm.providers ?? [])
-        setActiveProvider(data.llm.active_provider ?? 'local-engine')
-        setLlmDegraded(data.llm.degraded ?? false)
       }
     } catch (error) {
       console.error('Error fetching settings:', error)
@@ -49,7 +37,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
 
   useEffect(() => { fetchSettings() }, [])
 
-  const updateSetting = async (patch: { mock_pace?: number; primary_provider?: string; max_file_size_mb?: number; reset_llm_degradation?: boolean }) => {
+  const updateSetting = async (patch: { mock_pace?: number }) => {
     try {
       const response = await fetch(`${API_BASE}/api/v1/system/settings`, {
         method: 'POST',
@@ -58,10 +46,8 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
       })
       if (!response.ok) throw new Error('Failed to update setting')
       const data = await response.json()
-      if (data.applied) {
-        if (data.applied.mock_pace !== undefined) setMockPace(data.applied.mock_pace)
-        if (data.applied.max_file_size_mb !== undefined) setMaxFileSizeMb(data.applied.max_file_size_mb)
-        if (data.applied.primary_provider !== undefined) { setPrimaryProvider(data.applied.primary_provider); fetchSettings() }
+      if (data.applied && data.applied.mock_pace !== undefined) {
+        setMockPace(data.applied.mock_pace)
       }
     } catch (error) {
       console.error('Error updating setting:', error)
@@ -121,7 +107,9 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
         <p className="text-[11.5px] text-text-secondary mb-5">Adjust the simulation tick delay between agent boardroom updates</p>
         <div className="space-y-2">
           <input type="range" min={0.1} max={3.0} step={0.1} value={mockPace}
-            onChange={e => updateSetting({ mock_pace: Number(e.target.value) })}
+            onChange={e => setMockPace(Number(e.target.value))}
+            onMouseUp={e => updateSetting({ mock_pace: Number((e.target as HTMLInputElement).value) })}
+            onTouchEnd={e => updateSetting({ mock_pace: Number((e.target as HTMLInputElement).value) })}
             className="w-full h-1.5 rounded-full appearance-none bg-bg-muted cursor-pointer accent-accent
                        [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4
                        [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent
@@ -130,65 +118,6 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
           <div className="flex justify-between text-[10.5px] text-text-muted font-medium">
             <span>Rapid (0.1s)</span><span>Careful (3.0s)</span>
           </div>
-        </div>
-      </section>
-
-      {/* File Upload Limit */}
-      <section className={sectionCls}>
-        <div className="flex items-center gap-2 mb-4">
-          <HardDrive className="w-4 h-4 text-text-muted" />
-          <p className={labelCls}>File Ingestion Settings</p>
-        </div>
-        <p className="text-[13px] font-medium text-text-primary mb-1">Maximum Pitch File Size</p>
-        <p className="text-[11.5px] text-text-secondary mb-4">Limit the upload size allowed for startup pitch decks</p>
-        <div className="flex items-center gap-2">
-          {[2, 5, 10, 20].map(size => (
-            <button key={size} onClick={() => updateSetting({ max_file_size_mb: size })}
-              className={`px-4 py-2 rounded-lg text-[12px] font-semibold border transition cursor-pointer ${maxFileSizeMb === size ? 'bg-accent border-accent text-white' : 'bg-bg-subtle border-border text-text-secondary hover:bg-bg-muted'}`}>
-              {size} MB
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* AI Engine */}
-      <section className={sectionCls}>
-        <div className="flex items-center gap-2 mb-4">
-          <Cpu className="w-4 h-4 text-text-muted" />
-          <p className={labelCls}>AI Intelligence Engine</p>
-        </div>
-        <p className="text-[13px] font-medium text-text-primary mb-1">Primary Reasoning Engine</p>
-        <p className="text-[11.5px] text-text-secondary mb-4">Choose which LLM provider powers the committee's intelligence</p>
-
-        {llmDegraded && (
-          <div className="rounded-xl bg-danger-soft border border-danger/25 p-3.5 mb-4 flex items-start gap-3">
-            <ShieldAlert className="w-4 h-4 text-danger mt-0.5 shrink-0" />
-            <div>
-              <p className="text-[12px] font-bold text-danger">API Degradation Active</p>
-              <p className="text-[11px] text-danger/80 mt-0.5">The router is bypassing degraded remote providers. Clear this to retry reconnecting.</p>
-              <button onClick={() => updateSetting({ reset_llm_degradation: true }).then(() => fetchSettings())}
-                className="mt-2 text-[10.5px] font-semibold px-2.5 py-1 rounded bg-danger hover:opacity-90 text-white transition cursor-pointer">
-                Reset Cooldown
-              </button>
-            </div>
-          </div>
-        )}
-
-        <select value={primaryProvider} onChange={e => updateSetting({ primary_provider: e.target.value })}
-          className="w-full bg-bg-subtle border border-border rounded-lg px-3 py-2 text-[13px] text-text-primary focus:outline-none focus:border-accent transition cursor-pointer">
-          {providers.map((p: any) => (
-            <option key={p.id} value={p.id} disabled={!p.configured}>
-              {p.label} {p.configured ? '(Ready)' : '(Not Configured — keys missing)'}
-            </option>
-          ))}
-          {providers.length === 0 && <option value="gemini">Google Gemini 2.0 Flash (Default)</option>}
-        </select>
-        <div className="flex items-center gap-1.5 text-[11px] text-text-muted mt-2">
-          <span className="font-semibold text-text-secondary">Active engine:</span>
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-muted font-mono text-[10px]">
-            <span className={`w-1 h-1 rounded-full ${activeProvider === 'local-engine' ? 'bg-warning animate-pulse' : 'bg-success'}`} />
-            {activeProvider}
-          </span>
         </div>
       </section>
 

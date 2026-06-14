@@ -32,6 +32,8 @@ class SimulationState:
         self.max_file_size_mb: int = 10
         # Active company name for current analysis
         self.active_company_name: Optional[str] = None
+        # Cached final verdict scorecard to bypass extraction issues
+        self.final_verdict_card: Optional[str] = None
 
     def touch(self):
         self.last_event_at = time.time()
@@ -44,12 +46,14 @@ class SimulationState:
     def reset(self):
         self.running = False
         self.agent_statuses = {}
+        self.active_incident_id = None
         self.dispatched_deals.clear()
         self.completed_agents.clear()
         self.deal_concluded = False
         self.active_company_name = None
         self.active_pitch_file = "novapay_pitch.json"
         self.verdict_dispatched = False
+        self.final_verdict_card = None
 
 
 sim_state = SimulationState()

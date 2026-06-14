@@ -21,21 +21,21 @@ const NAV: { id: Section; label: string; icon: string; group: string }[] = [
 const GROUPS = ['Start here', 'Concepts', 'Integrate', 'Operate']
 
 function H({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-[16px] font-bold text-slate-800 dark:text-white mb-3">{children}</h2>
+  return <h2 className="text-[16px] font-bold text-text-primary mb-3">{children}</h2>
 }
 function P({ children }: { children: React.ReactNode }) {
-  return <p className="text-[12.5px] text-slate-600 dark:text-slate-300 leading-relaxed mb-3">{children}</p>
+  return <p className="text-[12.5px] text-text-secondary leading-relaxed mb-3">{children}</p>
 }
 function B({ children }: { children: React.ReactNode }) {
-  return <strong className="font-semibold text-slate-800 dark:text-white">{children}</strong>
+  return <strong className="font-semibold text-text-primary">{children}</strong>
 }
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3 mb-3">
       <div className="w-6 h-6 rounded-lg bg-accent-soft text-accent flex items-center justify-center text-[11px] font-bold font-mono shrink-0">{n}</div>
       <div>
-        <p className="text-[12.5px] font-semibold text-slate-800 dark:text-slate-100">{title}</p>
-        <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">{children}</p>
+        <p className="text-[12.5px] font-semibold text-text-primary">{title}</p>
+        <p className="text-[12px] text-text-muted leading-relaxed">{children}</p>
       </div>
     </div>
   )
@@ -44,26 +44,26 @@ function Code({ children, label }: { children: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   const copy = () => { navigator.clipboard?.writeText(children); setCopied(true); setTimeout(() => setCopied(false), 1200) }
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950 my-3 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/80">
-        <span className="text-[9px] font-mono uppercase tracking-wider text-slate-500">{label || 'shell'}</span>
-        <button onClick={copy} className="text-[9px] font-mono text-slate-400 hover:text-accent transition">{copied ? '✓ copied' : 'copy'}</button>
+    <div className="rounded-xl border border-border bg-bg-base my-3 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
+        <span className="text-[9px] font-mono uppercase tracking-wider text-text-muted">{label || 'shell'}</span>
+        <button onClick={copy} className="text-[9px] font-mono text-text-secondary hover:text-accent transition">{copied ? '✓ copied' : 'copy'}</button>
       </div>
-      <pre className="px-3.5 py-3 text-[11px] font-mono text-emerald-300/90 overflow-auto leading-relaxed whitespace-pre">{children}</pre>
+      <pre className="px-3.5 py-3 text-[11px] font-mono text-accent overflow-auto leading-relaxed whitespace-pre">{children}</pre>
     </div>
   )
 }
 function EndpointRow({ method, path, desc }: { method: string; path: string; desc: string }) {
-  const color = method === 'GET' ? 'text-accent bg-accent-soft'
-    : method === 'POST' ? 'text-emerald-400 bg-emerald-500/10'
-    : method === 'DELETE' ? 'text-red-400 bg-red-500/10'
-    : 'text-amber-400 bg-amber-500/10'
+  const color = method === 'GET' ? 'text-accent bg-accent-soft border-accent/20'
+    : method === 'POST' ? 'text-success bg-success-soft border-success/20'
+    : method === 'DELETE' ? 'text-danger bg-danger-soft border-danger/20'
+    : 'text-warning bg-warning-soft border-warning/20'
   return (
-    <div className="flex items-start gap-3 py-2 border-b border-slate-200/50 dark:border-slate-800/50 last:border-0">
-      <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 w-12 text-center ${color}`}>{method}</span>
+    <div className="flex items-start gap-3 py-2 border-b border-border last:border-0">
+      <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border shrink-0 w-12 text-center ${color}`}>{method}</span>
       <div className="min-w-0">
-        <code className="text-[11px] font-mono text-slate-700 dark:text-slate-200 break-all">{path}</code>
-        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">{desc}</p>
+        <code className="text-[11px] font-mono text-text-primary break-all">{path}</code>
+        <p className="text-[11px] text-text-muted leading-snug">{desc}</p>
       </div>
     </div>
   )
@@ -97,7 +97,7 @@ export function DocsView() {
       <nav className="lg:col-span-1 space-y-3 lg:sticky lg:top-24 h-fit">
         {GROUPS.map(group => (
           <div key={group}>
-            <p className="px-3 mb-1 text-[9px] font-mono uppercase tracking-widest text-slate-400 dark:text-slate-600">{group}</p>
+            <p className="px-3 mb-1 text-[9px] font-mono uppercase tracking-widest text-text-muted">{group}</p>
             <div className="space-y-0.5">
               {NAV.filter(n => n.group === group).map(n => (
                 <button
@@ -106,7 +106,7 @@ export function DocsView() {
                   className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[12px] text-left transition ${
                     section === n.id
                       ? 'bg-accent-soft text-accent font-semibold'
-                      : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100/60 dark:hover:bg-slate-900/60'
+                      : 'text-text-secondary hover:bg-bg-muted'
                   }`}
                 >
                   <span>{n.icon}</span>{n.label}
@@ -118,7 +118,7 @@ export function DocsView() {
       </nav>
 
       {/* content */}
-      <div className="lg:col-span-3 glassmorphic border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-6 shadow-sm">
+      <div className="lg:col-span-3 glassmorphic border border-border rounded-2xl p-6 shadow-sm">
         {section === 'overview' && (
           <div>
             <H>What is FUSION?</H>
@@ -129,7 +129,7 @@ export function DocsView() {
             the Technical Partner performs system and security audits, the Market Partner profiles competition, and the Managing Partner runs the committee and issues the final boardroom verdict.</P>
             <P>The payoff: a raw pitch brief or deal structure goes in, and a complete, audit-logged investment decision comes out — automatically.</P>
             <div className="rounded-xl border border-accent/20 bg-accent-soft p-4 mt-4">
-              <p className="text-[12px] text-slate-600 dark:text-slate-300"><B>Try it:</B> open the Boardroom tab and click
+              <p className="text-[12px] text-text-secondary"><B>Try it:</B> open the Boardroom tab and click
               <B> Evaluate Startup Deal (NovaPay)</B>, or type in chat: &ldquo;Evaluate NovaPay Inc raising Series A.&rdquo;</p>
             </div>
           </div>
@@ -145,7 +145,7 @@ python run.py`}</Code>
             <Step n={2} title="Start the dashboard">Launches the Next.js boardroom dashboard on port 3000, talking to the backend over REST + WebSockets.</Step>
             <Code label="frontend">{`cd frontend
 npm install
-npx next dev --webpack`}</Code>
+npm run dev`}</Code>
             <Step n={3} title="Run a deal evaluation">Open the Boardroom tab and click Evaluate Startup Deal, or tell the Managing Partner in chat &ldquo;Evaluate NovaPay Inc.&rdquo;</Step>
             <P>No API keys required — FUSION ships with a built-in mock LLM engine so the full chain runs offline out-of-the-box. Add provider
             keys in your <span className="font-mono">.env</span> to enable live LLM reasoning (see the AI providers section).</P>
@@ -158,17 +158,17 @@ npx next dev --webpack`}</Code>
             <P>Each partner owns a domain-specific mandate and hands off findings to the Managing Partner. They run checklists across key evaluation metrics.</P>
             <div className="space-y-3 mt-4">
               {AGENTS.map(a => (
-                <div key={a.name} className="rounded-xl border border-slate-200/60 dark:border-slate-800/60 p-3.5">
+                <div key={a.name} className="rounded-xl border border-border p-3.5">
                   <div className="flex items-center gap-2.5">
                     <span className="text-lg">{a.icon}</span>
                     <div>
-                      <p className="text-[12.5px] font-bold text-slate-800 dark:text-slate-100">{a.displayName} <span className="font-normal text-slate-400 text-[10px] font-mono ml-1">{a.role}</span></p>
+                      <p className="text-[12.5px] font-bold text-text-primary">{a.displayName} <span className="font-normal text-text-muted text-[10px] font-mono ml-1">{a.role}</span></p>
                     </div>
                   </div>
-                  <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed mt-2">{a.detail}</p>
+                  <p className="text-[12px] text-text-secondary leading-relaxed mt-2">{a.detail}</p>
                   {a.checklist.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {a.checklist.map(t => <span key={t} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">✓ {t}</span>)}
+                      {a.checklist.map(t => <span key={t} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-bg-muted text-text-muted">✓ {t}</span>)}
                     </div>
                   )}
                 </div>
@@ -217,11 +217,11 @@ npx next dev --webpack`}</Code>
   }
 }`}</Code>
             <P><B>3. Exposed Tools</B> available to your client:</P>
-            <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/60 divide-y divide-slate-200/50 dark:divide-slate-800/50">
+            <div className="rounded-xl border border-border divide-y divide-border">
               {MCP_TOOLS.map(([n, d]) => (
                 <div key={n} className="flex items-start gap-3 p-2.5">
                   <code className="text-[11px] font-mono text-accent shrink-0">{n}</code>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400">{d}</span>
+                  <span className="text-[11px] text-text-secondary">{d}</span>
                 </div>
               ))}
             </div>
@@ -232,21 +232,21 @@ npx next dev --webpack`}</Code>
           <div>
             <H>API reference</H>
             <P>All features are exposed via REST API endpoints on <span className="font-mono">http://localhost:8000</span>.</P>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-slate-400 mt-4 mb-1">Deal response & control</p>
-            <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/60 px-3.5 py-1">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-text-muted mt-4 mb-1">Deal response & control</p>
+            <div className="rounded-xl border border-border px-3.5 py-1">
               <EndpointRow method="POST" path="/api/trigger-deal" desc="Trigger due diligence simulation across all 5 partners." />
               <EndpointRow method="GET" path="/api/status" desc="Retrieve server health, mock state, and current active deal." />
               <EndpointRow method="POST" path="/api/reset" desc="Reset simulation state for a clean session." />
               <EndpointRow method="WS" path="/ws" desc="Real-time WebSocket event stream for dashboard updates." />
             </div>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-slate-400 mt-4 mb-1">Boardroom chat</p>
-            <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/60 px-3.5 py-1">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-text-muted mt-4 mb-1">Boardroom chat</p>
+            <div className="rounded-xl border border-border px-3.5 py-1">
               <EndpointRow method="POST" path="/api/v1/chat" desc="Talk to the Managing Partner. Submitting pitches triggers evaluations." />
               <EndpointRow method="GET" path="/api/v1/chat/history" desc="Retrieve chatbot conversation log history." />
               <EndpointRow method="DELETE" path="/api/v1/chat/history" desc="Clear chatbot conversation log." />
             </div>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-slate-400 mt-4 mb-1">Deal Vault & memory</p>
-            <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/60 px-3.5 py-1">
+            <p className="text-[10px] font-mono uppercase tracking-widest text-text-muted mt-4 mb-1">Deal Vault & memory</p>
+            <div className="rounded-xl border border-border px-3.5 py-1">
               <EndpointRow method="GET" path="/api/v1/incidents" desc="List all evaluated startup deal records." />
               <EndpointRow method="GET" path="/api/v1/incident/{id}" desc="Retrieve specific deal timelines and scorecards." />
               <EndpointRow method="GET" path="/api/v1/memory/stats" desc="Read database aggregate audit counts and findings." />
@@ -271,7 +271,7 @@ ARGUS_LLM_PRIMARY=gemini # Model to try first`}</Code>
           <div>
             <H>Architecture</H>
             <P>FUSION's technical framework consists of:</P>
-            <ul className="space-y-2 text-[12px] text-slate-600 dark:text-slate-300 mb-3">
+            <ul className="space-y-2 text-[12px] text-text-secondary mb-3">
               <li>• <B>FastAPI & Uvicorn</B> — REST API and real-time WebSockets.</li>
               <li>• <B>LangGraph React Agents</B> — Specialist partners equipped with memory and web tools.</li>
               <li>• <B>Band SDK Adapter</B> — Room-based agent-to-agent message transport.</li>
@@ -287,8 +287,8 @@ ARGUS_LLM_PRIMARY=gemini # Model to try first`}</Code>
             <dl className="space-y-3">
               {GLOSSARY.map(([t, d]) => (
                 <div key={t}>
-                  <dt className="text-[12.5px] font-bold text-slate-800 dark:text-slate-100">{t}</dt>
-                  <dd className="text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">{d}</dd>
+                  <dt className="text-[12.5px] font-bold text-text-primary">{t}</dt>
+                  <dd className="text-[12px] text-text-secondary leading-relaxed">{d}</dd>
                 </div>
               ))}
             </dl>

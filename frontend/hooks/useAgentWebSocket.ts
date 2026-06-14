@@ -65,7 +65,18 @@ export function useAgentWebSocket() {
             setAgentOutputs(prev => ({ ...prev, [update.agent]: update.output }))
           }
 
-          setLogEvents(prev => [...prev, update].slice(-80))
+          // Meeting Minutes: collapse consecutive heartbeats from the SAME agent
+          // in the SAME phase (e.g. repeated "working" updates) into one live
+          // entry instead of stacking dozens of near-duplicate lines. A genuine
+          // transition (working→done) or a different agent speaking appends a
+          // fresh entry.
+          setLogEvents(prev => {
+            const last = prev[prev.length - 1]
+            if (last && last.agent === update.agent && last.status === update.status) {
+              return [...prev.slice(0, -1), update].slice(-80)
+            }
+            return [...prev, update].slice(-80)
+          })
 
           // Build the plain-English story feed when an agent finishes a step.
           if (update.status === 'done' && HUMAN[update.agent]) {
@@ -90,7 +101,7 @@ export function useAgentWebSocket() {
                 setCeoDecision({
                   verdict: decisionMatch[1].toUpperCase(),
                   confidence: confidenceMatch ? Number(confidenceMatch[1]) : 91,
-                  justification: justificationMatch ? justificationMatch[1].trim() : 'NovaPay Inc Series A review completed with PASS decision.',
+                  justification: justificationMatch ? justificationMatch[1].trim() : 'Committee review completed.',
                 })
               }
             }

@@ -19,7 +19,8 @@ def _load_pitch_file(filename: str = None) -> dict:
     """Load pitch JSON from the data/ directory. Cached after first load.
 
     When no filename is given, resolves the active pitch from sim_state:
-    active_pitch_file first, then the pitch_{incident_id}.json convention."""
+    active_pitch_file first, then the pitch_{incident_id}.json convention.
+    Falls back to the latest incident in the memory graph if sim_state is cleared."""
     if filename is None:
         try:
             from api.state import sim_state
@@ -34,7 +35,25 @@ def _load_pitch_file(filename: str = None) -> dict:
                 else:
                     filename = _DEFAULT_PITCH
             else:
-                filename = _DEFAULT_PITCH
+                # Fallback: check the latest incident in memory graph
+                from core.memory_graph import MemoryGraph
+                from core.demo_registry import resolve_pitch_file
+                m_graph = MemoryGraph()
+                latest_id = m_graph.get_latest_incident_id()
+                resolved = None
+                if latest_id:
+                    inc = m_graph.get_incident(latest_id)
+                    if inc and "metadata" in inc:
+                        company = inc["metadata"].get("company")
+                        if company:
+                            resolved = resolve_pitch_file(company)
+                    
+                    if not resolved:
+                        up_filename = f"pitch_{latest_id}.json"
+                        if os.path.exists(os.path.join(data_dir, up_filename)):
+                            resolved = up_filename
+                            
+                filename = resolved or _DEFAULT_PITCH
         except Exception:
             filename = _DEFAULT_PITCH
 
@@ -64,6 +83,55 @@ def _load_pitch_file(filename: str = None) -> dict:
 def clear_pitch_cache():
     """Clear the pitch cache so the next load picks up a newly uploaded file."""
     _PITCH_CACHE.clear()
+
+
+def _company_name_of(data: dict) -> str:
+    co = (data or {}).get("company", {})
+    name = co.get("name") if isinstance(co, dict) else co
+    if isinstance(name, dict):
+        return str(name.get("value") or name.get("name") or "")
+    return str(name or "")
+
+
+def resolve_uploaded_pitch(company_name: str = None) -> tuple:
+    """Find an uploaded pitch on disk (pitch_DEAL-*.json) so the binding between
+    'the document I uploaded' and 'the deal I trigger' survives a server restart
+    or a state reset — the file is durable even when in-memory sim_state is not.
+
+    Returns (pitch_filename, incident_id):
+      1. the most recent upload whose company name matches company_name, else
+      2. the most recent upload on disk, else
+      3. (None, None) so the caller can fall back to the default pitch.
+    """
+    import glob
+    data_dir = os.path.join(os.path.dirname(__file__), "../data")
+    files = sorted(
+        glob.glob(os.path.join(data_dir, "pitch_DEAL-*.json")),
+        key=os.path.getmtime,
+        reverse=True,
+    )
+    if not files:
+        return None, None
+
+    def _to_id(path: str) -> str:
+        base = os.path.basename(path)
+        return base[len("pitch_"):-len(".json")]
+
+    if company_name:
+        key = str(company_name).strip().lower()
+        for f in files:
+            try:
+                with open(f, "r") as fh:
+                    data = json.load(fh)
+            except Exception:
+                continue
+            co = _company_name_of(data).lower()
+            if co and (key == co or key in co or co in key):
+                base = os.path.basename(f)
+                return base, _to_id(f)
+
+    base = os.path.basename(files[0])
+    return base, _to_id(files[0])
 
 
 # ─── LangChain tools for agents ──────────────────────────────────────────────

@@ -69,6 +69,7 @@ class LLMRouter:
         model: str = "auto",
         max_tokens: int = 2000,
         system: str = SYSTEM_PROMPT,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> str:
         """Route a prompt to a provider, falling back down the chain on errors."""
         providers = self.chain if model == "auto" else [model]
@@ -85,15 +86,15 @@ class LLMRouter:
                 continue
             try:
                 if provider == "gemini":
-                    return await self._call_gemini(prompt, max_tokens, system)
-                return await self._call_openai_compat(provider, prompt, max_tokens, system)
+                    return await self._call_gemini(prompt, max_tokens, system, timeout)
+                return await self._call_openai_compat(provider, prompt, max_tokens, system, timeout)
             except Exception as e:
                 logger.warning(f"LLM provider '{provider}' failed: {e} — falling back...")
                 last_error = e
 
         raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
 
-    async def _call_gemini(self, prompt: str, max_tokens: int, system: str) -> str:
+    async def _call_gemini(self, prompt: str, max_tokens: int, system: str, timeout: float = DEFAULT_TIMEOUT) -> str:
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{self.gemini_model}:generateContent?key={self.keys['gemini']}"
@@ -103,14 +104,14 @@ class LLMRouter:
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
         }
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             data = resp.json()
             return data["candidates"][0]["content"]["parts"][0]["text"]
 
     async def _call_openai_compat(
-        self, provider: str, prompt: str, max_tokens: int, system: str
+        self, provider: str, prompt: str, max_tokens: int, system: str, timeout: float = DEFAULT_TIMEOUT
     ) -> str:
         url, default_model = OPENAI_COMPAT_ENDPOINTS[provider]
         payload = {
@@ -126,7 +127,7 @@ class LLMRouter:
             "Authorization": f"Bearer {self.keys[provider]}",
             "Content-Type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()

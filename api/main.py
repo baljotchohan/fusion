@@ -9,7 +9,8 @@ import logging
 import asyncio
 import random
 from contextlib import asynccontextmanager
-from typing import List
+from datetime import datetime, timezone
+from typing import List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -173,7 +174,7 @@ async def trigger_attack():
     )
 
 @app.post("/api/trigger-deal")
-async def trigger_deal(company: str = "NovaPay Inc", raise_amount: str = "$10M"):
+async def trigger_deal(company: Optional[str] = None, raise_amount: str = "$10M"):
     """Triggers the FUSION investment committee on a deal."""
     if sim_state.is_stale(max_idle_seconds=90):
         sim_state.reset()
@@ -189,26 +190,42 @@ async def trigger_deal(company: str = "NovaPay Inc", raise_amount: str = "$10M")
     sim_state.running = True
     sim_state.touch()
 
-    # Always create a fresh deal to avoid stale timeline entries
-    # from previous runs causing false "all partners done" detection.
-    from datetime import datetime, timezone
-    deal_id = f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    from core.demo_registry import resolve_pitch_file
+    from core.pitch_loader import clear_pitch_cache, resolve_uploaded_pitch, _company_name_of, _load_pitch_file
+
+    # Resolve which pitch the committee should analyze. The uploaded-document
+    # binding must survive a server restart / state reset, so we resolve the
+    # uploaded pitch from DISK (durable) rather than trusting in-memory state:
+    #  1. an explicitly-named built-in demo company   → its pitch file
+    #  2. an uploaded pitch matching the company name  → that upload (by disk)
+    #  3. no company given but an upload exists         → the most recent upload
+    #  4. otherwise                                     → default (NovaPay)
+    new_deal_id = f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    resolved_pitch = resolve_pitch_file(company) if company else None
+    if resolved_pitch:
+        deal_id = new_deal_id
+        sim_state.active_pitch_file = resolved_pitch
+        sim_state.active_company_name = company
+        logger.info(f"trigger-deal: resolved demo '{company}' → pitch file {resolved_pitch}")
+    else:
+        up_file, up_incident = resolve_uploaded_pitch(company)
+        if up_file:
+            # Reuse the uploaded incident so the report ties back to the upload.
+            deal_id = up_incident or new_deal_id
+            sim_state.active_pitch_file = up_file
+            sim_state.active_company_name = company or _company_name_of(_load_pitch_file(up_file)) or "Uploaded Deal"
+            logger.info(f"trigger-deal: '{company}' → uploaded pitch {up_file} (incident {deal_id})")
+        else:
+            deal_id = new_deal_id
+            sim_state.active_pitch_file = None  # loader falls back to the default pitch
+            sim_state.active_company_name = company or "NovaPay Inc"
+            logger.info(f"trigger-deal: no demo/upload match for '{company}' → default pitch")
+
+    company = sim_state.active_company_name
     memory_graph.create_incident(deal_id, {"trigger": "pitch_submission", "company": company})
     sim_state.active_incident_id = deal_id
     sim_state.dispatched_deals.clear()   # fresh run — nothing dispatched yet
-    sim_state.active_company_name = company
-
-    # Point the pitch loader at THIS company's pitch file so the committee
-    # analyzes the requested deal instead of always falling back to NovaPay.
-    # Manual uploads set active_pitch_file themselves; a demo/known company
-    # resolves here. Unknown companies clear it so the default applies.
-    from core.demo_registry import resolve_pitch_file
-    from core.pitch_loader import clear_pitch_cache
-    resolved_pitch = resolve_pitch_file(company)
-    sim_state.active_pitch_file = resolved_pitch
     clear_pitch_cache()
-    if resolved_pitch:
-        logger.info(f"trigger-deal: resolved '{company}' → pitch file {resolved_pitch}")
 
     brief = f"New deal submitted for committee review: {company} — Series A, {raise_amount} raise. Full pitch data is loaded in the deal brief. Please convene the investment committee and begin due diligence."
 
@@ -531,8 +548,8 @@ async def mock_llm_completions(request: Request):
             
     reasons_str = "\n".join(f"{i+1}. {r}" for i, r in enumerate(reasons))
     
-    co_text = company_name[:44]
-    deal_text = f"{raise_amount} at {valuation} post"[:44]
+    co_text = company_name[:42]
+    deal_text = f"{raise_amount} at {valuation} post"[:42]
     decision_text = verdict[:42]
     
     confidence_val_pct = calc.get("verdict_confidence", coverage_score)
@@ -560,26 +577,28 @@ async def mock_llm_completions(request: Request):
     weighted_val_str = f"{weighted_score:>4.1f}/10" if weighted_score is not None else " N/A  "
     
     card = (
-        "╔══════════════════════════════════════════════════════════╗\n"
-        "║         FUSION INVESTMENT COMMITTEE DECISION             ║\n"
-        "╠══════════════════════════════════════════════════════════╣\n"
-        f"║ Company:    {co_text:<44} ║\n"
-        f"║ Deal:       {deal_text:<44} ║\n"
-        "╠══════════════════════════════════════════════════════════╣\n"
-        f"║  DECISION:    {decision_text:<42} ║\n"
-        f"║  CONFIDENCE:  {confidence_text:<42} ║\n"
-        f"║  EVI QUALITY: {quality_text:<42} ║\n"
-        f"║  READINESS:   {readiness_text:<42} ║\n"
-        "╚══════════════════════════════════════════════════════════╝\n\n"
+        "```\n"
+        "+----------------------------------------------------------+\n"
+        "|         FUSION INVESTMENT COMMITTEE DECISION             |\n"
+        "+----------------------------------------------------------+\n"
+        f"| Company:      {co_text:<42} |\n"
+        f"| Deal:         {deal_text:<42} |\n"
+        "+----------------------------------------------------------+\n"
+        f"|  DECISION:    {decision_text:<42} |\n"
+        f"|  CONFIDENCE:  {confidence_text:<42} |\n"
+        f"|  EVI QUALITY: {quality_text:<42} |\n"
+        f"|  READINESS:   {readiness_text:<42} |\n"
+        "+----------------------------------------------------------+\n\n"
         "RISK SCORECARD:\n"
         f"  Financial Risk:  {fin_val_str}  (weight: 30%) → {fin_w_str}\n"
         f"  Legal Risk:      {leg_val_str}  (weight: 25%) → {leg_w_str}\n"
         f"  Technical Risk:  {tech_val_str}  (weight: 25%) → {tech_w_str}\n"
         f"  Market Risk:     {mkt_val_str}  (weight: 20%) → {mkt_w_str}\n"
-        "  ─────────────────────────────────────────────\n"
+        "  ------------------------------------------------------\n"
         f"  WEIGHTED SCORE:  {weighted_val_str}\n\n"
         "PRIMARY REASONS:\n"
-        f"{reasons_str}"
+        f"{reasons_str}\n"
+        "```"
     )
     
     if calc.get("missing_gaps"):
@@ -746,6 +765,8 @@ async def mock_llm_completions(request: Request):
             if have_fin and have_leg and have_tech and have_mkt:
                 # All reports are in, deliver final synthesized decision
                 response_content = final_reports["managing_partner"]
+                # Cache it so that the adapter has a last-resort fallback
+                sim_state.final_verdict_card = response_content
                 
                 # Check if verdict was already dispatched as a message
                 sent_verdict = sim_state.verdict_dispatched

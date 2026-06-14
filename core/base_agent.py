@@ -409,7 +409,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                     logger.info(f"[{self._argus_agent_name}] Added to completed_agents: {sim_state.completed_agents}")
                 # After processing, log the agent's findings to memory_graph
                 # and broadcast "done" to the dashboard.
-                final_thought = msg.content[:500]  # fallback
+                final_thought = msg.content  # fallback
                 try:
                     # Try to get the actual final AI response from the graph
                     graph = None
@@ -424,12 +424,56 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                         state = await graph.aget_state(config)
                         if state and state.values and "messages" in state.values:
                             msgs = state.values["messages"]
-                            for m_rev in reversed(msgs):
-                                if hasattr(m_rev, "content") and m_rev.content and not hasattr(m_rev, "tool_call_id"):
-                                    final_thought = m_rev.content[:1000]
-                                    break
+                            found = False
+                            
+                            # 1. If managing_partner, prioritize finding the decision scorecard anywhere in history
+                            if self._argus_agent_name == "managing_partner":
+                                for m_rev in reversed(msgs):
+                                    # check tool calls first
+                                    if hasattr(m_rev, "tool_calls") and m_rev.tool_calls:
+                                        for tc in m_rev.tool_calls:
+                                            tc_name = tc.get("name")
+                                            if tc_name in ("thenvoi_send_message", "send_message"):
+                                                args = tc.get("args") or {}
+                                                val = args.get("content") or args.get("message")
+                                                if val and "DECISION:" in str(val).upper():
+                                                    final_thought = val
+                                                    found = True
+                                                    break
+                                    # check plain content (in case it returned it directly)
+                                    if not found and hasattr(m_rev, "content") and m_rev.content and not hasattr(m_rev, "tool_call_id"):
+                                        if "DECISION:" in str(m_rev.content).upper():
+                                            final_thought = m_rev.content
+                                            found = True
+                                    if found:
+                                        break
+                                        
+                            # 2. Fallback to standard message traversal if not found
+                            if not found:
+                                for m_rev in reversed(msgs):
+                                    if hasattr(m_rev, "tool_calls") and m_rev.tool_calls:
+                                        for tc in m_rev.tool_calls:
+                                            tc_name = tc.get("name")
+                                            if tc_name in ("thenvoi_send_message", "send_message"):
+                                                args = tc.get("args") or {}
+                                                val = args.get("content") or args.get("message")
+                                                if val and "DECISION:" in str(val).upper():
+                                                    final_thought = val
+                                                    found = True
+                                                    break
+                                        if found:
+                                            break
+                                    if hasattr(m_rev, "content") and m_rev.content and not hasattr(m_rev, "tool_call_id"):
+                                        final_thought = m_rev.content
+                                        break
+                                        
+                            # 3. Last resort fallback for managing_partner: check cached card in sim_state
+                            if self._argus_agent_name == "managing_partner" and not ("DECISION:" in str(final_thought).upper()):
+                                if getattr(sim_state, "final_verdict_card", None):
+                                    final_thought = sim_state.final_verdict_card
+                                    logger.info(f"[{self._argus_agent_name}] Extracted decision card from sim_state cache fallback")
                 except Exception as e:
-                    logger.debug(f"[{self._argus_agent_name}] Could not extract final thought from graph state: {e}")
+                    logger.warning(f"[{self._argus_agent_name}] Could not extract final thought from graph state: {e}", exc_info=True)
 
                 await self._base_agent._log_to_memory(final_thought)
                 await event_bus.broadcast(self._argus_agent_name, "done", {"report": final_thought})
@@ -467,89 +511,102 @@ class BaseAgent:
         self.agent_executor = None
         self._local_executor = None
 
-    def _setup_llm(self):
-        """Set up LLM with priority based on the requested model name and available credentials."""
-        google_key = os.getenv("GOOGLE_API_KEY")
-        featherless_key = os.getenv("FEATHERLESS_API_KEY")
-        groq_key = os.getenv("GROQ_API_KEY")
-        self.llm_is_local = False
-
-        model_lower = self.model_name.lower()
-
-        # 1. Groq Models (Primary for this session since Gemini free tier is exhausted and Featherless is unauthorized)
-        if groq_key and groq_key not in ("your-groq-api-key-here", ""):
-            groq_model = self.model_name
-            # Strip prefixes
-            if groq_model.lower().startswith("groq:"):
-                groq_model = groq_model[5:]
-            elif groq_model.lower().startswith("groq/"):
-                groq_model = groq_model[5:]
-
-            # Map all models to llama-3.3-70b-versatile due to limits/exhaustion of other options
-            groq_model = "llama-3.3-70b-versatile"
-
-            logger.info(f"[{self.display_name}] Routing to Groq model: {groq_model}")
-            self.llm = ChatGroq(
-                api_key=groq_key,
-                model=groq_model,
+    def _build_provider_llm(self, provider: str):
+        """Construct a chat model for one provider. All are OpenAI-tool-calling
+        capable so they slot into the LangGraph react agent identically."""
+        if provider == "aiml":
+            # AIML API (OpenAI-compatible). Default to Claude Sonnet 4.6 — the
+            # strongest agentic / tool-calling model AIML serves. Override with
+            # ARGUS_AIMLAPI_MODEL.
+            return ChatOpenAI(
+                base_url="https://api.aimlapi.com/v1",
+                api_key=os.getenv("AIMLAPI_KEY"),
+                model=os.getenv("ARGUS_AIMLAPI_MODEL", "anthropic/claude-sonnet-4.6"),
+                temperature=0.1,
+                max_tokens=1500,
+                max_retries=2,
+            )
+        if provider == "groq":
+            return ChatGroq(
+                api_key=os.getenv("GROQ_API_KEY"),
+                model=os.getenv("ARGUS_GROQ_MODEL", "llama-3.3-70b-versatile"),
                 temperature=0.1,
                 max_tokens=1024,
-                max_retries=6,
+                max_retries=4,
             )
-        # 2. Gemini Models (Fallback)
-        elif "gemini" in model_lower and google_key and google_key not in ("your-gemini-api-key-here", ""):
-            logger.info(f"[{self.display_name}] Using Gemini model: {self.model_name}")
-            self.llm = ChatGoogleGenerativeAI(
-                model=self.model_name,
-                google_api_key=google_key,
+        if provider == "gemini":
+            gemini_model = self.model_name if "gemini" in self.model_name.lower() else "gemini-2.0-flash"
+            return ChatGoogleGenerativeAI(
+                model=gemini_model,
+                google_api_key=os.getenv("GOOGLE_API_KEY"),
                 temperature=0.1,
                 max_output_tokens=1024,
-                max_retries=6,
+                max_retries=4,
             )
-        # 3. Featherless OS Models (Fallback)
-        elif any(x in model_lower for x in ("llama", "qwen", "mistral")) and not model_lower.startswith("groq") and featherless_key and featherless_key not in ("your-featherless-api-key-here", ""):
-            logger.info(f"[{self.display_name}] Using Featherless OS model: {self.model_name}")
-            self.llm = ChatOpenAI(
-                base_url="https://api.featherless.ai/v1",
-                api_key=featherless_key,
-                model=self.model_name,
-                temperature=0.1
+        raise ValueError(f"Unknown provider: {provider}")
+
+    def _wrap_resilient(self, primary, fallback, fallback_is_local: bool):
+        return ResilientChatModel(
+            primary_llm=primary,
+            fallback_llm=fallback,
+            agent_name=self.name,
+            display_name=self.display_name,
+            fallback_llm_is_local=fallback_is_local,
+        )
+
+    def _setup_llm(self):
+        """Set up the agent LLM.
+
+        Provider direction (the committee is AIML-first per product config):
+          PRIMARY  : AIML API → Claude Sonnet 4.6 (advanced agentic model)
+          FALLBACK : a different real API (Groq, then Gemini) — cheaper, so a
+                     bad AIML response/outage doesn't burn AIML tokens
+          LAST NET : this server's deterministic /mock-llm engine (no cost)
+        The full chain is AIML → Groq → local, wired via nested ResilientChatModel.
+        """
+        def _valid(key: str) -> bool:
+            return bool(key) and "your-" not in (key or "") and key not in (
+                "your-groq-api-key-here", "your-gemini-api-key-here", ""
             )
-        # 4. Fallback to Gemini if key exists but model was not matched
-        elif google_key and google_key not in ("your-gemini-api-key-here", ""):
-            logger.info(f"[{self.display_name}] Using Gemini model (fallback): {self.model_name}")
-            self.llm = ChatGoogleGenerativeAI(
-                model=self.model_name,
-                google_api_key=google_key,
-                temperature=0.1,
-                max_output_tokens=1024,
-                max_retries=6,
-            )
-        # 5. Fallback to AI/ML API
-        elif (aimlapi_key := os.getenv("AIMLAPI_KEY")) and "your-" not in aimlapi_key:
-            aiml_model = os.getenv("ARGUS_AIMLAPI_MODEL", "gpt-4o")
-            logger.info(f"[{self.display_name}] Using AI/ML API model: {aiml_model}")
-            self.llm = ChatOpenAI(
-                base_url="https://api.aimlapi.com/v1",
-                api_key=aimlapi_key,
-                model=aiml_model,
-                temperature=0.1
-            )
-        # 6. Fallback to mock/local
-        else:
-            logger.warning(f"[{self.display_name}] No API key configured. Running with dummy mock model.")
+
+        available = []
+        if _valid(os.getenv("AIMLAPI_KEY")):
+            available.append("aiml")
+        if _valid(os.getenv("GROQ_API_KEY")):
+            available.append("groq")
+        if _valid(os.getenv("GOOGLE_API_KEY")):
+            available.append("gemini")
+
+        self.llm_is_local = False
+        if not available:
+            logger.warning(f"[{self.display_name}] No API key configured. Running on the local engine.")
             self.llm = self._make_local_llm()
             self.llm_is_local = True
+            return
 
-        if not self.llm_is_local:
-            fallback_llm = self._make_local_llm()
-            self.llm = ResilientChatModel(
-                primary_llm=self.llm,
-                fallback_llm=fallback_llm,
-                agent_name=self.name,
-                display_name=self.display_name,
-                fallback_llm_is_local=self.llm_is_local
+        primary_provider = available[0]
+        # Pick the cheapest *other* provider as the secondary real fallback.
+        secondary_provider = next(
+            (p for p in ("groq", "gemini", "aiml") if p in available and p != primary_provider),
+            None,
+        )
+
+        primary_llm = self._build_provider_llm(primary_provider)
+        logger.info(
+            f"[{self.display_name}] LLM primary={primary_provider} "
+            f"({os.getenv('ARGUS_AIMLAPI_MODEL', 'anthropic/claude-sonnet-4.6') if primary_provider == 'aiml' else primary_provider}), "
+            f"fallback={secondary_provider or 'local-engine'}"
+        )
+
+        local_llm = self._make_local_llm()
+        if secondary_provider:
+            # secondary real API, with the local engine as its own safety net
+            fallback = self._wrap_resilient(
+                self._build_provider_llm(secondary_provider), local_llm, fallback_is_local=True
             )
+            self.llm = self._wrap_resilient(primary_llm, fallback, fallback_is_local=False)
+        else:
+            self.llm = self._wrap_resilient(primary_llm, local_llm, fallback_is_local=True)
 
     def _make_local_llm(self):
         """LLM client pointed at this server's deterministic /mock-llm engine."""
@@ -794,13 +851,13 @@ class BaseAgent:
             await memory_graph.log_finding(
                 incident_id,
                 self.name,
-                (report or "")[:1000],
+                report or "",
                 severity=_estimate_severity(report),
                 tags=_extract_mitre_tags(report),
             )
             # The executive verdict closes the incident record
             if self.name == "managing_partner" and "DECISION" in (report or "").upper():
-                memory_graph.set_final_decision(incident_id, (report or "")[:500])
+                memory_graph.set_final_decision(incident_id, report or "")
 
             # Legal partner findings become learned risk patterns for future deals
             if self.name == "legal_partner":
