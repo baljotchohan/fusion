@@ -26,7 +26,6 @@ logger = logging.getLogger("argus.llm_router")
 DEFAULT_TIMEOUT = 30.0
 
 OPENAI_COMPAT_ENDPOINTS = {
-    "groq": ("https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile"),
     "featherless": ("https://api.featherless.ai/v1/chat/completions", "mistralai/Mistral-Small-24B-Instruct-2501"),
     "aimlapi": ("https://api.aimlapi.com/v1/chat/completions", "gpt-4o-mini"),
 }
@@ -49,15 +48,14 @@ def _is_placeholder(key: Optional[str]) -> bool:
 class LLMRouter:
     def __init__(self):
         self.keys = {
-            "gemini": os.getenv("GOOGLE_API_KEY"),
             "featherless": os.getenv("FEATHERLESS_API_KEY"),
             "aimlapi": os.getenv("AIMLAPI_KEY"),
-            "groq": os.getenv("GROQ_API_KEY"),
         }
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         # Fallback chain: primary first, then everything else that has a key
-        primary = os.getenv("ARGUS_LLM_PRIMARY", "gemini")
-        chain = [primary] + [p for p in ("gemini", "groq", "featherless", "aimlapi") if p != primary]
+        primary = os.getenv("ARGUS_LLM_PRIMARY", "aimlapi")
+        if primary not in ("aimlapi", "featherless"):
+            primary = "aimlapi"
+        chain = [primary] + [p for p in ("aimlapi", "featherless") if p != primary]
         self.chain = [p for p in chain if not _is_placeholder(self.keys.get(p))]
 
     def available_providers(self) -> list:
@@ -85,30 +83,12 @@ class LLMRouter:
                 logger.debug(f"LLM provider '{provider}' has no key — skipping")
                 continue
             try:
-                if provider == "gemini":
-                    return await self._call_gemini(prompt, max_tokens, system, timeout)
                 return await self._call_openai_compat(provider, prompt, max_tokens, system, timeout)
             except Exception as e:
                 logger.warning(f"LLM provider '{provider}' failed: {e} — falling back...")
                 last_error = e
 
         raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
-
-    async def _call_gemini(self, prompt: str, max_tokens: int, system: str, timeout: float = DEFAULT_TIMEOUT) -> str:
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.gemini_model}:generateContent?key={self.keys['gemini']}"
-        )
-        payload = {
-            "system_instruction": {"parts": [{"text": system}]},
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
-        }
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
 
     async def _call_openai_compat(
         self, provider: str, prompt: str, max_tokens: int, system: str, timeout: float = DEFAULT_TIMEOUT

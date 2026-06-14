@@ -673,7 +673,6 @@ class BaseAgent:
             return get_red_flags.invoke({"domain": domain})
             
         return scoped_get_red_flags
-
     def _build_provider_llm(self, provider: str):
         """Construct a chat model for one provider. All are OpenAI-tool-calling
         capable so they slot into the LangGraph react agent identically."""
@@ -689,21 +688,13 @@ class BaseAgent:
                 max_tokens=1500,
                 max_retries=2,
             )
-        if provider == "groq":
-            return ChatGroq(
-                api_key=os.getenv("GROQ_API_KEY"),
-                model=os.getenv("ARGUS_GROQ_MODEL", "llama-3.3-70b-versatile"),
+        if provider == "featherless":
+            return ChatOpenAI(
+                base_url="https://api.featherless.ai/v1",
+                api_key=os.getenv("FEATHERLESS_API_KEY"),
+                model=os.getenv("ARGUS_FEATHERLESS_MODEL", "mistralai/Mistral-Small-24B-Instruct-2501"),
                 temperature=0.1,
-                max_tokens=1024,
-                max_retries=4,
-            )
-        if provider == "gemini":
-            gemini_model = self.model_name if "gemini" in self.model_name.lower() else "gemini-2.0-flash"
-            return ChatGoogleGenerativeAI(
-                model=gemini_model,
-                google_api_key=os.getenv("GOOGLE_API_KEY"),
-                temperature=0.1,
-                max_output_tokens=1024,
+                max_tokens=1500,
                 max_retries=4,
             )
         raise ValueError(f"Unknown provider: {provider}")
@@ -722,23 +713,21 @@ class BaseAgent:
 
         Provider direction (the committee is AIML-first per product config):
           PRIMARY  : AIML API → Claude Sonnet 4.6 (advanced agentic model)
-          FALLBACK : a different real API (Groq, then Gemini) — cheaper, so a
+          FALLBACK : a different real API (Featherless) — cheaper, so a
                      bad AIML response/outage doesn't burn AIML tokens
           LAST NET : this server's deterministic /mock-llm engine (no cost)
-        The full chain is AIML → Groq → local, wired via nested ResilientChatModel.
+        The full chain is AIML → Featherless → local, wired via nested ResilientChatModel.
         """
         def _valid(key: str) -> bool:
             return bool(key) and "your-" not in (key or "") and key not in (
-                "your-groq-api-key-here", "your-gemini-api-key-here", ""
+                "your-featherless-api-key-here", ""
             )
 
         available = []
         if _valid(os.getenv("AIMLAPI_KEY")):
             available.append("aiml")
-        if _valid(os.getenv("GROQ_API_KEY")):
-            available.append("groq")
-        if _valid(os.getenv("GOOGLE_API_KEY")):
-            available.append("gemini")
+        if _valid(os.getenv("FEATHERLESS_API_KEY")):
+            available.append("featherless")
 
         self.llm_is_local = False
         if not available:
@@ -750,7 +739,7 @@ class BaseAgent:
         primary_provider = available[0]
         # Pick the cheapest *other* provider as the secondary real fallback.
         secondary_provider = next(
-            (p for p in ("groq", "gemini", "aiml") if p in available and p != primary_provider),
+            (p for p in ("featherless", "aiml") if p in available and p != primary_provider),
             None,
         )
 
