@@ -457,11 +457,11 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
             competition_raw = {"value": comp_val, "confidence": 85, "provenance": "direct", "evidence": "Competitor Analysis"}
     competition = ensure_rule1_conformance(competition_raw, "Competition", "Market")
 
-    # Unpack flags
-    fin_flags = financials.get("red_flags", []) if isinstance(financials.get("red_flags"), list) else []
-    leg_flags = legal.get("red_flags", []) if isinstance(legal.get("red_flags"), list) else []
-    tech_flags = technical.get("red_flags", []) if isinstance(technical.get("red_flags"), list) else []
-    mkt_flags = market.get("red_flags", []) if isinstance(market.get("red_flags"), list) else []
+    # Unpack flags (cloned as new lists to prevent mutating shared pitch_data on re-runs)
+    fin_flags = list(financials.get("red_flags", [])) if isinstance(financials.get("red_flags"), list) else []
+    leg_flags = list(legal.get("red_flags", [])) if isinstance(legal.get("red_flags"), list) else []
+    tech_flags = list(technical.get("red_flags", [])) if isinstance(technical.get("red_flags"), list) else []
+    mkt_flags = list(market.get("red_flags", [])) if isinstance(market.get("red_flags"), list) else []
 
     # Initialize string variables to prevent UnboundLocalErrors when fields are missing
     comp_str = ""

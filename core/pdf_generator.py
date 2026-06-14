@@ -62,22 +62,29 @@ def _get_brand_logo():
 def clean_unicode_and_emojis(text: str) -> str:
     """Replaces emojis and unsupported high-Unicode characters with safe representations
     or strips them to prevent ReportLab rendering/encoding exceptions.
-    Also escapes XML/HTML special characters to prevent paraparser syntax errors.
+    Also strips out all grounding tags and developer metadata ([Grounding: ...]).
+    Escapes XML/HTML special characters to prevent paraparser syntax errors.
     """
     if not text:
         return ""
+        
+    # Remove Grounding blocks: [Grounding: ...]
+    text = re.sub(r'\[Grounding:\s*.*?\]', '', text, flags=re.DOTALL)
+    
+    # Mute bracketed potential conflict prefixes
+    text = text.replace("[POTENTIAL CONFLICT]", "Potential Conflict:")
         
     replacements = {
         "💼": "",
         "📊": "",
         "⚖️": "",
         "⚖": "",
-        "🚨": "[ALERT]",
-        "📋": "[GAP]",
-        "🛡️": "[CONFIDENCE]",
-        "🛡": "[CONFIDENCE]",
-        "🎯": "[COVERAGE]",
-        "🚦": "[STATUS]",
+        "🚨": "Alert: ",
+        "📋": "Gap: ",
+        "🛡️": "Confidence: ",
+        "🛡": "Confidence: ",
+        "🎯": "Coverage: ",
+        "🚦": "Status: ",
         "🏢": "",
         "💵": "",
         "🔧": "",
@@ -86,8 +93,8 @@ def clean_unicode_and_emojis(text: str) -> str:
         "🤖": "",
         "🚀": "",
         "🤝": "",
-        "⚠️": "[WARNING]",
-        "⚠": "[WARNING]",
+        "⚠️": "Warning: ",
+        "⚠": "Warning: ",
         "✨": "",
         "🔥": "",
         "─": "-",
@@ -102,6 +109,10 @@ def clean_unicode_and_emojis(text: str) -> str:
     
     for emoji, replacement in replacements.items():
         text = text.replace(emoji, replacement)
+        
+    # Clean up redundant warnings
+    text = text.replace("Warning:  Potential Conflict:", "Potential Conflict:")
+    text = text.replace("Warning: Potential Conflict:", "Potential Conflict:")
         
     # Standard Helvetica supports Latin-1 characters (up to codepoint 255).
     # We strip out any character beyond 255 to ensure zero compilation errors.
@@ -136,6 +147,9 @@ def clean_unicode_and_emojis(text: str) -> str:
     text = text.replace("&lt;br&gt;", "<br/>")
     text = text.replace("&lt;br/&gt;", "<br/>")
     text = text.replace("&lt;br /&gt;", "<br/>")
+    
+    # Trim leading/trailing spaces
+    text = text.strip()
     
     return text
 
@@ -447,34 +461,39 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
             if not line_str:
                 continue
             
-            line_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", line_str)
-            line_clean = clean_unicode_and_emojis(line_formatted)
+            line_clean = clean_unicode_and_emojis(line_str)
             
             if line_clean.startswith("# "):
                 title_text = line_clean.replace("# ", "").strip().upper()
-                story.append(Paragraph(f"<b>{title_text}</b>", ParagraphStyle('MemoMainTitle', parent=h1_style, spaceBefore=12, spaceAfter=6, keepWithNext=True)))
+                title_text_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", title_text)
+                story.append(Paragraph(f"<b>{title_text_formatted}</b>", ParagraphStyle('MemoMainTitle', parent=h1_style, spaceBefore=12, spaceAfter=6, keepWithNext=True)))
             elif line_clean.startswith("### "):
                 h_text = line_clean.replace("### ", "").strip()
-                story.append(Paragraph(h_text, h2_style))
+                h_text_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", h_text)
+                story.append(Paragraph(h_text_formatted, h2_style))
             elif line_clean.startswith("* ") or line_clean.startswith("- "):
                 b_text = line_clean[2:].strip()
                 if not b_text or set(b_text) <= set("-+=_ "):  # empty / rule-only bullet
                     continue
-                story.append(Paragraph(b_text, bullet_style))
+                b_text_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", b_text)
+                story.append(Paragraph(b_text_formatted, bullet_style))
             elif re.match(r"^\d+\.\s+", line_clean):
                 num_text = re.sub(r"^\d+\.\s+", "", line_clean).strip()
-                story.append(Paragraph(f"{line_clean.split('.')[0]}. {num_text}", bullet_style))
+                num_text_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", num_text)
+                story.append(Paragraph(f"{line_clean.split('.')[0]}. {num_text_formatted}", bullet_style))
             elif line_clean.startswith("|"):
                 # Strip ASCII box pipe borders, keep the inner content as a line
                 inner = line_clean.strip("|").strip()
                 if not inner or set(inner) <= set("-+=_ `"):
                     continue
-                story.append(Paragraph(inner, body_style))
+                inner_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", inner)
+                story.append(Paragraph(inner_formatted, body_style))
             elif line_clean.startswith("```") or line_clean.startswith("+--") or (line_clean and set(line_clean) <= set("-+=_ `")):
                 # Skip code fences and decision-card ASCII border/rule lines
                 continue
             else:
-                story.append(Paragraph(line_clean, body_style))
+                line_clean_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", line_clean)
+                story.append(Paragraph(line_clean_formatted, body_style))
         story.append(Spacer(1, 10))
         
     # ────────────────────────────────────────────────────────
@@ -582,13 +601,13 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
                 if not bullet_text or set(bullet_text) <= set("-+=_ "):  # empty / rule-only bullet
                     idx += 1
                     continue
-                bullet_text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", bullet_text)
-                bullet_text = clean_unicode_and_emojis(bullet_text)
-                partner_findings.append(("bullet", bullet_text))
+                bullet_clean = clean_unicode_and_emojis(bullet_text)
+                bullet_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", bullet_clean)
+                partner_findings.append(("bullet", bullet_formatted))
             elif line:
-                cleaned_line = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", line)
-                cleaned_line = clean_unicode_and_emojis(cleaned_line)
-                partner_findings.append(("text", cleaned_line))
+                line_clean = clean_unicode_and_emojis(line)
+                line_formatted = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", line_clean)
+                partner_findings.append(("text", line_formatted))
         idx += 1
         
     # Flush the final partner
