@@ -16,6 +16,27 @@ def get_citation(f: Dict[str, Any], section_name: str) -> str:
     prefix = "⚠️ [POTENTIAL CONFLICT] " if flag else ""
     return f"{prefix}{val} [Grounding: {section_name} -> {ev} (Confidence: {conf}%, Provenance: {prov})]"
 
+def _infer_flag_provenance(flag: dict) -> str:
+    """Infer provenance for a red flag based on its evidence quality.
+
+    - 'document'        → flag references a real document section
+    - 'document_cited'  → flag includes a substantial verbatim quote
+    - 'analyst_inference' → LLM reasoning without strong doc anchoring
+    """
+    sec = flag.get("source_section", "N/A")
+    ev = str(flag.get("evidence", ""))
+
+    # Has a real document section reference (not N/A or empty)
+    if sec and sec != "N/A" and sec.strip():
+        return "document"
+
+    # Has substantial evidence text (likely a verbatim quote from documents)
+    if ev and len(ev) > 30 and ev != "N/A":
+        return "document_cited"
+
+    return "analyst_inference"
+
+
 def format_red_flags(flags: List[Any]) -> str:
     if not flags:
         return "- No significant red flags identified."
@@ -30,7 +51,8 @@ def format_red_flags(flags: List[Any]) -> str:
         sec = f.get("source_section", "N/A")
         flag = f.get("flag_for_review", False)
         prefix = "⚠️ [POTENTIAL CONFLICT] " if flag else ""
-        lines.append(f"- {prefix}{claim} (Evidence: {ev}) [Grounding: {sec} -> {ev} (Confidence: {conf}%, Provenance: llm)]")
+        prov = _infer_flag_provenance(f)
+        lines.append(f"- {prefix}{claim} (Evidence: {ev}) [Grounding: {sec} -> {ev} (Confidence: {conf}%, Provenance: {prov})]")
     return "\n".join(lines)
 
 def is_field_missing(field: dict) -> bool:

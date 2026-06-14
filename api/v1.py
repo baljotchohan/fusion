@@ -2202,6 +2202,8 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
         )
         
     # ── REQUIRE PARTNER CONTENT ──
+    # Keep the LONGEST finding per partner (the real report),
+    # discarding shorter interim messages.
     partner_findings = {
         "financial_partner": "",
         "legal_partner": "",
@@ -2213,7 +2215,7 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
         agent = ev.get("agent")
         if agent in partner_findings:
             finding = ev.get("finding", "").strip()
-            if finding:
+            if finding and len(finding) > len(partner_findings[agent]):
                 partner_findings[agent] = finding
                 
     for partner, finding in partner_findings.items():
@@ -2362,14 +2364,38 @@ async def generate_research_report(incident_id: Optional[str] = None, format: Op
 
 ## 📝 CHRONOLOGICAL PARTNER AUDIT TIMELINE
 """
+    # Build a deduplicated, filtered timeline:
+    # - Skip managing partner "awaiting findings" interim messages
+    # - For specialist partners, only include the longest (real) report
+    agent_display_map = {
+        "managing_partner": "💼 Managing Partner",
+        "financial_partner": "📊 Financial Partner",
+        "legal_partner": "⚖️ Legal Partner",
+        "technical_partner": "🔧 Technical Partner",
+        "market_partner": "📈 Market Partner"
+    }
+    
+    # Collect best entry per agent (longest finding)
+    best_entries = {}  # agent -> timeline entry
     for ev in inc.get("timeline", []):
-        agent_display = {
-            "managing_partner": "💼 Managing Partner",
-            "financial_partner": "📊 Financial Partner",
-            "legal_partner": "⚖️ Legal Partner",
-            "technical_partner": "🔧 Technical Partner",
-            "market_partner": "📈 Market Partner"
-        }.get(ev["agent"], ev["agent"])
+        agent = ev.get("agent", "")
+        finding = ev.get("finding", "")
+        
+        # Skip managing partner interim "awaiting" status messages
+        if agent == "managing_partner" and "awaiting findings" in finding.lower():
+            continue
+        
+        # Keep the longest finding per agent (real report, not interim)
+        if agent not in best_entries or len(finding) > len(best_entries[agent].get("finding", "")):
+            best_entries[agent] = ev
+    
+    # Render in a stable order: specialists first, then managing partner verdict
+    render_order = ["financial_partner", "legal_partner", "technical_partner", "market_partner", "managing_partner"]
+    for agent_key in render_order:
+        ev = best_entries.get(agent_key)
+        if not ev:
+            continue
+        agent_display = agent_display_map.get(agent_key, agent_key)
         
         report_md += f"""
 ### {agent_display} (Severity: {ev.get('severity', 5)}/10)
