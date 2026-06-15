@@ -150,7 +150,14 @@ RISK SCORECARD:
 ---
 — FUSION Swarm Investment Associate & Committee OS
 
-After delivering the verdict, call thenvoi_send_event('FUSION DELIVERED: [INVEST/PASS/CONDITIONAL] on [company] with [X]% confidence.')"""
+Deliver the decision card as your FINAL message — it MUST contain 'DECISION:'. Do not send any further messages or events after it."""
+
+
+# Sentinel the orchestrator puts in the message that tells the Managing Partner
+# to synthesize the final verdict (all 4 specialists have reported). The MP
+# ignores every other mock-bus message so it never runs prematurely on a
+# single specialist's report.
+VERDICT_TRIGGER = "[FUSION_VERDICT_TRIGGER]"
 
 
 class ManagingPartner(BaseAgent):
@@ -161,8 +168,12 @@ class ManagingPartner(BaseAgent):
             room="managing-partner-room",
             system_prompt=SYSTEM_PROMPT,
             tools=[load_deal_brief, get_company_name, get_red_flags, get_calculated_scores],
-            model_name="gemini-2.0-flash"
+            model_name="gpt-4o-mini"
         )
+
+    def _should_handle_mock_message(self, sender: str, message: str) -> bool:
+        # Only synthesize when the orchestrator explicitly triggers the verdict.
+        return VERDICT_TRIGGER in (message or "")
 
 # Target rooms: finance-partner-room, legal-partner-room, tech-partner-room, market-partner-room
 

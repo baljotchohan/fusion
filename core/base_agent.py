@@ -21,9 +21,7 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
-from langchain_groq import ChatGroq
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -120,6 +118,17 @@ def _to_plain_text(text: str) -> str:
     t = _re.sub(r"^\s*[-*]\s+", "• ", t, flags=_re.MULTILINE)        # - bullets → •
     t = _re.sub(r"\n{3,}", "\n\n", t)
     return t.strip()
+
+
+def _msg_content_text(content) -> str:
+    """Flatten a LangChain message content (str, or list of content blocks) to
+    plain text. Some providers return content as a list of {type,text} blocks."""
+    if isinstance(content, list):
+        return "\n".join(
+            b.get("text", "") for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+    return str(content or "")
 
 
 def _extract_mitre_tags(text: str) -> List[str]:
@@ -428,12 +437,15 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
             return
 
         if not direct_user_query:
-            if sim_state.deal_concluded:
-                logger.info(f"[{self._argus_agent_name}] Deal already concluded — skipping message: '{msg.content[:80]}'")
-                return
-
+            # Only block this specific agent if IT has already completed its work
             if self._argus_agent_name in sim_state.completed_agents and self._argus_agent_name != "managing_partner":
                 logger.info(f"[{self._argus_agent_name}] Agent already completed analysis for this deal — skipping message: '{msg.content[:80]}'")
+                return
+
+            # Don't block specialists from finishing just because the verdict arrived early.
+            # Only block the managing_partner from processing new messages after the deal concludes.
+            if sim_state.deal_concluded and self._argus_agent_name == "managing_partner":
+                logger.info(f"[{self._argus_agent_name}] Deal already concluded — skipping message: '{msg.content[:80]}'")
                 return
 
             # Is this genuinely OLD history (posted before this agent came online)?
@@ -620,7 +632,7 @@ class BaseAgent:
         room: str,
         system_prompt: str,
         tools: Optional[List[Any]] = None,
-        model_name: str = "gemini-2.0-flash"
+        model_name: str = "gpt-4o-mini"
     ):
         self.name = name
         self.display_name = display_name
@@ -636,6 +648,10 @@ class BaseAgent:
                 self.custom_tools.append(self._make_scoped_get_red_flags(t))
             else:
                 self.custom_tools.append(t)
+                
+        from core.pitch_loader import get_calculated_scores
+        if get_calculated_scores not in self.custom_tools:
+            self.custom_tools.append(get_calculated_scores)
         self.custom_tools.extend(self._get_memory_tools())
         
         self.model_name = model_name
@@ -717,14 +733,18 @@ class BaseAgent:
             
         return scoped_get_red_flags
     def _build_provider_llm(self, provider: str):
-        """Construct a chat model for one provider. All are OpenAI-tool-calling
-        capable so they slot into the LangGraph react agent identically."""
+        """Construct a provider chat model (OpenAI-compatible tool calling) so it
+        slots into the LangGraph react agent directly. Both hackathon partner
+        APIs are supported:
+          - aiml        AIML API (https://api.aimlapi.com)
+          - featherless Featherless native API (https://api.featherless.ai).
+                        If you only have a HuggingFace hf_ token instead of a
+                        native rc_ key, set ARGUS_FEATHERLESS_BASE_URL=
+                        https://router.huggingface.co/featherless-ai/v1
+        """
         if provider == "aiml":
-            # AIML API (OpenAI-compatible). Default to gpt-4o-mini — the
-            # cost-effective, reliable tool-calling model. Override with
-            # ARGUS_AIMLAPI_MODEL.
             return ChatOpenAI(
-                base_url="https://api.aimlapi.com/v1",
+                base_url=os.getenv("ARGUS_AIMLAPI_BASE_URL", "https://api.aimlapi.com/v1"),
                 api_key=os.getenv("AIMLAPI_KEY"),
                 model=os.getenv("ARGUS_AIMLAPI_MODEL", "gpt-4o-mini"),
                 temperature=0.1,
@@ -732,13 +752,16 @@ class BaseAgent:
                 max_retries=2,
             )
         if provider == "featherless":
+            # Qwen2.5-72B: fast (~2s), strong, reliable tool-calling, NON-gated.
+            # (Meta Llama is gated on Featherless → 403; DeepSeek-Pro is a slow
+            # reasoner that stalled agents.) 1800 tokens is ample for a report.
             return ChatOpenAI(
-                base_url="https://api.featherless.ai/v1",
+                base_url=os.getenv("ARGUS_FEATHERLESS_BASE_URL", "https://api.featherless.ai/v1"),
                 api_key=os.getenv("FEATHERLESS_API_KEY"),
-                model=os.getenv("ARGUS_FEATHERLESS_MODEL", "mistralai/Mistral-Small-24B-Instruct-2501"),
+                model=os.getenv("ARGUS_FEATHERLESS_MODEL", "Qwen/Qwen2.5-72B-Instruct"),
                 temperature=0.1,
-                max_tokens=1500,
-                max_retries=4,
+                max_tokens=1800,
+                max_retries=3,
             )
         raise ValueError(f"Unknown provider: {provider}")
 
@@ -752,20 +775,24 @@ class BaseAgent:
         )
 
     def _setup_llm(self):
-        """Set up the agent LLM.
+        """Set up the agent LLM — the committee's *analysis* brain.
 
-        Provider direction (the committee is AIML-first per product config):
-          PRIMARY  : AIML API → Claude Sonnet 4.6 (advanced agentic model)
-          FALLBACK : a different real API (Featherless) — cheaper, so a
-                     bad AIML response/outage doesn't burn AIML tokens
+        Both hackathon partner APIs are wired. Analysis runs on AIML as PRIMARY
+        because the 5 agents analyze in parallel and Featherless plans cap
+        concurrency at ~1 request (4 parallel agents → 429). Featherless stays as
+        the secondary real fallback so the partner is still used on AIML outages.
+
+        Provider chain for analysis:
+          PRIMARY  : AIML API (gpt-4o-mini) — fast, cheap, handles concurrency
+          FALLBACK : Featherless (Qwen2.5-72B) — secondary real provider
           LAST NET : this server's deterministic /mock-llm engine (no cost)
-        The full chain is AIML → Featherless → local, wired via nested ResilientChatModel.
+        Wired as AIML → Featherless → local via nested ResilientChatModel.
         """
         def _valid(key: str) -> bool:
-            return bool(key) and "your-" not in (key or "") and key not in (
-                "your-featherless-api-key-here", ""
-            )
+            return bool(key) and "your-" not in (key or "")
 
+        # Analysis prefers AIML (concurrency-safe); Featherless is the secondary
+        # real fallback.
         available = []
         if _valid(os.getenv("AIMLAPI_KEY")):
             available.append("aiml")
@@ -774,22 +801,16 @@ class BaseAgent:
 
         self.llm_is_local = False
         if not available:
-            logger.warning(f"[{self.display_name}] No API key configured. Running on the local engine.")
+            logger.warning(f"[{self.display_name}] No analysis API key configured. Running on the local engine.")
             self.llm = self._make_local_llm()
             self.llm_is_local = True
             return
 
         primary_provider = available[0]
-        # Pick the cheapest *other* provider as the secondary real fallback.
-        secondary_provider = next(
-            (p for p in ("featherless", "aiml") if p in available and p != primary_provider),
-            None,
-        )
-
+        secondary_provider = available[1] if len(available) > 1 else None
         primary_llm = self._build_provider_llm(primary_provider)
         logger.info(
-            f"[{self.display_name}] LLM primary={primary_provider} "
-            f"({os.getenv('ARGUS_AIMLAPI_MODEL', 'gpt-4o-mini') if primary_provider == 'aiml' else primary_provider}), "
+            f"[{self.display_name}] analysis LLM primary={primary_provider}, "
             f"fallback={secondary_provider or 'local-engine'}"
         )
 
@@ -945,23 +966,8 @@ class BaseAgent:
         """Compiles the LangGraph agent executor."""
         # Stable agent-id marker so the offline mock-LLM endpoint can route
         # deterministically by id instead of fragile system-prompt keyword matching.
-        # Harmless metadata for real LLMs (Groq/Gemini/Featherless).
+        # Harmless metadata for the real LLM (AIML API).
         prompt = f"{self.system_prompt}\n\n[ARGUS_AGENT: {self.name}]"
-        is_groq = False
-        if hasattr(self.llm, "primary_llm"):
-            is_groq = self.llm.primary_llm.__class__.__name__ == "ChatGroq"
-        else:
-            is_groq = self.llm.__class__.__name__ == "ChatGroq"
-
-        if is_groq:
-            prompt = (
-                f"{prompt}\n\n"
-                f"CRITICAL GROQ TOOL CALLING RULES:\n"
-                f"1. You MUST use standard tool calling. Never output XML tags like <function=...> or </function>.\n"
-                f"2. For thenvoi_send_message, the 'mentions' parameter MUST be a list/array of strings (e.g., ['@baljotchohan23/threat-intel']), NEVER a single string.\n"
-                f"3. For thenvoi_send_event, the 'message_type' MUST be exactly one of: 'thought', 'error', 'task'. Never use any other value.\n"
-                f"4. For thenvoi_send_event, the 'metadata' parameter MUST be a dictionary/object (e.g., {{}}), NEVER a string."
-            )
 
         if is_mock_mode():
             # In mock mode, combine custom tools with our mock Band tools
@@ -1020,6 +1026,13 @@ class BaseAgent:
         we can call the agent executor directly."""
         return await self.agent_executor.ainvoke(inputs, config=config)
 
+    def _should_handle_mock_message(self, sender: str, message: str) -> bool:
+        """Hook: should this agent run on a mock-bus message? Default yes.
+        The Managing Partner overrides this so it only synthesizes the verdict
+        when the orchestrator explicitly triggers it (all 4 specialists done),
+        instead of running prematurely on each specialist's report."""
+        return True
+
     async def handle_mock_message(self, sender: str, message: str):
         """Handles a message arriving in Mock Mode.
 
@@ -1028,6 +1041,9 @@ class BaseAgent:
         Previously a 40-second polling timeout would discard late arrivals
         and wedge the pipeline on 'Deliberating' forever.
         """
+        if not self._should_handle_mock_message(sender, message):
+            logger.info(f"[{self.display_name}] Ignoring mock message (gated): '{message[:60]}'")
+            return
         logger.info(f"[{self.display_name}] Enqueueing message from '{sender}': {message[:80]}...")
         await self._message_queue.put((sender, message))
 
@@ -1060,7 +1076,25 @@ class BaseAgent:
 
         try:
             response = await self._invoke_resilient(inputs, config)
-            final_thought = response["messages"][-1].content
+            msgs = response.get("messages", []) if isinstance(response, dict) else []
+            final_thought = _msg_content_text(msgs[-1].content) if msgs else ""
+
+            # The Managing Partner may emit the DECISION card and THEN a closing
+            # event message, so the LAST message isn't always the card. Scan all
+            # messages for the verdict card and prefer it (and cache it so the
+            # report/PDF and dashboard always have the full card).
+            if self.name == "managing_partner":
+                for m in reversed(msgs):
+                    text = _msg_content_text(getattr(m, "content", ""))
+                    if "DECISION:" in text.upper():
+                        final_thought = text
+                        try:
+                            from api.state import sim_state
+                            sim_state.final_verdict_card = text
+                        except Exception:
+                            pass
+                        break
+
             logger.info(f"[{self.display_name}] Completed task. Final Thought: {final_thought[:100]}...")
 
             # Log the finding to the shared memory graph for future incidents

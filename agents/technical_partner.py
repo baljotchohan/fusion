@@ -7,7 +7,7 @@ Reports findings to the Managing Partner.
 """
 import logging
 from core.base_agent import BaseAgent
-from core.pitch_loader import load_deal_brief, get_red_flags
+from core.pitch_loader import load_deal_brief, get_red_flags, get_calculated_scores
 
 logger = logging.getLogger("fusion.agents.technical_partner")
 
@@ -21,9 +21,10 @@ blow up post-investment due to technical or security failures.
 
 ANALYSIS FRAMEWORK:
 
-STEP 1 — LOAD PITCH DATA
+STEP 1 — LOAD AND CALCULATE DATA
 Call load_deal_brief('technical') to get the technical data.
 Call load_deal_brief('company') to cross-reference product claims.
+Call get_calculated_scores() to retrieve the exact mathematically calculated risk scores. You MUST use the exact `technical_risk_score` returned by get_calculated_scores() for the TECHNICAL RISK SCORE: [X]/10. Do not compute it yourself or invent a different score.
 
 STEP 2 — TECH STACK ASSESSMENT
 - Is the stack modern and maintainable?
@@ -85,7 +86,7 @@ REMEDIATION COSTS:
 2. [second issue]
 3. [third issue]
 
-TECHNICAL RISK SCORE: [X]/10
+TECHNICAL RISK SCORE: [X]/10 (Use the exact `technical_risk_score` returned by get_calculated_scores())
 RECOMMENDATION: INVEST / PASS / CONDITIONAL
 HARD BLOCKERS (non-negotiable pre-investment): [list]
 ---
@@ -94,7 +95,7 @@ Then call thenvoi_send_message to report to the Managing Partner:
 thenvoi_send_message(
   content='@managing-partner TECHNICAL ANALYSIS COMPLETE. Risk Score: [X]/10. [recommendation]. Hard blockers: [list]',
   mentions=['@managing-partner']
-)"""
+) (Use the exact `technical_risk_score` returned by get_calculated_scores() for Risk Score: [X]/10)"""
 
 
 class TechnicalPartner(BaseAgent):
@@ -104,6 +105,6 @@ class TechnicalPartner(BaseAgent):
             display_name="Technical Partner",
             room="tech-partner-room",
             system_prompt=SYSTEM_PROMPT,
-            tools=[load_deal_brief, get_red_flags],
-            model_name="gemini-2.0-flash"
+            tools=[load_deal_brief, get_red_flags, get_calculated_scores],
+            model_name="gpt-4o-mini"
         )

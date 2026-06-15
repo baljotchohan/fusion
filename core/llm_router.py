@@ -1,19 +1,22 @@
 # core/llm_router.py
 """
-Multi-provider LLM router with automatic fallback.
+LLM router for the conversational *chat* path (the agents' due-diligence
+analysis path lives in core/base_agent.py and runs on Featherless).
 
-Providers (BYO keys via env):
-  - gemini       GOOGLE_API_KEY       (Google Gemini REST API)
-  - groq         GROQ_API_KEY         (OpenAI-compatible, free tier)
-  - featherless  FEATHERLESS_API_KEY  (OpenAI-compatible, OSS models)
+Providers (BYO keys via env) — both hackathon partner APIs:
   - aimlapi      AIMLAPI_KEY          (OpenAI-compatible, https://aimlapi.com)
+  - featherless  FEATHERLESS_API_KEY  (native Featherless API. If you only have
+                                        a HuggingFace hf_ token, set
+                                        ARGUS_FEATHERLESS_BASE_URL=https://
+                                        router.huggingface.co/featherless-ai/v1)
 
 Usage:
     router = LLMRouter()
-    text = await router.call_llm("Summarize this incident...", model="auto")
+    text = await router.call_llm("Summarize this deal...", model="auto")
 
-"auto" tries the configured primary first and walks the fallback chain on
-any error, so an outage on one provider never stalls the agent pipeline.
+"auto" tries the chat primary (AIML) first and falls back to Featherless on
+error. If the chain is empty (no keys), callers fall back to the deterministic
+local engine, so the chat path never stalls.
 """
 import os
 import logging
@@ -26,8 +29,13 @@ logger = logging.getLogger("argus.llm_router")
 DEFAULT_TIMEOUT = 30.0
 
 OPENAI_COMPAT_ENDPOINTS = {
-    "featherless": ("https://api.featherless.ai/v1/chat/completions", "mistralai/Mistral-Small-24B-Instruct-2501"),
-    "aimlapi": ("https://api.aimlapi.com/v1/chat/completions", "gpt-4o-mini"),
+    # provider: (base_url_env_var, default_base_url, default_model)
+    "aimlapi": ("ARGUS_AIMLAPI_BASE_URL", "https://api.aimlapi.com/v1", "gpt-4o-mini"),
+    "featherless": (
+        "ARGUS_FEATHERLESS_BASE_URL",
+        "https://api.featherless.ai/v1",
+        "Qwen/Qwen2.5-72B-Instruct",
+    ),
 }
 
 SYSTEM_PROMPT = (
@@ -47,11 +55,19 @@ def _is_placeholder(key: Optional[str]) -> bool:
 
 class LLMRouter:
     def __init__(self):
+        # Ensure .env keys are present regardless of when the router is first
+        # built (it caches keys at construction). Mirrors base_agent's load.
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except Exception:
+            pass
         self.keys = {
-            "featherless": os.getenv("FEATHERLESS_API_KEY"),
             "aimlapi": os.getenv("AIMLAPI_KEY"),
+            "featherless": os.getenv("FEATHERLESS_API_KEY"),
         }
-        # Fallback chain: primary first, then everything else that has a key
+        # Chat runs on AIML first, then falls back to Featherless. ARGUS_LLM_PRIMARY
+        # can override the chat primary; default is aimlapi.
         primary = os.getenv("ARGUS_LLM_PRIMARY", "aimlapi")
         if primary not in ("aimlapi", "featherless"):
             primary = "aimlapi"
@@ -72,10 +88,7 @@ class LLMRouter:
         """Route a prompt to a provider, falling back down the chain on errors."""
         providers = self.chain if model == "auto" else [model]
         if not providers:
-            raise RuntimeError(
-                "No LLM provider configured. Set GOOGLE_API_KEY, GROQ_API_KEY, "
-                "FEATHERLESS_API_KEY, or AIMLAPI_KEY."
-            )
+            raise RuntimeError("No LLM provider configured. Set AIMLAPI_KEY and/or FEATHERLESS_API_KEY.")
 
         last_error: Optional[Exception] = None
         for provider in providers:
@@ -93,7 +106,8 @@ class LLMRouter:
     async def _call_openai_compat(
         self, provider: str, prompt: str, max_tokens: int, system: str, timeout: float = DEFAULT_TIMEOUT
     ) -> str:
-        url, default_model = OPENAI_COMPAT_ENDPOINTS[provider]
+        base_env, default_base, default_model = OPENAI_COMPAT_ENDPOINTS[provider]
+        url = os.getenv(base_env, default_base).rstrip("/") + "/chat/completions"
         payload = {
             "model": os.getenv(f"ARGUS_{provider.upper()}_MODEL", default_model),
             "messages": [

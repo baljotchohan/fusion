@@ -7,7 +7,7 @@ Reports findings to the Managing Partner.
 """
 import logging
 from core.base_agent import BaseAgent
-from core.pitch_loader import load_deal_brief, get_red_flags
+from core.pitch_loader import load_deal_brief, get_red_flags, get_calculated_scores
 
 logger = logging.getLogger("fusion.agents.financial_partner")
 
@@ -19,9 +19,10 @@ Your mandate: protect LP capital by stress-testing every financial claim in the 
 
 ANALYSIS FRAMEWORK:
 
-STEP 1 — LOAD PITCH DATA
+STEP 1 — LOAD AND CALCULATE DATA
 Call load_deal_brief('financials') to get the financial data.
 Also call load_deal_brief('company') to cross-reference their claims vs actual numbers.
+Call get_calculated_scores() to retrieve the exact mathematically calculated risk scores. You MUST use the exact `financial_risk_score` returned by get_calculated_scores() for the FINANCIAL RISK SCORE: [X]/10. Do not compute it yourself or invent a different score.
 
 STEP 2 — REVENUE QUALITY ANALYSIS
 - Revenue concentration: any single customer >20% ARR is a yellow flag; >40% is red.
@@ -76,7 +77,7 @@ VALUATION:
 2. [second finding]
 3. [third finding]
 
-FINANCIAL RISK SCORE: [X]/10
+FINANCIAL RISK SCORE: [X]/10 (Use the exact `financial_risk_score` returned by get_calculated_scores())
 RECOMMENDATION: INVEST / PASS / CONDITIONAL
 CONDITION (if applicable): [specific condition]
 ---
@@ -85,7 +86,7 @@ Then call thenvoi_send_message to report to the Managing Partner:
 thenvoi_send_message(
   content='@managing-partner FINANCIAL ANALYSIS COMPLETE. Risk Score: [X]/10. [recommendation]. [summary of top red flags]',
   mentions=['@managing-partner']
-)"""
+) (Use the exact `financial_risk_score` returned by get_calculated_scores() for Risk Score: [X]/10)"""
 
 
 class FinancialPartner(BaseAgent):
@@ -95,6 +96,6 @@ class FinancialPartner(BaseAgent):
             display_name="Financial Partner",
             room="finance-partner-room",
             system_prompt=SYSTEM_PROMPT,
-            tools=[load_deal_brief, get_red_flags],
-            model_name="gemini-2.0-flash"
+            tools=[load_deal_brief, get_red_flags, get_calculated_scores],
+            model_name="gpt-4o-mini"
         )

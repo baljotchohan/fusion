@@ -7,7 +7,7 @@ Reports findings to the Managing Partner.
 """
 import logging
 from core.base_agent import BaseAgent
-from core.pitch_loader import load_deal_brief, get_red_flags
+from core.pitch_loader import load_deal_brief, get_red_flags, get_calculated_scores
 
 logger = logging.getLogger("fusion.agents.market_partner")
 
@@ -21,10 +21,11 @@ and evaluate whether the timing makes this a winning bet.
 
 ANALYSIS FRAMEWORK:
 
-STEP 1 — LOAD PITCH DATA
+STEP 1 — LOAD AND CALCULATE DATA
 Call load_deal_brief('market') to get market data.
 Call load_deal_brief('pitch_claims') and load_deal_brief('company') to cross-reference
 the company's market size and growth claims against actual sector data.
+Call get_calculated_scores() to retrieve the exact mathematically calculated risk scores. You MUST use the exact `market_risk_score` returned by get_calculated_scores() for the MARKET RISK SCORE: [X]/10. Do not compute it yourself or invent a different score.
 
 STEP 2 — MARKET SIZE REALITY CHECK
 - Is the TAM claim credible? Bottom-up vs top-down analysis.
@@ -85,7 +86,7 @@ DEFENSIBILITY: [X]/25
 2. [second concern]
 3. [third concern]
 
-MARKET RISK SCORE: [X]/10
+MARKET RISK SCORE: [X]/10 (Use the exact `market_risk_score` returned by get_calculated_scores())
 RECOMMENDATION: INVEST / PASS / CONDITIONAL
 KEY THESIS QUESTION: [the single most important question this deal hinges on]
 ---
@@ -94,7 +95,7 @@ Then call thenvoi_send_message to report to the Managing Partner:
 thenvoi_send_message(
   content='@managing-partner MARKET ANALYSIS COMPLETE. Risk Score: [X]/10. [recommendation]. Key concern: [1 sentence]',
   mentions=['@managing-partner']
-)"""
+) (Use the exact `market_risk_score` returned by get_calculated_scores() for Risk Score: [X]/10)"""
 
 
 class MarketPartner(BaseAgent):
@@ -104,6 +105,6 @@ class MarketPartner(BaseAgent):
             display_name="Market Partner",
             room="market-partner-room",
             system_prompt=SYSTEM_PROMPT,
-            tools=[load_deal_brief, get_red_flags],
-            model_name="gemini-2.0-flash"
+            tools=[load_deal_brief, get_red_flags, get_calculated_scores],
+            model_name="gpt-4o-mini"
         )

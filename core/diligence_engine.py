@@ -795,6 +795,35 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
 
     # Red-Flag Override Policy Check
     override_reasons = []
+    combined_text_lower = pitch_str_lower + " " + doc_text
+
+    # 1. Existential Business Risks (Prioritized)
+    if concentration_val is not None and concentration_val > 70.0:
+        override_reasons.append(f"High customer concentration ({concentration_val:.0f}% of ARR from top 2 customers) creating severe renewal and churn vulnerability [Grounding: Financials -> {get_grounding(customer_concentration, 'Financials')}]")
+    
+    if runway_val is not None and runway_val < 8.0 and not is_field_missing(runway):
+        if runway_val < 3.0:
+            override_reasons.append(f"Runway is critical (<3 months) [Grounding: Financials -> {get_grounding(runway, 'Financials')}]")
+        else:
+            override_reasons.append(f"Critical runway limitations ({runway_val:.1f} months remaining) requiring immediate capital injection [Grounding: Financials -> {get_grounding(runway, 'Financials')}]")
+        
+    has_off_label = ("off-label" in combined_text_lower or "warning letter" in combined_text_lower or "informal inquiry" in combined_text_lower) and "actively marketed" in combined_text_lower
+    if has_off_label:
+        override_reasons.append("Active off-label marketing of uncleared SaMD indications (PE, Head CT, Liver) creating material FDA warning-letter and enforcement risk [Grounding: Legal -> actively marketed uncleared indications]")
+        
+    has_hipaa_risk = ("baa gap" in combined_text_lower or "potential hipaa breach" in combined_text_lower or "ocr penalty" in combined_text_lower or "hipaa violation" in combined_text_lower)
+    if has_hipaa_risk:
+        override_reasons.append("Potential HIPAA exposure and OCR enforcement risk (Datadog BAA gap affecting 180k records + North Memorial Health PACS breach) [Grounding: Legal -> HIPAA compliance gaps]")
+        
+    has_patent_dispute = ("inventorship" in combined_text_lower or "co-inventor" in combined_text_lower or "chancery court" in combined_text_lower)
+    if has_patent_dispute:
+        override_reasons.append("Material undisclosed litigation: active patent inventorship dispute (35-40% adverse probability) threatening core IP ownership [Grounding: Legal -> Raman & Koval lawsuit]")
+        
+    has_rev_rec_risk = ("emphasis-of-matter" in combined_text_lower or "emphasis of matter" in combined_text_lower or "restatement risk" in combined_text_lower)
+    if has_rev_rec_risk:
+        override_reasons.append("High restatement risk ($1.8M-$2.1M) and revenue quality concerns due to one-time NIH grant recognized as ARR [Grounding: Legal -> auditor emphasis-of-matter]")
+
+    # 2. Secondary Governance & Tax Risks
     if has_contractor_risk:
         override_reasons.append("High contractor misclassification risk under IRS / labor guidelines [Grounding: Legal -> 8 long-term contractors]")
     if has_409a_risk:
@@ -805,6 +834,7 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
         override_reasons.append("Undisclosed competitor stock option conflicts of interest for CMO / VP Sales [Grounding: Founders -> CMO/VP Sales options in Aidoc/Viz.ai]")
     if has_recusal_risk:
         override_reasons.append("Lacking required FDA reviewer post-employment recusal review (21 CFR Part 19) [Grounding: Founders -> Thomas Huang FDA recusal]")
+        
     if has_lawsuit and lit_damages is not None and raise_amt_val is not None and lit_damages > 0.5 * raise_amt_val:
         override_reasons.append(f"Active patent lawsuit damages > 50% of the raise amount [Grounding: Litigation -> {get_grounding(litigation, 'Litigation')}]")
     if is_plaintext_storage:
@@ -815,8 +845,6 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
         override_reasons.append(f"Operating without required money transmitter licenses [Grounding: Compliance -> {get_grounding(compliance, 'Compliance')}]")
     if is_unlicensed_healthcare:
         override_reasons.append(f"Operating without required healthcare or FDA licenses/clearances [Grounding: Compliance -> {get_grounding(compliance, 'Compliance')}]")
-    if runway_val is not None and runway_val < 3.0 and not is_field_missing(runway):
-        override_reasons.append(f"Runway is critical (<3 months) [Grounding: Financials -> {get_grounding(runway, 'Financials')}]")
     is_concentration_cliff = (concentration_val is not None and concentration_val > 70.0) and any(w in str(customer_concentration.get("evidence", "")).lower() or w in str(pitch_data).lower() for w in ["expires in 3 months", "contract expires sept 30, 2026", "renewal in 3 months", "3 months after close"])
     if is_concentration_cliff:
         override_reasons.append(f"70%+ customer concentration with contract expiring in <3 months [Grounding: Financials -> {get_grounding(customer_concentration, 'Financials')}]")

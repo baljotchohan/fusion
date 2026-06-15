@@ -1,6 +1,7 @@
-// components/Logo.tsx — FUSION letter "f" logo.
-// Traced directly from the official logofusion.png to ensure perfect vector accuracy.
-// Uses currentColor to scale and style with Tailwind text colors (e.g. text-accent).
+// components/Logo.tsx — FUSION "F" lettermark only (no wordmark text).
+// Pixel-accurate SVG auto-traced from the official fusion_logo.png.
+// Uses fill="currentColor" so Tailwind text-color classes (e.g. text-accent)
+// control the fill colour — always green in production via text-accent.
 import React from 'react'
 
 interface LogoProps {
@@ -8,30 +9,39 @@ interface LogoProps {
   title?: string
 }
 
-export default function Logo({ className = 'w-6 h-6 text-accent', title = 'FUSION' }: LogoProps) {
+export default function Logo({ className = 'w-7 h-7 text-accent', title = 'FUSION' }: LogoProps) {
+  // Original trace viewBox is 1000×300, but the F mark lives in the left ~310px.
+  // We crop to a 320×280 viewBox so only the F glyph is visible.
   return (
     <svg
-      viewBox="0 0 64 64"
+      viewBox="110 40 220 250"
       className={className}
-      role="img"
-      aria-label={title}
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label={title}
     >
-      {/* stem */}
+      {/* Top sweeping bar */}
       <path
-        d="M 45.61 25.8 L 34.56 25.8 L 32.0 28.36 L 27.15 31.46 L 19.61 35.1 L 14.76 36.98 L 12.06 37.66 L 11.66 38.06 L 11.79 45.61 L 11.12 51.67 L 9.37 58.0 L 10.98 57.6 L 14.62 55.44 L 19.74 50.32 L 22.17 46.68 L 24.46 41.83 L 26.34 35.77 L 27.69 36.04 L 32.0 35.91 L 36.72 34.02 L 40.08 31.73 L 44.66 27.55 Z"
-        opacity="0.85"
+        d="M 342.32 49.48 L 339.57 47.40 L 312.60 53.13 L 184.37 53.13 L 162.91 57.81
+           L 145.84 67.19 L 130.99 83.33 L 119.98 107.81 L 118.88 125.00 L 121.63 126.04
+           L 137.04 113.02 L 151.35 109.90 L 273.53 109.90 L 296.09 105.21 L 314.25 95.83
+           L 327.46 83.33 L 336.82 68.23 Z"
       />
-      {/* crossbar */}
+      {/* Lower diagonal stem */}
       <path
-        d="M 23.92 22.44 L 15.03 22.44 L 13.54 23.38 L 12.47 24.46 L 12.47 24.59 L 12.06 24.99 L 11.93 25.94 L 11.79 26.07 L 11.79 29.31 L 11.66 29.44 L 11.79 29.58 L 11.79 29.98 L 11.66 30.11 L 11.66 34.83 L 11.79 34.96 L 11.79 35.5 L 12.47 35.5 L 14.89 34.02 L 15.56 33.35 L 15.7 33.35 L 17.72 31.6 L 17.85 31.6 L 17.99 31.33 L 18.39 31.06 L 18.66 30.65 L 18.8 30.65 L 19.2 29.98 L 19.47 29.84 L 20.95 28.23 L 21.09 27.82 L 22.03 26.61 L 22.03 26.34 L 22.97 25.13 L 23.65 23.65 L 23.65 23.38 L 23.92 22.97 Z"
-        opacity="0.75"
-      />
-      {/* top_hook */}
-      <path
-        d="M 57.33 6.4 L 56.65 6.0 L 51.94 7.08 L 45.74 7.48 L 20.55 7.35 L 17.18 8.02 L 13.14 10.45 L 9.1 15.3 L 9.23 15.56 L 6.67 21.22 L 6.81 22.44 L 7.21 22.44 L 8.96 20.68 L 10.85 19.61 L 15.3 18.53 L 43.59 18.53 L 47.22 17.72 L 50.73 15.97 L 53.42 13.41 L 55.44 10.45 Z"
+        d="M 290.59 137.50 L 238.86 138.02 L 223.45 151.04 L 204.18 163.02 L 140.89 189.06
+           L 139.79 229.69 L 132.64 275.00 L 139.79 275.52 L 154.10 267.19 L 177.77 245.31
+           L 193.73 220.31 L 204.18 189.06 L 209.14 182.81 L 226.20 183.85 L 253.16 174.48
+           L 266.37 166.15 L 286.19 148.44 L 291.14 141.67 Z"
         opacity="0.9"
+      />
+      {/* Crossbar / middle notch */}
+      <path
+        d="M 195.93 122.40 L 154.65 122.40 L 149.70 123.96 L 145.29 127.08 L 140.89 135.42
+           L 141.44 180.73 L 145.84 179.69 L 162.36 168.75 L 170.06 162.50 L 178.87 153.65
+           L 191.52 135.94 L 196.48 126.04 Z"
+        opacity="0.85"
       />
     </svg>
   )

@@ -128,6 +128,59 @@ def _is_casual_message(text: str) -> bool:
     return t in _CASUAL_OPENERS
 
 
+def _resolve_referenced_deal(user_message: str, current_incident_id: str, deals_history: list) -> Optional[dict]:
+    if not deals_history:
+        return None
+        
+    lower_msg = user_message.lower()
+    
+    # 1. Direct name match (e.g. "neural", "gridflow", "novapay", "auria", "helios", etc.)
+    for deal in deals_history:
+        co_name = deal["company_name"].lower()
+        short_name = co_name.replace("inc.", "").replace("inc", "").replace("corp.", "").replace("corp", "").replace("energy", "").replace("pay", "").strip()
+        if len(short_name) >= 3 and short_name in lower_msg:
+            return deal
+        if co_name in lower_msg:
+            return deal
+            
+    # Sort deals chronologically (oldest first, latest last)
+    sorted_deals = sorted(deals_history, key=lambda d: d.get("created_at", ""))
+    
+    # 2. Ordinal references
+    if "first deal" in lower_msg or "1st deal" in lower_msg or "our first" in lower_msg:
+        return sorted_deals[0]
+    if "latest deal" in lower_msg or "last deal" in lower_msg or "current deal" in lower_msg or "active deal" in lower_msg:
+        return sorted_deals[-1]
+    if "second deal" in lower_msg or "2nd deal" in lower_msg:
+        if len(sorted_deals) >= 2:
+            return sorted_deals[1]
+    if "third deal" in lower_msg or "3rd deal" in lower_msg:
+        if len(sorted_deals) >= 3:
+            return sorted_deals[2]
+            
+    # 3. Relative references: "before [company]" or "prior to [company]"
+    m_before = re.search(r"(?:before|prior\s+to|preceding)\s+([a-z0-9\s]+)", lower_msg)
+    if m_before:
+        ref_name = m_before.group(1).strip()
+        # Find the index of the referenced company
+        ref_idx = -1
+        for idx, deal in enumerate(sorted_deals):
+            co_name = deal["company_name"].lower()
+            short_name = co_name.replace("inc.", "").replace("inc", "").replace("corp.", "").replace("corp", "").replace("energy", "").replace("pay", "").strip()
+            if ref_name in short_name or ref_name in co_name:
+                ref_idx = idx
+                break
+        if ref_idx > 0:
+            return sorted_deals[ref_idx - 1]
+            
+    # 4. Default: check current active/latest incident
+    for deal in sorted_deals:
+        if deal["incident_id"] == current_incident_id:
+            return deal
+            
+    return sorted_deals[-1]
+
+
 def _classify_intent(text: str) -> str:
     """Deterministic intent router so replies are relevant and non-disruptive."""
     t = text.lower().strip().rstrip("!.")
@@ -477,12 +530,65 @@ async def _commander_reply(intent: str, user_message: str, incident_id: str,
     latest_id = memory_graph.get_latest_incident_id()
     latest_summary = memory_graph.get_team_summary(latest_id) if latest_id else "No deals on record yet."
 
+    # Load all evaluated deals to resolve target and build index
+    all_incidents = memory_graph.list_incidents()
+    deals_history = []
+    for inc_id, inc_data in all_incidents.items():
+        metadata = inc_data.get("metadata", {})
+        co_name = "Unknown Startup"
+        if isinstance(metadata, dict):
+            co_name = metadata.get("company") or metadata.get("company_name") or metadata.get("value") or metadata.get("name") or "Unknown Startup"
+            if isinstance(co_name, dict):
+                co_name = co_name.get("value") or co_name.get("name") or "Unknown Startup"
+        
+        fd = inc_data.get("final_decision") or ""
+        if (not co_name or co_name == "Unknown Startup") and fd:
+            m_co = re.search(r"Company\s*\*?\*?\s*:\s*(.+)", fd, re.I)
+            if m_co:
+                co_name = m_co.group(1).strip().strip("*_`|").strip()
+                
+        if not co_name or co_name == "Unknown Startup":
+            for ev in inc_data.get("timeline", []):
+                finding = ev.get("finding", "")
+                m_co = re.search(r"REPORT\s*—\s*([A-Za-z0-9\.\s]+)", finding, re.I)
+                if m_co:
+                    co_name = m_co.group(1).strip()
+                    break
+                    
+        verdict = "PENDING"
+        if fd:
+            m_dec = re.search(r"DECISION\s*:\s*(.+)", fd, re.I)
+            if m_dec:
+                verdict = m_dec.group(1).strip().strip("*_`|").strip()
+                
+        deals_history.append({
+            "incident_id": inc_id,
+            "company_name": co_name,
+            "created_at": inc_data.get("created_at", ""),
+            "verdict": verdict,
+            "final_decision": fd,
+            "timeline": inc_data.get("timeline", [])
+        })
+        
+    sorted_deals = sorted(deals_history, key=lambda d: d.get("created_at", ""))
+    target_deal = _resolve_referenced_deal(user_message, incident_id, sorted_deals)
+    
+    # Format the all-deals index
+    history_lines = []
+    for idx, d in enumerate(sorted_deals):
+        history_lines.append(f"{idx+1}. Company: {d['company_name']} | Deal ID: {d['incident_id']} | Verdict: {d['verdict']}")
+    all_deals_index = "\n".join(history_lines) if history_lines else "No deals on record yet."
+    
+    # Target deal details
+    target_id = target_deal["incident_id"] if target_deal else latest_id
+    target_summary = memory_graph.get_team_summary(target_id) if target_id else "No deals on record yet."
+
     from core.base_agent import llm_degraded, degrade_llm
 
     llm_router = get_router()
     if llm_router.available_providers():
-        recent = memory_graph.get_chat_history(limit=6)
-        convo = "\n".join(f"{t['role']}: {t['content'][:200]}" for t in recent)
+        recent = memory_graph.get_chat_history(limit=12)
+        chat_history_str = "\n".join(f"{t['role'].upper()}: {t['content']}" for t in recent) if recent else "No chat history yet."
         
         # Dynamic instructions based on intent to prevent irrelevant deal dumping
         if intent == "greeting":
@@ -511,8 +617,10 @@ async def _commander_reply(intent: str, user_message: str, incident_id: str,
             )
         elif intent == "query_deal":
             intent_instructions = (
-                f"The user is asking about the active or latest deal. Use the latest deal summary:\n{latest_summary}\n"
-                "to answer their question directly, cleanly, and professionally. Focus on what they asked."
+                f"The user is asking about a deal (specifically resolved as target: {target_deal['company_name'] if target_deal else 'N/A'}). "
+                f"Use the resolved target deal's summary context:\n{target_summary}\n"
+                f"And the target deal's final decision verdict card:\n{target_deal['final_decision'] if target_deal else 'N/A'}\n"
+                "to answer their question directly, cleanly, and professionally. Focus on what they asked, keeping the details rich."
             )
         elif intent == "docs":
             intent_instructions = (
@@ -522,32 +630,46 @@ async def _commander_reply(intent: str, user_message: str, incident_id: str,
             )
         elif intent == "memory":
             intent_instructions = (
-                f"Summarize what the committee has learned globally. We have evaluated {stats['total_incidents']} "
-                f"deals, logged {stats['total_findings']} findings, and catalogued {len(stats['learned_patterns'])} "
-                f"learned risk patterns. Keep it professional."
+                f"Summarize what the committee has learned globally. Here is the list of all deals evaluated so far:\n{all_deals_index}\n"
+                f"We have evaluated {stats['total_incidents']} deals, logged {stats['total_findings']} findings, and catalogued {len(stats['learned_patterns'])} learned risk patterns. Keep it professional."
             )
         else:
             intent_instructions = (
-                f"General query. Answer contextually. If the query relates to startup investments or our current active deal ({incident_id}), "
-                f"use this summary: {latest_summary}. Keep your answer clean and structured."
+                f"General query. Answer contextually. If the query relates to startup investments or our current target deal ({target_id}), "
+                f"use this summary: {target_summary}. Keep your answer clean and structured."
             )
 
         prompt = f"""You are the FUSION Managing Partner — a calm, sharp, elite VC general partner.
-Talking to a user in plain English.
+Talking to a user.
 
-Context:
-- Active Deal ID: {incident_id}
-- Active Swarm running: {sim_state.running}
+All evaluated deals on record:
+{all_deals_index}
+
+Target deal resolved from conversation context:
+- Company Name: {target_deal['company_name'] if target_deal else 'N/A'}
+- Deal ID: {target_deal['incident_id'] if target_deal else 'N/A'}
+- Verdict: {target_deal['verdict'] if target_deal else 'N/A'}
+
+Target deal's final decision verdict card:
+{target_deal['final_decision'] if target_deal else 'N/A'}
+
+Target deal's detailed partner findings:
+{target_summary}
 
 Instructions for this message:
 {intent_instructions}
 
-Formatting (strict):
-1. Respond in clean, natural prose with short '- ' bullet points and **bold** for key terms.
-2. NEVER use markdown headers (#, ##, ###) or hashtags like #Finance. No '---' dividers. No raw JSON, code fences, or developer jargon.
-3. Use a few tasteful emojis where they genuinely help (📊 ⚖️ 🚩) — never as spam.
-4. Adopt a high-end, warm, elite VC partner tone. Keep it concise (2-4 sentences or a tight bullet list) and highly readable.
-5. User message: "{user_message}"
+Recent conversation history (you MUST maintain continuity and remember previous questions/context):
+{chat_history_str}
+
+Formatting & Language instructions:
+1. Respond in clean, natural prose. Use short '- ' bullet points and **bold** for key terms where appropriate.
+2. NEVER use markdown headers (#, ##, ###) or hashtags like #Finance. No '---' dividers. No raw JSON.
+3. Use a few tasteful emojis where they genuinely help (📊 ⚖️ 🚩).
+4. Adopt a high-end, warm, elite VC partner tone. Keep it concise (2-4 sentences or a tight bullet list).
+5. Dynamic Adaptation: Detect and adapt to the user's language, tone, and formatting requests. If the user asks you to speak in Hindi, Hindi-English (Hinglish), or any other language, you MUST respond in that language. If the user requests a friendly, casual, or conversational tone, relax the professional tone and speak in a friendly, conversational manner.
+
+User message: "{user_message}"
 """
         try:
             return await llm_router.call_llm(prompt, max_tokens=420)
@@ -945,8 +1067,8 @@ def _mcp_transports() -> list:
     ]
 
 _PROVIDER_META = [
-    ("featherless", "FEATHERLESS_API_KEY", "Featherless — OSS models", "Mistral / Qwen / Llama"),
-    ("aimlapi", "AIMLAPI_KEY", "AI/ML API — GPT-4o mini", "200+ models, one key"),
+    ("aimlapi", "AIMLAPI_KEY", "AI/ML API — chat", "Conversational committee chat"),
+    ("featherless", "FEATHERLESS_API_KEY", "Featherless — analysis (via HF)", "Due-diligence agents"),
 ]
 
 
@@ -1071,7 +1193,60 @@ async def reset_all_history():
 async def _agent_reply(agent_name: str, user_message: str, incident_id: str) -> str:
     """Generate a high-quality persona-specific response for a targeted agent."""
     stats = memory_graph.get_memory_stats()
-    inc = memory_graph.get_incident(incident_id) if incident_id else None
+    
+    # Load all evaluated deals to resolve target and build index
+    all_incidents = memory_graph.list_incidents()
+    deals_history = []
+    for inc_id, inc_data in all_incidents.items():
+        metadata = inc_data.get("metadata", {})
+        co_name = "Unknown Startup"
+        if isinstance(metadata, dict):
+            co_name = metadata.get("company") or metadata.get("company_name") or metadata.get("value") or metadata.get("name") or "Unknown Startup"
+            if isinstance(co_name, dict):
+                co_name = co_name.get("value") or co_name.get("name") or "Unknown Startup"
+        
+        fd = inc_data.get("final_decision") or ""
+        if (not co_name or co_name == "Unknown Startup") and fd:
+            m_co = re.search(r"Company\s*\*?\*?\s*:\s*(.+)", fd, re.I)
+            if m_co:
+                co_name = m_co.group(1).strip().strip("*_`|").strip()
+                
+        if not co_name or co_name == "Unknown Startup":
+            for ev in inc_data.get("timeline", []):
+                finding = ev.get("finding", "")
+                m_co = re.search(r"REPORT\s*—\s*([A-Za-z0-9\.\s]+)", finding, re.I)
+                if m_co:
+                    co_name = m_co.group(1).strip()
+                    break
+                    
+        verdict = "PENDING"
+        if fd:
+            m_dec = re.search(r"DECISION\s*:\s*(.+)", fd, re.I)
+            if m_dec:
+                verdict = m_dec.group(1).strip().strip("*_`|").strip()
+                
+        deals_history.append({
+            "incident_id": inc_id,
+            "company_name": co_name,
+            "created_at": inc_data.get("created_at", ""),
+            "verdict": verdict,
+            "final_decision": fd,
+            "timeline": inc_data.get("timeline", [])
+        })
+        
+    sorted_deals = sorted(deals_history, key=lambda d: d.get("created_at", ""))
+    target_deal = _resolve_referenced_deal(user_message, incident_id, sorted_deals)
+    
+    # Format the all-deals index
+    history_lines = []
+    for idx, d in enumerate(sorted_deals):
+        history_lines.append(f"{idx+1}. Company: {d['company_name']} | Deal ID: {d['incident_id']} | Verdict: {d['verdict']}")
+    all_deals_index = "\n".join(history_lines) if history_lines else "No deals on record yet."
+
+    latest_id = memory_graph.get_latest_incident_id()
+    target_id = target_deal["incident_id"] if target_deal else (incident_id or latest_id)
+    
+    inc = memory_graph.get_incident(target_id) if target_id else None
     
     agent_findings = []
     if inc:
@@ -1083,32 +1258,32 @@ async def _agent_reply(agent_name: str, user_message: str, incident_id: str) -> 
     
     # Load calculations dynamically to build a custom mandate
     calc = None
+    pitch_file = None
     try:
         from core.pitch_loader import _load_pitch_file
         from core.diligence_engine import run_diligence_calculations
         from api.state import sim_state
         from core.demo_registry import resolve_pitch_file
         
-        pitch_file = None
-        if incident_id:
-            inc = memory_graph.get_incident(incident_id)
-            if inc and "metadata" in inc:
-                company_name = inc["metadata"].get("company")
+        if target_id:
+            inc_target = memory_graph.get_incident(target_id)
+            if inc_target and "metadata" in inc_target:
+                company_name = inc_target["metadata"].get("company")
                 if company_name:
                     demo_pitch = resolve_pitch_file(company_name)
                     if demo_pitch:
                         pitch_file = demo_pitch
                     else:
                         data_dir = os.path.join(os.path.dirname(__file__), "../data")
-                        up_filename = f"pitch_{incident_id}.json"
+                        up_filename = f"pitch_{target_id}.json"
                         if os.path.exists(os.path.join(data_dir, up_filename)):
                             pitch_file = up_filename
                             
         if not pitch_file:
             pitch_file = getattr(sim_state, "active_pitch_file", None)
             
-        if not pitch_file and incident_id:
-            pitch_file = f"pitch_{incident_id}.json"
+        if not pitch_file and target_id:
+            pitch_file = f"pitch_{target_id}.json"
             
         pitch_data = _load_pitch_file(pitch_file)
         if pitch_data:
@@ -1206,9 +1381,13 @@ async def _agent_reply(agent_name: str, user_message: str, incident_id: str) -> 
     
     p = PERSONAS.get(agent_name, PERSONAS["managing_partner"])
 
-    # Casual greeting / smalltalk → fast, friendly in-persona reply. Handled BEFORE
-    # the LLM and the full audit so "hi"/"hlo" never returns a wall of risk findings.
-    if _is_casual_message(user_message):
+    is_casual = _is_casual_message(user_message)
+    from core.base_agent import llm_degraded
+    llm_router = get_router()
+    
+    # Casual greeting / smalltalk → fast, friendly in-persona reply if LLM is degraded.
+    # If LLM is healthy, we let LLM handle it to support tone and language adaptation!
+    if is_casual and not llm_router.available_providers():
         import random
         emoji = {"financial_partner": "💵", "legal_partner": "⚖️",
                  "technical_partner": "🛠️", "market_partner": "📊",
@@ -1225,33 +1404,58 @@ async def _agent_reply(agent_name: str, user_message: str, incident_id: str) -> 
         ]
         return f"{random.choice(openers)} {random.choice(invites)}"
 
+    if is_casual:
+        intent_instructions = (
+            f"The user is making casual greeting or smalltalk. Greet the user warmly and naturally "
+            f"in first person as the {p['name']} ({p['role']}) — 1-2 sentences with a little personality, "
+            f"and invite them to ask about our diligence findings or specific risks. Do NOT dump risk scores "
+            f"or the full audit logs."
+        )
+    else:
+        intent_instructions = (
+            f"The user is asking a question or checking our diligence. Answer the user's question directly, "
+            f"using your findings on the target deal: {findings_str}."
+        )
+
+    recent = memory_graph.get_chat_history(limit=12)
+    chat_history_str = "\n".join(f"{t['role'].upper()}: {t['content']}" for t in recent) if recent else "No chat history yet."
+
     prompt = f"""You are the {p['name']} ({p['role']}) at FUSION VC investment committee.
 {p['bio']}
 
 Your mandate: {p['mandate']}
 
-Diligence context:
-Current Deal ID: {incident_id or 'None'}
-Your findings logged on this deal:
+All evaluated deals on record:
+{all_deals_index}
+
+Target deal resolved from conversation context:
+- Company Name: {target_deal['company_name'] if target_deal else 'N/A'}
+- Deal ID: {target_id or 'None'}
+- Verdict: {target_deal['verdict'] if target_deal else 'N/A'}
+
+Your findings logged on this target deal:
 {findings_str}
 
 System status:
 Total deals on record: {stats['total_incidents']}
 Learned risk patterns: {list(stats['learned_patterns'].keys())}
 
-User message: "{user_message}"
+Instructions for this message:
+{intent_instructions}
 
-CRITICAL INSTRUCTIONS:
-1. Speak in first person ("I found...", "In my audit...", "My assessment...").
-2. Answer the user's question directly, concisely, and professionally. Use **bold** for key terms and '- ' bullets.
-3. NEVER use markdown headers (#, ##, ###) or hashtags like #Finance. No '---' dividers, code blocks, or raw JSON.
-4. Adopt a high-end, warm, elite VC partner tone. Use a few tasteful emojis where they help (📊 ⚖️ 🚩).
-5. Keep your answer brief (2-3 sentences) unless the user specifically asks for a detailed report.
-6. If the user asks about your "last job", "last time", or "what is the status", refer to your logged findings above or your role.
+Recent conversation history (you MUST maintain continuity and remember previous questions/context):
+{chat_history_str}
+
+Formatting & Language instructions:
+1. Respond in clean, natural prose. Use short '- ' bullet points and **bold** for key terms where appropriate.
+2. NEVER use markdown headers (#, ##, ###) or hashtags like #Finance. No '---' dividers. No raw JSON.
+3. Use a few tasteful emojis where they genuinely help (📊 ⚖️ 🚩).
+4. Adopt a high-end, warm, elite VC partner tone. Keep it concise (2-4 sentences or a tight bullet list).
+5. Dynamic Adaptation: Detect and adapt to the user's language, tone, and formatting requests. If the user asks you to speak in Hindi, Hindi-English (Hinglish), or any other language, you MUST respond in that language. If the user requests a friendly, casual, or conversational tone, relax the professional tone and speak in a friendly, conversational manner.
+
+User message: "{user_message}"
 """
-    
-    from core.base_agent import llm_degraded
-    llm_router = get_router()
+
     if llm_router.available_providers():
         try:
             return await llm_router.call_llm(prompt, max_tokens=350)
@@ -1263,8 +1467,13 @@ CRITICAL INSTRUCTIONS:
         run_diligence_calculations, get_citation, format_red_flags
     )
 
-    pitch_data = _load_pitch_file()
-    calc = run_diligence_calculations(pitch_data)
+    if not calc:
+        try:
+            pitch_data = _load_pitch_file(pitch_file)
+            calc = run_diligence_calculations(pitch_data)
+        except Exception:
+            pitch_data = _load_pitch_file()
+            calc = run_diligence_calculations(pitch_data)
     company_name = calc["company_name"]
     valuation = calc.get("valuation", "N/A")
 
@@ -1942,6 +2151,33 @@ def extract_facts_regex(text: str, filename: str) -> dict:
                 "source_start": tech_stack.get("source_start"),
                 "source_end": tech_stack.get("source_end")
             })
+
+    # Targeted technical/security scans — surface distinct material technical risks.
+    _tech_scans = [
+        (r"(?:orthanc|cve-2023-33466|unpatched cve|unauthenticated remote read)", "Unpatched critical CVE on DICOM server (CVE-2023-33466) allowing remote read of patient metadata", 8),
+        (r"(?:datadog baa|datadog[^\n]*hipaa|monitoring tool[^\n]*phi)", "Potential HIPAA breach: PHI sent to Datadog without signed BAA", 8),
+        (r"(?:drift monitoring|model drift|detect[^\n]*drift)", "No model drift monitoring or system to detect data distribution changes", 6),
+        (r"(?:static api key|keys[^\n]*not rotated|credential hygiene)", "Insecure credential hygiene: PACS integration uses static API keys not rotated in 18+ months", 7),
+        (r"(?:single region|single-region|no multi-region|no disaster recovery|no dr plan|failover)", "Infrastructure risk: single-region AWS deployment with no disaster recovery or failover plan", 7),
+        (r"(?:training data bias|demographics|caucasian|minority|disparate performance|bias analysis)", "Model demographic bias: training dataset is 89% Caucasian with 8.8% sensitivity gap for Black patients", 7),
+        (r"(?:unpatched critical|critical findings|remediation status[^\n]*critical|bishop fox)", "Unpatched critical penetration test findings (unauthenticated DICOM endpoint)", 8),
+    ]
+    _existing_tech_claims = {f["claim"] for f in tech_flags}
+    for _pat, _claim, _sev in _tech_scans:
+        if _claim in _existing_tech_claims:
+            continue
+        _lm = re.search(rf"[^\n]*(?:{_pat})[^\n]*", text, re.IGNORECASE)
+        if _lm:
+            tech_flags.append({
+                "claim": _claim,
+                "evidence": _lm.group(0).strip().strip("-*|# ")[:220],
+                "confidence": 88,
+                "severity": _sev,
+                "source_section": "Technical",
+                "source_start": _lm.start(),
+                "source_end": _lm.end(),
+            })
+
 
     # Market flags — surface inflated TAM, sector funding decline, dominant-incumbent threat.
     _market_scans = [

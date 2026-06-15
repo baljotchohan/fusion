@@ -9,9 +9,17 @@ services:
         value: 8000
       - key: BAND_MOCK
         value: "true"
-      - key: GOOGLE_API_KEY
+      # AIML API — conversational chat (core/llm_router.py)
+      - key: AIMLAPI_KEY
         sync: false
+      - key: ARGUS_LLM_PRIMARY
+        value: aimlapi
+      # Featherless (native API) — due-diligence analysis agents (core/base_agent.py).
+      # FEATHERLESS_API_KEY is a native rc_ key. (For an hf_ token instead, set
+      # ARGUS_FEATHERLESS_BASE_URL to https://router.huggingface.co/featherless-ai/v1)
       - key: FEATHERLESS_API_KEY
         sync: false
-      - key: GROQ_API_KEY
-        sync: false
+      - key: ARGUS_FEATHERLESS_BASE_URL
+        value: https://api.featherless.ai/v1
+      - key: ARGUS_FEATHERLESS_MODEL
+        value: Qwen/Qwen2.5-72B-Instruct

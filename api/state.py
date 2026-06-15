@@ -36,6 +36,11 @@ class SimulationState:
         self.active_company_name: Optional[str] = None
         # Cached final verdict scorecard to bypass extraction issues
         self.final_verdict_card: Optional[str] = None
+        # Track whether managing partner verdict is pending
+        self._mp_verdict_pending: bool = False
+        # True once the MP has been deterministically triggered to synthesize the
+        # verdict (all 4 specialists done). Guards against double-triggering.
+        self._mp_verdict_triggered: bool = False
 
     def touch(self):
         self.last_event_at = time.time()
@@ -57,6 +62,8 @@ class SimulationState:
         self.verdict_dispatched = False
         self.final_verdict_card = None
         self.started_at = 0.0
+        self._mp_verdict_pending = False
+        self._mp_verdict_triggered = False
 
 
 sim_state = SimulationState()
