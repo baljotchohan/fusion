@@ -2381,7 +2381,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
   "mcpServers": {
     "fusion": {
       "command": "python",
-      "args": ["/Users/baljotchohan/Desktop/fusion/mcp_server.py"],
+      "args": ["/path/to/fusion/mcp_server.py"],
       "env": {
         "FUSION_API_URL": "http://localhost:8000"
       }
