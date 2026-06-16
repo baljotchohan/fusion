@@ -1,0 +1,18 @@
+# Ignore all documentation for code-only graph building without an LLM key
+*.md
+*.txt
+*.yaml
+*.yml
+LICENSE
+.gitignore
+.DS_Store
+.git/
+.claude/
+.antigravitycli/
+node_modules/
+.venv/
+env/
+venv/
+__pycache__/
+argus_memory/
+fusion_memory/

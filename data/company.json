@@ -1,0 +1,118 @@
+{
+  "company_name": "TechCorp Inc.",
+  "domain": "techcorp.com",
+  "industry": "B2B SaaS",
+  "employee_count": 450,
+  "annual_revenue_usd": 28000000,
+  "internal_network": "192.168.1.0/24",
+  "dmz_network": "10.10.0.0/24",
+  "systems": [
+    {
+      "id": "SRV-01-MAIL",
+      "name": "Mail Server",
+      "ip": "192.168.1.10",
+      "os": "Ubuntu Server 22.04 LTS",
+      "roles": ["SMTP Mail Server", "IMAP Mail Server", "Exposed Webmail Interface"],
+      "open_ports": [25, 143, 443, 993],
+      "services": [
+        { "port": 25, "name": "Postfix SMTP" },
+        { "port": 143, "name": "Dovecot IMAP" },
+        { "port": 443, "name": "Nginx Webmail Portal" }
+      ],
+      "vulnerabilities": [
+        {
+          "cve_id": "CVE-2024-21378",
+          "description": "Microsoft Outlook Remote Code Execution Vulnerability",
+          "severity": "CRITICAL",
+          "cvss": 9.8
+        }
+      ]
+    },
+    {
+      "id": "SRV-02-AD",
+      "name": "Active Directory Domain Controller",
+      "ip": "192.168.1.5",
+      "os": "Windows Server 2022",
+      "roles": ["Domain Controller", "DNS Server", "Kerberos KDC"],
+      "open_ports": [53, 88, 389, 445],
+      "services": [
+        { "port": 53, "name": "Microsoft DNS" },
+        { "port": 88, "name": "Active Directory Kerberos" },
+        { "port": 389, "name": "Active Directory LDAP" },
+        { "port": 445, "name": "Microsoft DS SMB" }
+      ],
+      "vulnerabilities": []
+    },
+    {
+      "id": "SRV-03-DB",
+      "name": "Customer Database Server",
+      "ip": "192.168.1.20",
+      "os": "Windows Server 2022",
+      "roles": ["MSSQL Database Server", "Storage of Customer PII", "Financial Records DB"],
+      "open_ports": [1433, 3389],
+      "services": [
+        { "port": 1433, "name": "Microsoft SQL Server 2019" },
+        { "port": 3389, "name": "Remote Desktop Protocol" }
+      ],
+      "vulnerabilities": [
+        {
+          "cve_id": "CVE-2024-0519",
+          "description": "Microsoft SQL Server Local Privilege Escalation",
+          "severity": "HIGH",
+          "cvss": 8.8
+        }
+      ]
+    },
+    {
+      "id": "CEO-WORKSTATION-01",
+      "name": "CEO Workstation",
+      "ip": "192.168.1.101",
+      "os": "Windows 11 Enterprise",
+      "roles": ["C-Suite Workstation", "Domain Admin Privilege", "Local Administrator Access"],
+      "open_ports": [135, 445, 3389],
+      "services": [
+        { "port": 445, "name": "Microsoft DS SMB (File Sharing)" },
+        { "port": 3389, "name": "Remote Desktop Services" }
+      ],
+      "vulnerabilities": []
+    },
+    {
+      "id": "SRV-04-BACKUP",
+      "name": "Backup and Recovery Server",
+      "ip": "192.168.1.30",
+      "os": "Ubuntu Server 22.04",
+      "roles": ["Veeam Backup Server", "Disaster Recovery"],
+      "open_ports": [9392, 22],
+      "services": [
+        { "port": 9392, "name": "Veeam Backup Service" },
+        { "port": 22, "name": "OpenSSH" }
+      ],
+      "vulnerabilities": []
+    }
+  ],
+  "employees": [
+    { "name": "Baljot", "role": "Lead Developer", "email": "baljot@techcorp.com", "admin": false },
+    { "name": "CEO", "role": "Chief Executive Officer", "email": "ceo@techcorp.com", "admin": true },
+    { "name": "CFO", "role": "Chief Financial Officer", "email": "cfo@techcorp.com", "admin": false },
+    { "name": "Legal", "role": "General Counsel", "email": "legal@techcorp.com", "admin": false },
+    { "name": "Ops", "role": "VP of Operations", "email": "ops@techcorp.com", "admin": false }
+  ],
+  "exposed_services": [
+    { "service": "SMTP Mail Server", "endpoint": "mail.techcorp.com:25", "internal_ip": "192.168.1.10" },
+    { "service": "Webmail Portal", "endpoint": "https://webmail.techcorp.com", "internal_ip": "192.168.1.10" }
+  ],
+  "security_controls": {
+    "antivirus": "CrowdStrike Falcon (outdated definitions on CEO-WORKSTATION-01)",
+    "email_security": "Proofpoint (SPF enforced, DKIM enabled, DMARC policy=quarantine)",
+    "mfa": "Enabled for VPN only, NOT for webmail",
+    "dlp": "Not deployed",
+    "siem": "Splunk (log retention 30 days)",
+    "edr": "CrowdStrike on servers, Defender on workstations"
+  },
+  "data_assets": {
+    "customer_pii_count": 125000,
+    "pii_types": ["name", "email", "billing_address", "payment_method_last4"],
+    "financial_records_years": 5,
+    "data_classification": "CONFIDENTIAL"
+  }
+}
