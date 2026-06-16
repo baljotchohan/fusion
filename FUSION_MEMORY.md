@@ -289,8 +289,8 @@ graphify export obsidian --dir obsidian_vault
 ### Remaining (as of Jun 13)
 - [ ] Apply FUSION_COOK.md (upload + @mention + report gen)
 - [ ] Band real mode — 5 new rooms + agent keys in agent_config.yaml
-- [ ] Hugging Face Spaces backend live URL
-- [ ] Vercel frontend live URL
+- [x] Hugging Face Spaces backend live URL (https://baljot07-fusion.hf.space)
+- [x] Vercel frontend live URL (https://fusionos.vercel.app)
 - [ ] AI/ML API wired in llm_router (partner prize: $1k cash + $1k credits)
 - [ ] End-to-end NovaPay demo run under 5 minutes
 - [ ] Record video ≤5min (split screen: Boardroom UI left, band.ai right)
