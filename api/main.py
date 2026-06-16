@@ -364,7 +364,8 @@ async def broadcast_event_to_websockets(event_data: dict):
             await ws.send_text(message)
         except Exception as e:
             logger.error(f"Failed to send to WebSocket: {e}")
-            active_websockets.discard(ws)
+            if ws in active_websockets:
+                active_websockets.remove(ws)
 
 
 @asynccontextmanager
@@ -636,11 +637,12 @@ async def mock_llm_completions(request: Request):
     user_msgs = [m.get("content", "") for m in messages if m.get("role") == "user"]
     user_msg = user_msgs[-1] if user_msgs else ""
 
-    # Infer calling agent
-    model = body.get("model", "")
-    agent_name = ""
-    if model.startswith("mock-") and model != "mock-model":
-        agent_name = model[5:]
+    # Infer calling agent (check custom headers first)
+    agent_name = request.headers.get("x-agent-name", "")
+    if not agent_name:
+        model = body.get("model", "")
+        if model.startswith("mock-") and model != "mock-model":
+            agent_name = model[5:]
 
     if not agent_name:
         import re
