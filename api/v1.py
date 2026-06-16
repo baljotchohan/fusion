@@ -1155,7 +1155,7 @@ MCP_TOOLS = [
 def _mcp_transports() -> list:
     """The two ways any MCP client can connect to FUSION's committee tools."""
     public_url = os.getenv("FUSION_PUBLIC_URL", "http://localhost:8000").rstrip("/")
-    mcp_url = os.getenv("FUSION_MCP_URL", f"{public_url}/mcp")
+    mcp_url = os.getenv("FUSION_MCP_URL", f"{public_url}/mcp/")
     return [
         {
             "type": "streamable-http",

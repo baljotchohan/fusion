@@ -2253,7 +2253,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white/90 shrink-0 shadow-[0_0_15px_rgba(255,255,255,0.15)] bg-bg-muted flex items-center justify-center">
                   <img 
-                    src="/damandeep.png" 
+                    src="/daman.jpeg" 
                     alt="Damandeep Singh" 
                     className="w-full h-full object-cover" 
                     onError={(e) => {

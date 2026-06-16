@@ -200,8 +200,8 @@ npm run dev`}</Code>
             <H>Model Context Protocol (MCP) integration</H>
             <P>FUSION exposes the investment committee as tools so external AI clients (Claude Desktop, Claude Code, Cursor) can run audits or search past deals directly. Connect either way:</P>
             <P><B>Option A — Remote URL</B> (no install). With FUSION running, add the streamable-HTTP endpoint by URL — share it with anyone:</P>
-            <Code label="shell">{`claude mcp add --transport http fusion https://<your-deploy>/mcp
-# or locally:  http://localhost:8000/mcp`}</Code>
+            <Code label="shell">{`claude mcp add --transport http fusion https://<your-deploy>/mcp/
+# or locally:  http://localhost:8000/mcp/`}</Code>
             <P><B>Option B — Local stdio.</B> Start the server:</P>
             <Code label="shell">{`python mcp_server.py`}</Code>
             <P>Then register it in your MCP client (the repo also ships a ready <code>.mcp.json</code> for Claude Code):</P>
