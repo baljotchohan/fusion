@@ -1,0 +1,12 @@
+node_modules/
+.git/
+.fcc/
+.claude/
+build/
+dist/
+.next/
+out/
+venv/
+env/
+*.log
+.DS_Store

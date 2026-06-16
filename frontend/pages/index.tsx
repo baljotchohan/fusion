@@ -19,6 +19,8 @@ import { PartnersView } from '@/components/PartnersView'
 import DocsView from '@/components/DocsView'
 import DemoDeals from '@/components/DemoDeals'
 import { AnimatePresence, motion } from 'framer-motion'
+import { ClaudeLogo } from '@/components/ClaudeLogo'
+import { AntigravityLogo } from '@/components/AntigravityLogo'
 import { 
   Shield, Coins, Cpu, Globe, Play, CheckCircle, 
   Database, Network, Key, Mail, Lock, Sparkles, 
@@ -505,7 +507,7 @@ export default function FUSION() {
             ))}
           </div>
         )}
-        <div className="flex items-end gap-1.5 bg-bg-subtle border border-border rounded-2xl px-2 py-1.5 focus-within:border-accent transition-colors">
+        <div className="flex items-end gap-1.5 bg-bg-subtle border border-border rounded-2xl px-2 py-1.5 focus-within:border-accent/45 focus-within:shadow-[0_0_12px_rgba(91,191,82,0.15)] transition-all duration-300">
           <button onClick={() => fileInputRef.current?.click()}
             className="w-8 h-8 rounded-lg text-text-muted hover:bg-bg-muted hover:text-accent flex items-center justify-center transition shrink-0 self-end" title="Upload document">
             <Plus className="w-4 h-4" />
@@ -1368,6 +1370,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
             <button onClick={() => scrollTo('overview-sec')} className="px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-bg-muted hover:border-accent/30 hover:text-accent transition-all duration-300 cursor-pointer">Overview</button>
             <button onClick={() => scrollTo('roundtable-sec')} className="px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-bg-muted hover:border-accent/30 hover:text-accent transition-all duration-300 cursor-pointer">Roundtable</button>
             <button onClick={() => scrollTo('swarm-sec')} className="px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-bg-muted hover:border-accent/30 hover:text-accent transition-all duration-300 cursor-pointer">Band Board</button>
+            <button onClick={() => scrollTo('fusion-band-sec')} className="px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-bg-muted hover:border-accent/30 hover:text-accent transition-all duration-300 cursor-pointer">Fusion x Band</button>
             <button onClick={() => scrollTo('pillars-sec')} className="px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-bg-muted hover:border-accent/30 hover:text-accent transition-all duration-300 cursor-pointer">Specs</button>
             <button onClick={() => scrollTo('about-sec')} className="px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-bg-muted hover:border-accent/30 hover:text-accent transition-all duration-300 cursor-pointer">About Us</button>
             <button onClick={() => scrollTo('docs-sec')} className="px-3 py-1.5 rounded-md border border-border bg-bg-card hover:bg-bg-muted hover:border-accent/30 hover:text-accent transition-all duration-300 cursor-pointer">Docs & API</button>
@@ -1544,10 +1547,6 @@ function LandingPage({ onLogin }: LandingPageProps) {
                 </filter>
               </defs>
 
-              {/* Outer Event Bus ring */}
-              <circle cx="200" cy="200" r="165" fill="none" stroke="currentColor" className="text-white/[0.02]" strokeWidth="2" />
-              <circle cx="200" cy="200" r="120" fill="none" stroke="currentColor" className="text-white/[0.02]" strokeWidth="1" strokeDasharray="3 6" />
-              
               {/* Event connection trails (glowing fiber-optic lines) */}
               {simSteps.map((s, idx) => {
                 let coords = { x: 200, y: 200 }
@@ -2089,6 +2088,120 @@ function LandingPage({ onLogin }: LandingPageProps) {
             </div>
           </div>
 
+        </div>
+      </section>
+
+      {/* ═══ FUSION × BAND CONNECTIVITY COLLABORATION SECTION ═══ */}
+      <section id="fusion-band-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-24 border-t border-border z-10 overflow-hidden bg-bg-base/20">
+        <div className="absolute top-[20%] right-[-10%] pointer-events-none w-[500px] h-[500px] rounded-full bg-accent/5 blur-[120px] z-0" />
+        <div className="absolute bottom-[10%] left-[-10%] pointer-events-none w-[500px] h-[500px] rounded-full bg-emerald-500/3 blur-[120px] z-0" />
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center relative z-10">
+          <div className="lg:col-span-5 text-left space-y-6">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-[10px] font-mono text-accent uppercase tracking-wider font-semibold">
+              <Network className="w-3.5 h-3.5" /> FUSION × BAND INTEGRATION
+            </div>
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-text-primary leading-tight font-mono">
+              Dynamic Multi-Agent <br />
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-accent via-emerald-400 to-emerald-500">
+                Collaboration Network
+              </span>
+            </h2>
+            <p className="text-text-secondary leading-relaxed text-sm font-sans">
+              FUSION partners are not siloed LLM chains. They are built on top of the <strong>Band AI WebSocket event bus</strong> using the <code>thenvoi</code> SDK to coordinate in real time. They dynamically discover peer nodes, recruit task participants, and deliberation flows in a structured incident response loop.
+            </p>
+            <div className="space-y-4">
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0 mt-1">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-text-primary text-[13px] font-mono">WebSocket Room Communication</h4>
+                  <p className="text-text-secondary text-xs mt-1 leading-relaxed">
+                    Agents subscribe to dedicated channels like <code>threat-intel-room</code> or <code>executive-room</code> to receive, analyze, and publish structured payload reports.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0 mt-1">
+                  <Users2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-text-primary text-[13px] font-mono">Dynamic Agent Recruitment</h4>
+                  <p className="text-text-secondary text-xs mt-1 leading-relaxed">
+                    Using Band's <code>thenvoi_lookup_peers</code> and <code>thenvoi_add_participant</code>, the Incident Commander dynamically discovers active boardroom specialists and adds them to active deliberation threads on demand.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0 mt-1">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-text-primary text-[13px] font-mono">Stateful LangGraph Adapters</h4>
+                  <p className="text-text-secondary text-xs mt-1 leading-relaxed">
+                    Every message triggers a stateful LangGraph traversal. The graph executes tool operations (NVD CVE, MITRE ATT&CK, digital twin network mapping) before generating structured LLM responses.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-7">
+            <div className="border border-border bg-bg-card rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl text-left space-y-6">
+              <div className="flex items-center justify-between border-b border-border pb-4">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-accent" />
+                  <span className="text-xs font-mono font-bold text-text-primary">thenvoi_adapter.py</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-accent" />
+                  <span className="text-[10px] font-mono text-text-muted">ACTIVE MODE</span>
+                </div>
+              </div>
+
+              {/* Code display */}
+              <div className="font-mono text-[10.5px] bg-bg-subtle border border-border p-4 rounded-xl overflow-x-auto text-accent space-y-1.5 leading-relaxed noscrollbar max-h-[300px]">
+                <div><span className="text-neutral-500"># base_agent.py - Real-mode thenvoi adapter wiring</span></div>
+                <div><span className="text-emerald-500 font-bold">from</span> thenvoi.adapters <span className="text-emerald-500 font-bold">import</span> LangGraphAdapter</div>
+                <div><span className="text-emerald-500 font-bold">from</span> thenvoi <span className="text-emerald-500 font-bold">import</span> Agent <span className="text-emerald-500 font-bold">as</span> BandAgent</div>
+                <br />
+                <div><span className="text-emerald-500 font-bold">async def</span> <span className="text-text-primary font-bold">compile_agent</span>(config_path: str):</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;config = load_yaml(config_path)</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;adapter = LangGraphAdapter(graph=agent_graph)</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;band_agent = BandAgent(</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;agent_id=config[<span className="text-yellow-600">"agent_id"</span>],</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;api_key=config[<span className="text-yellow-600">"api_key"</span>],</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;adapter=adapter</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500 font-bold">await</span> band_agent.connect() &nbsp;<span className="text-neutral-500"># Connects to Band WebSocket event bus</span></div>
+                <br />
+                <div><span className="text-neutral-500"># incident_commander.py - Room invitation flow</span></div>
+                <div><span className="text-emerald-500 font-bold">await</span> band_agent.platform.thenvoi_add_participant(</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;room=<span className="text-yellow-600">"incident-command-room"</span>,</div>
+                <div>&nbsp;&nbsp;&nbsp;&nbsp;agent=<span className="text-yellow-600">"@Recon-Agent"</span></div>
+                <div>)</div>
+              </div>
+
+              {/* Protocol Spec Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <div className="p-4 rounded-2xl bg-bg-subtle border border-border">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">DELIBERATION FLOW</span>
+                  <div className="mt-2 text-[11px] text-text-secondary leading-relaxed font-sans">
+                    <strong>1. Threat Alert:</strong> Threat Intel scans logs and CVE databases, then reports to Incident Commander.<br/>
+                    <strong>2. Investigation:</strong> Incident Commander recruits Recon and Detection agents to identify attack surface.
+                  </div>
+                </div>
+                <div className="p-4 rounded-2xl bg-bg-subtle border border-border">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">DISSENT & CONSENSUS</span>
+                  <div className="mt-2 text-[11px] text-text-secondary leading-relaxed font-sans">
+                    <strong>3. Assessment:</strong> Red Team maps simulated paths. Attack Path calculates risks.<br/>
+                    <strong>4. Playbook:</strong> Blue Team maps defenses. Executive Decision routes consensus.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -2679,16 +2792,17 @@ function LandingPage({ onLogin }: LandingPageProps) {
 
           <div>
             <h5 className="font-mono text-text-primary uppercase tracking-wider font-bold mb-4">Roundtable Map</h5>
-            <ul className="space-y-2 font-sans text-text-secondary">
+            <ul className="space-y-2 font-sans text-text-secondary text-left">
               <li><button onClick={() => scrollTo('roundtable-sec')} className="hover:text-accent transition-colors">Visual Simulator</button></li>
               <li><button onClick={() => scrollTo('swarm-sec')} className="hover:text-accent transition-colors">Diligence Partners</button></li>
+              <li><button onClick={() => scrollTo('fusion-band-sec')} className="hover:text-accent transition-colors">Fusion x Band</button></li>
               <li><button onClick={() => scrollTo('pillars-sec')} className="hover:text-accent transition-colors">System Infrastructure</button></li>
             </ul>
           </div>
 
           <div>
             <h5 className="font-mono text-text-primary uppercase tracking-wider font-bold mb-4">Specs & Docs</h5>
-            <ul className="space-y-2 font-sans text-text-secondary">
+            <ul className="space-y-2 font-sans text-text-secondary text-left">
               <li><button onClick={() => { scrollTo('docs-sec'); setDocCategory('welcome') }} className="hover:text-accent transition-colors">Manual Overview</button></li>
               <li><button onClick={() => { scrollTo('docs-sec'); setDocCategory('calc') }} className="hover:text-accent transition-colors">Calculations Engine</button></li>
               <li><button onClick={() => { scrollTo('docs-sec'); setDocCategory('mcp') }} className="hover:text-accent transition-colors">MCP Tool Trial</button></li>
@@ -2701,15 +2815,29 @@ function LandingPage({ onLogin }: LandingPageProps) {
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-accent animate-ping" />
               Swarm Sockets Active
             </div>
-            <p className="text-[10px] text-text-muted mt-2 font-sans">
+            <p className="text-[10px] text-text-muted mt-2 font-sans text-left">
               Ready to evaluate Series A and Seed startup structures.
             </p>
           </div>
 
         </div>
         
-        <div className="max-w-[1550px] mx-auto px-8 md:px-16 border-t border-border mt-8 pt-6 text-center text-[9px] text-text-muted font-mono">
-          &copy; 2026 FUSION Investment Swarm Boardroom. All rights reserved. Powered by Band AI event bus.
+        <div className="max-w-[1550px] mx-auto px-8 md:px-16 border-t border-border mt-8 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-[9px] text-text-muted font-mono">
+          <div>
+            &copy; 2026 FUSION Investment Swarm Boardroom. All rights reserved. Powered by Band AI event bus.
+          </div>
+          <div className="flex items-center gap-3 bg-bg-subtle px-3 py-1.5 rounded-xl border border-border">
+            <span className="text-text-secondary">Built with</span>
+            <div className="flex items-center gap-1.5 font-sans font-semibold text-text-primary text-[10px]">
+              <ClaudeLogo className="h-3.5 w-3.5 text-orange-600/80" />
+              <span>Claude</span>
+            </div>
+            <span className="text-text-muted/40">&amp;</span>
+            <div className="flex items-center gap-1.5 font-sans font-semibold text-text-primary text-[10px]">
+              <AntigravityLogo className="h-3.5 w-3.5 text-accent" />
+              <span>Antigravity</span>
+            </div>
+          </div>
         </div>
       </footer>
 

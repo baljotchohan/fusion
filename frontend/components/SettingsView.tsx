@@ -1,7 +1,7 @@
 // components/SettingsView.tsx — preferences panel.
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, UserCheck, Trash2 } from 'lucide-react'
+import { Sun, Moon, Trash2 } from 'lucide-react'
 import { AGENTS, API_BASE } from '@/lib/agents'
 
 interface SettingsViewProps {
@@ -16,9 +16,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
   const [confirmReset, setConfirmReset] = useState(false)
   const [resetting, setResetting] = useState(false)
 
-  const [activeAgents, setActiveAgents] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(AGENTS.map(a => [a.name, true]))
-  )
+
 
   const fetchSettings = async () => {
     try {
@@ -66,7 +64,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
     }
   }
 
-  const toggleAgent = (name: string) => setActiveAgents(prev => ({ ...prev, [name]: !prev[name] }))
+
   const isDark = theme === 'dark'
 
   const sectionCls = 'rounded-2xl bg-bg-card border border-border shadow-sm p-6'
@@ -99,35 +97,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
 
 
 
-      {/* Active Partners */}
-      <section className={sectionCls}>
-        <div className="flex items-center gap-2 mb-4">
-          <UserCheck className="w-4 h-4 text-text-muted" />
-          <p className={labelCls}>Active Partners</p>
-        </div>
-        <p className="text-[11.5px] text-text-secondary mb-5">Enable or disable individual partners in the committee</p>
-        <ul className="space-y-1">
-          {AGENTS.map(agent => {
-            const on = activeAgents[agent.name]
-            return (
-              <li key={agent.name}>
-                <button onClick={() => toggleAgent(agent.name)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors hover:bg-bg-subtle group cursor-pointer">
-                  <span className="text-[18px] leading-none select-none">{agent.icon}</span>
-                  <div className="flex-1 text-left">
-                    <p className="text-[13px] font-medium text-text-primary">{agent.displayName}</p>
-                    <p className="text-[11px] text-text-muted">{agent.role}</p>
-                  </div>
-                  <span className={`relative inline-flex w-[40px] h-[22px] rounded-full transition-colors duration-300 ${on ? 'bg-accent' : 'bg-bg-muted'}`}>
-                    <motion.span layout className="absolute top-[2px] w-[18px] h-[18px] rounded-full bg-white shadow-sm"
-                      animate={{ left: on ? 19 : 2 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }} />
-                  </span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      </section>
+
 
       {/* Danger Zone — Reset & Clear All History */}
       <section className="rounded-2xl bg-bg-card border border-danger/30 shadow-sm p-6">
@@ -166,7 +136,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
       {/* About */}
       <section className={`${sectionCls} text-center`}>
         <p className={`${labelCls} mb-3`}>About</p>
-        <p className="text-[13px] font-medium text-text-primary">FUSION v2.0</p>
+        <p className="text-[13px] font-medium text-text-primary">FUSION v1.0</p>
         <p className="text-[11.5px] text-text-secondary mt-1">AI-Powered VC Investment Committee Command Center</p>
         <p className="text-[10.5px] text-text-muted mt-3">Built with <span className="text-accent font-medium">Band of Agents</span></p>
       </section>
