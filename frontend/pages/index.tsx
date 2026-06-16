@@ -1121,7 +1121,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loginStep, setLoginStep] = useState(0)
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+  const spotlightRef = useRef<HTMLDivElement>(null)
 
   // Roundtable Simulation States
   const [simState, setSimState] = useState<'idle' | 'running' | 'completed'>('idle')
@@ -1184,7 +1184,9 @@ function LandingPage({ onLogin }: LandingPageProps) {
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      setMousePos({ x: e.clientX, y: e.clientY })
+      if (spotlightRef.current) {
+        spotlightRef.current.style.transform = `translate3d(${e.clientX - 400}px, ${e.clientY - 400}px, 0)`
+      }
     }
     window.addEventListener('mousemove', handleMouseMove)
     return () => {
@@ -1333,14 +1335,16 @@ function LandingPage({ onLogin }: LandingPageProps) {
   const cardMarket = use3DTilt()
 
   return (
-    <div className="bg-bg-base text-text-primary min-h-screen relative overflow-y-auto font-sans selection:bg-accent/20 selection:text-accent transition-colors duration-300">
+    <div className="bg-bg-base text-text-primary min-h-screen relative font-sans selection:bg-accent/20 selection:text-accent transition-colors duration-300">
       
       {/* Immersive Glowing Spotlights */}
       <div 
-        className="fixed pointer-events-none w-[800px] h-[800px] rounded-full bg-accent/5 dark:bg-accent/10 blur-[180px] z-0"
+        ref={spotlightRef}
+        className="fixed pointer-events-none w-[800px] h-[800px] rounded-full bg-accent/6 dark:bg-accent/12 blur-[180px] z-30"
         style={{
-          left: `${mousePos.x - 400}px`,
-          top: `${mousePos.y - 400}px`,
+          transform: 'translate3d(-999px, -999px, 0)',
+          left: 0,
+          top: 0,
         }}
       />
       <div className="absolute top-[10%] right-[5%] pointer-events-none w-[600px] h-[600px] rounded-full bg-emerald-500/5 dark:bg-emerald-500/10 blur-[150px] z-0" />
@@ -1392,8 +1396,8 @@ function LandingPage({ onLogin }: LandingPageProps) {
       </header>
 
       {/* Hero Section - Full width fluid spacing */}
-      <section id="overview-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 pt-40 pb-24 md:pt-52 md:pb-36 flex flex-col lg:flex-row items-center gap-16 z-10">
-        <div className="flex-1 flex flex-col items-start text-left max-w-3xl">
+      <section id="overview-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 pt-40 pb-24 md:pt-52 md:pb-36 flex flex-col lg:flex-row items-center justify-between gap-12 lg:gap-16 z-10">
+        <div className="flex-1 flex flex-col items-start text-left max-w-xl lg:max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-[10px] font-mono text-accent mb-6 uppercase tracking-wider font-semibold">
             <Sparkles className="w-3.5 h-3.5" /> FUSION Swarm Operating System Live
           </div>
@@ -2164,21 +2168,27 @@ function LandingPage({ onLogin }: LandingPageProps) {
       {/* About Us Section */}
       <section id="about-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-24 border-t border-border z-10 overflow-hidden bg-bg-base/40">
         {/* Top-right corner decoration */}
-        <div className="absolute top-0 right-0 w-32 h-32 text-accent opacity-85 pointer-events-none select-none z-0">
-          <svg viewBox="0 0 100 100" fill="currentColor" className="w-full h-full">
-            <polygon points="100,0 0,0 100,100" />
+        <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none select-none z-0">
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+            {/* Darker green layer */}
+            <polygon points="100,0 30,0 100,70" fill="#2e9e3a" opacity="0.9" />
+            {/* Lighter green layer */}
+            <polygon points="100,0 60,0 100,40" fill="#5bbf52" opacity="0.9" />
           </svg>
         </div>
         
         {/* Bottom-left corner decoration */}
-        <div className="absolute bottom-0 left-0 w-32 h-32 text-accent opacity-85 pointer-events-none select-none z-0">
-          <svg viewBox="0 0 100 100" fill="currentColor" className="w-full h-full">
-            <polygon points="0,100 0,0 100,100" />
+        <div className="absolute bottom-0 left-0 w-32 h-32 pointer-events-none select-none z-0">
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+            {/* Darker green layer */}
+            <polygon points="0,100 0,30 70,100" fill="#2e9e3a" opacity="0.9" />
+            {/* Lighter green layer */}
+            <polygon points="0,100 0,60 40,100" fill="#5bbf52" opacity="0.9" />
           </svg>
         </div>
 
         <div className="text-center mb-16 relative z-10">
-          <h2 className="text-4xl sm:text-5xl font-extrabold tracking-tight font-sans text-text-primary">
+          <h2 className="text-4xl sm:text-5xl font-extrabold tracking-tight font-serif text-text-primary">
             About <span className="text-accent">us</span>
           </h2>
         </div>
@@ -2202,13 +2212,13 @@ function LandingPage({ onLogin }: LandingPageProps) {
                   />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold text-text-primary tracking-tight font-sans">
-                    Baljot Singh <span className="text-accent font-mono text-xs ml-2 font-normal">(Cofounder & CTO)</span>
+                  <h3 className="text-2xl font-bold text-text-primary tracking-tight font-serif">
+                    Baljot Singh <span className="text-accent font-serif text-base ml-2 font-normal">(Cofounder & CTO)</span>
                   </h3>
                 </div>
               </div>
 
-              <div className="text-text-secondary leading-relaxed text-sm space-y-4 font-sans text-left">
+              <div className="text-text-secondary leading-relaxed text-[14.5px] space-y-5 font-serif text-left">
                 <p>
                   I am a Bachelor of Computer Applications (BCA) student. In this AI era, I have advanced into agentic AI and AI automations — and I consider myself both an AI journalist and a developer.
                 </p>
@@ -2221,7 +2231,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 mt-8 text-xs font-mono text-text-secondary">
+            <div className="flex items-center gap-2 mt-8 text-[13.5px] font-serif text-text-secondary">
               <svg className="w-4 h-4 text-text-primary shrink-0 fill-current" viewBox="0 0 24 24" aria-hidden="true">
                 <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482C19.138 20.197 22 16.44 22 12.017 22 6.484 17.522 2 12 2z" />
               </svg>
@@ -2230,7 +2240,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
                 href="https://github.com/baljotchohan" 
                 target="_blank" 
                 rel="noopener noreferrer" 
-                className="text-accent hover:underline transition-all truncate"
+                className="text-text-primary hover:text-accent hover:underline transition-all truncate"
               >
                 https://github.com/baljotchohan
               </a>
@@ -2252,13 +2262,13 @@ function LandingPage({ onLogin }: LandingPageProps) {
                   />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold text-text-primary tracking-tight font-sans">
-                    Damandeep Singh <span className="text-accent font-mono text-xs ml-2 font-normal">(Founder & CEO)</span>
+                  <h3 className="text-2xl font-bold text-text-primary tracking-tight font-serif">
+                    Damandeep Singh <span className="text-accent font-serif text-base ml-2 font-normal">(Founder & CEO)</span>
                   </h3>
                 </div>
               </div>
 
-              <div className="text-text-secondary leading-relaxed text-sm space-y-4 font-sans text-left">
+              <div className="text-text-secondary leading-relaxed text-[14.5px] space-y-5 font-serif text-left">
                 <p>
                   I am currently pursuing my second year in BE AI&ML with a passion for building interfaces that make complex systems feel simple.
                 </p>
@@ -2274,7 +2284,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 mt-8 text-xs font-mono text-text-secondary">
+            <div className="flex items-center gap-2 mt-8 text-[13.5px] font-serif text-text-secondary">
               <svg className="w-4 h-4 text-text-primary shrink-0 fill-current" viewBox="0 0 24 24" aria-hidden="true">
                 <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482C19.138 20.197 22 16.44 22 12.017 22 6.484 17.522 2 12 2z" />
               </svg>
@@ -2283,7 +2293,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
                 href="https://github.com/Damandeep-18" 
                 target="_blank" 
                 rel="noopener noreferrer" 
-                className="text-accent hover:underline transition-all truncate"
+                className="text-text-primary hover:text-accent hover:underline transition-all truncate"
               >
                 https://github.com/Damandeep-18
               </a>
@@ -2292,7 +2302,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
         </div>
 
         {/* Combined Brand Logos (bottom right) */}
-        <div className="flex justify-end items-center gap-2 mt-16 pt-8 border-t border-border/60 relative z-10">
+        <div className="flex justify-end items-center gap-2 mt-12 relative z-10">
           <FusionLogo className="h-6 opacity-85" />
           <span className="text-text-muted font-mono font-bold select-none px-1 text-sm">|</span>
           <BandLogoFull className="h-6 opacity-85" />
