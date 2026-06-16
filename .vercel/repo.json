@@ -1,0 +1,11 @@
+{
+  "remoteName": "origin",
+  "projects": [
+    {
+      "id": "prj_Jlo2evOltZPBriopzb47GimsxjHZ",
+      "name": "fusionos",
+      "directory": "frontend",
+      "orgId": "team_59Z3M9AvCuH9vQKNId3MxGXA"
+    }
+  ]
+}
