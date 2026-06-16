@@ -1352,15 +1352,26 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
     founder_credibility_score = max(0.0, founder_credibility_score)
 
     # 3. Weighted IC Readiness Score
-    # ponytail: forced 100/100 readiness score in production as requested by user
+    # ponytail: calculated dynamically based on contradictions
     ic_readiness_score = 100.0
+    for contra in contradictions:
+        sev = contra.get("severity", "Minor")
+        if sev == "Critical":
+            ic_readiness_score -= 25.0
+        elif sev == "Material":
+            ic_readiness_score -= 15.0
+        elif sev == "Moderate":
+            ic_readiness_score -= 8.0
+        else: # Minor
+            ic_readiness_score -= 3.0
+    ic_readiness_score = max(0.0, ic_readiness_score)
 
     # Data Room Completeness Score
-    data_room_completeness = 100.0
+    data_room_completeness = float(coverage_score)
 
     # Backwards compatibility for deal_readiness_score and status
-    deal_readiness_score = 100.0
-    deal_readiness_status = "Ready for IC Review"
+    deal_readiness_score = ic_readiness_score
+    deal_readiness_status = "Ready for IC Review" if deal_readiness_score >= 80.0 else "Requires Revision"
 
     # Auto-Generated VC Questions
     questions = {"ceo": [], "cto": [], "legal": []}
