@@ -1119,6 +1119,7 @@ interface LandingPageProps {
 
 function LandingPage({ onLogin }: LandingPageProps) {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [codeTab, setCodeTab] = useState<'python' | 'json'>('python')
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -1448,24 +1449,24 @@ function LandingPage({ onLogin }: LandingPageProps) {
         </div>
 
         {/* Hero Right side: Live roundtable visual display */}
-        <div className="flex-1 w-full lg:max-w-xl relative group z-10">
+        <div className="w-full lg:max-w-3xl lg:flex-[1.2] relative group z-10">
           <div className="absolute inset-0 bg-gradient-to-tr from-accent/20 to-emerald-500/20 rounded-3xl blur-3xl opacity-20 group-hover:opacity-35 transition-opacity" />
           
-          <div className="relative border border-border bg-bg-card rounded-3xl p-6 shadow-2xl backdrop-blur-xl transition-all duration-500">
-            <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
+          <div className="relative border border-border bg-bg-card rounded-3xl p-8 shadow-2xl backdrop-blur-xl transition-all duration-500 min-h-[480px] flex flex-col justify-between">
+            <div className="flex items-center justify-between border-b border-border pb-4 mb-5">
               <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-                <span className="w-3 h-3 rounded-full bg-amber-500" />
-                <span className="w-3 h-3 rounded-full bg-accent" />
-                <span className="text-[10px] font-mono text-text-muted ml-2">BAND_AI_BUS_MONITOR // online</span>
+                <span className="w-3.5 h-3.5 rounded-full bg-red-500 animate-pulse" />
+                <span className="w-3.5 h-3.5 rounded-full bg-amber-500" />
+                <span className="w-3.5 h-3.5 rounded-full bg-accent" />
+                <span className="text-[11px] font-mono text-text-muted ml-2 tracking-wider">BAND_AI_BUS_MONITOR // online</span>
               </div>
-              <div className="px-2.5 py-0.5 rounded bg-accent/10 text-[9px] font-mono text-accent border border-accent/20 uppercase tracking-widest font-bold">
+              <div className="px-3 py-1 rounded bg-accent/10 text-[10px] font-mono text-accent border border-accent/20 uppercase tracking-widest font-bold">
                 Live Console
               </div>
             </div>
 
             {/* Simulated Live feed */}
-            <div className="space-y-4 font-mono text-xs max-h-[300px] overflow-y-auto noscrollbar text-left">
+            <div className="space-y-4 font-mono text-xs sm:text-[13px] max-h-[420px] overflow-y-auto noscrollbar text-left flex-1 py-2">
               <div className="p-3.5 rounded-xl border border-border bg-bg-subtle">
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-accent text-[9px] uppercase font-bold tracking-wider">managing_partner</span>
@@ -1514,25 +1515,6 @@ function LandingPage({ onLogin }: LandingPageProps) {
           
           {/* Left column: Roundtable SVG Map */}
           <div className="lg:col-span-7 flex justify-center relative bg-bg-card dark:bg-[#0a0f0a] border border-border rounded-3xl p-6 sm:p-10 shadow-2xl min-h-[480px] overflow-hidden">
-            {/* Custom SVG Spin Animations and Glow Filters */}
-            <style>{`
-              @keyframes spinSlow {
-                from { transform: rotate(0deg); }
-                to { transform: rotate(360deg); }
-              }
-              @keyframes spinReverse {
-                from { transform: rotate(360deg); }
-                to { transform: rotate(0deg); }
-              }
-              .animate-spin-slow {
-                animation: spinSlow 15s linear infinite;
-                transform-origin: 200px 200px;
-              }
-              .animate-spin-reverse {
-                animation: spinReverse 25s linear infinite;
-                transform-origin: 200px 200px;
-              }
-            `}</style>
             
             <svg viewBox="0 0 400 400" className="w-full max-w-[380px] h-auto relative z-10 select-none">
               <defs>
@@ -1607,28 +1589,6 @@ function LandingPage({ onLogin }: LandingPageProps) {
                   className={`transition-opacity duration-500 ${selectedSimNode === 'core' || (simSteps[simStepIdx]?.activeNode === 'core' && simState === 'running') ? 'opacity-90' : 'opacity-10 group-hover:opacity-30'}`}
                 />
                 
-                {/* Concentric spinning gear rings */}
-                <circle 
-                  cx="0" 
-                  cy="0" 
-                  r="45" 
-                  fill="none" 
-                  stroke="rgba(91, 191, 82, 0.25)" 
-                  strokeWidth="1.5" 
-                  strokeDasharray="6 8"
-                  className="animate-spin-slow"
-                />
-                <circle 
-                  cx="0" 
-                  cy="0" 
-                  r="52" 
-                  fill="none" 
-                  stroke="rgba(255, 255, 255, 0.04)" 
-                  strokeWidth="1" 
-                  strokeDasharray="4 12"
-                  className="animate-spin-reverse"
-                />
-
                 {/* Main solid core circle */}
                 <circle 
                   cx="0" 
@@ -1637,13 +1597,14 @@ function LandingPage({ onLogin }: LandingPageProps) {
                   className={`transition-all duration-500 ${selectedSimNode === 'core' ? 'fill-black stroke-accent' : 'fill-black stroke-white/[0.15] group-hover:stroke-accent/50'}`}
                   strokeWidth="2.5" 
                 />
-                
-                {/* CPU Microchip Path representation */}
-                <rect x="-11" y="-11" width="22" height="22" rx="3.5" fill="none" stroke="#5bbf52" strokeWidth="1.5" className={simState === 'running' ? 'animate-pulse' : ''} />
-                <path d="M-15 -5 L-11 -5 M-15 0 L-11 0 M-15 5 L-11 5 M11 -5 L15 -5 M11 0 L15 0 M11 5 L15 5 M-5 -15 L-5 -11 M0 -15 L0 -11 M5 -15 L5 -11 M-5 11 L-5 15 M0 11 L0 15 M5 11 L5 15" stroke="#5bbf52" strokeWidth="1" strokeLinecap="round" />
-                <circle cx="0" cy="0" r="2" fill="#5bbf52" className={simState === 'running' ? 'animate-ping' : ''} />
 
-                <text x="0" y="25" textAnchor="middle" className="text-[6px] font-mono font-bold fill-neutral-500 tracking-wider">CORE</text>
+                {/* Central CPU Chip representation */}
+                <g transform="translate(-13, -13)">
+                  <Cpu 
+                    size={26} 
+                    className={`h-[26px] w-[26px] text-accent ${simState === 'running' ? 'animate-pulse' : ''}`} 
+                  />
+                </g>
               </g>
 
               {/* Node: Managing Partner (MP) */}
@@ -2083,7 +2044,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
               <span className="text-[9px] font-mono text-text-muted uppercase tracking-wider block mb-1">Diligence checklist</span>
               <div className="flex flex-wrap gap-1">
                 <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-bg-subtle border border-border text-text-secondary">TAM validation</span>
-                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-bg-subtle border border-border text-text-secondary">Competitor Moats</span>
+                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-bg-subtle border border-border text-text-secondary">Competitor Moat</span>
               </div>
             </div>
           </div>
@@ -2092,21 +2053,17 @@ function LandingPage({ onLogin }: LandingPageProps) {
       </section>
 
       {/* ═══ FUSION × BAND CONNECTIVITY COLLABORATION SECTION ═══ */}
-      <section id="fusion-band-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-24 border-t border-border z-10 overflow-hidden bg-bg-base/20">
+      <section id="fusion-band-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-14 border-t border-border z-10 overflow-hidden bg-bg-base/20">
         <div className="absolute top-[20%] right-[-10%] pointer-events-none w-[500px] h-[500px] rounded-full bg-accent/5 blur-[120px] z-0" />
         <div className="absolute bottom-[10%] left-[-10%] pointer-events-none w-[500px] h-[500px] rounded-full bg-emerald-500/3 blur-[120px] z-0" />
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center relative z-10">
-          <div className="lg:col-span-5 text-left space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-[10px] font-mono text-accent uppercase tracking-wider font-semibold">
-              <Network className="w-3.5 h-3.5" /> FUSION × BAND INTEGRATION
-            </div>
-            <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-text-primary leading-tight font-mono">
-              Dynamic Multi-Agent <br />
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-accent via-emerald-400 to-emerald-500">
-                Collaboration Network
-              </span>
-            </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-stretch relative z-10">
+          <div className="lg:col-span-6 text-left space-y-6">
+            <div className="flex items-center gap-1.5 mb-4">
+               <FusionLogo className="h-8 sm:h-9 w-auto" />
+               <span className="text-neutral-400 dark:text-neutral-500 font-mono text-lg font-bold select-none px-0.5">×</span>
+               <BandLogoFull className="h-8 sm:h-9 w-auto" />
+             </div>
             <p className="text-text-secondary leading-relaxed text-sm font-sans">
               FUSION partners are not siloed LLM chains. They are built on top of the <strong>Band AI WebSocket event bus</strong> using the <code>thenvoi</code> SDK to coordinate in real time. They dynamically discover peer nodes, recruit task participants, and deliberation flows in a structured incident response loop.
             </p>
@@ -2144,62 +2101,110 @@ function LandingPage({ onLogin }: LandingPageProps) {
                   </p>
                 </div>
               </div>
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0 mt-1">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-text-primary text-[13px] font-mono">Bi-Directional Event Streaming</h4>
+                  <p className="text-text-secondary text-xs mt-1 leading-relaxed">
+                    FUSION agents maintain persistent <code>wss://</code> connections to the event bus. This enables low-latency streaming of deliberations, asynchronous agent updates, and instant dashboard synchronization.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0 mt-1">
+                  <CheckCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-text-primary text-[13px] font-mono">Unified JSON Schema Contracts</h4>
+                  <p className="text-text-secondary text-xs mt-1 leading-relaxed">
+                    All inter-agent messages are strictly validated against JSON schema models, guaranteeing that complex data (e.g. vulnerability arrays, containment steps, financial scorecards) are parsed with zero errors.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0 mt-1">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-text-primary text-[13px] font-mono">Boardroom Audit Ledger</h4>
+                  <p className="text-text-secondary text-xs mt-1 leading-relaxed">
+                    Band logs every WebSocket transaction. FUSION translates this raw telemetry into a chronological, interactive boardroom audit log for compliance, tracking, and historic Swarm deliberation replays.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="lg:col-span-7">
-            <div className="border border-border bg-bg-card rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl text-left space-y-6">
+          <div className="lg:col-span-6 flex flex-col">
+            <div className="border border-border bg-bg-card rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl text-left flex flex-col flex-1 space-y-6">
               <div className="flex items-center justify-between border-b border-border pb-4">
                 <div className="flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-accent" />
-                  <span className="text-xs font-mono font-bold text-text-primary">thenvoi_adapter.py</span>
+                  <button 
+                    onClick={() => setCodeTab('python')}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border font-mono text-[11px] font-semibold transition-all duration-200 cursor-pointer ${codeTab === 'python' ? 'bg-accent/10 border-accent/30 text-accent' : 'bg-transparent border-transparent text-text-secondary hover:text-text-primary'}`}
+                  >
+                    <Terminal className="w-3.5 h-3.5" />
+                    <span>thenvoi_adapter.py</span>
+                  </button>
+                  <button 
+                    onClick={() => setCodeTab('json')}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border font-mono text-[11px] font-semibold transition-all duration-200 cursor-pointer ${codeTab === 'json' ? 'bg-accent/10 border-accent/30 text-accent' : 'bg-transparent border-transparent text-text-secondary hover:text-text-primary'}`}
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    <span>event_payload.json</span>
+                  </button>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-accent" />
-                  <span className="text-[10px] font-mono text-text-muted">ACTIVE MODE</span>
+                  <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                  <span className="text-[9px] font-mono text-text-muted uppercase tracking-wider font-bold">EVENT BUS ACTIVE</span>
                 </div>
               </div>
 
-              {/* Code display */}
-              <div className="font-mono text-[10.5px] bg-bg-subtle border border-border p-4 rounded-xl overflow-x-auto text-accent space-y-1.5 leading-relaxed noscrollbar max-h-[300px]">
-                <div><span className="text-neutral-500"># base_agent.py - Real-mode thenvoi adapter wiring</span></div>
-                <div><span className="text-emerald-500 font-bold">from</span> thenvoi.adapters <span className="text-emerald-500 font-bold">import</span> LangGraphAdapter</div>
-                <div><span className="text-emerald-500 font-bold">from</span> thenvoi <span className="text-emerald-500 font-bold">import</span> Agent <span className="text-emerald-500 font-bold">as</span> BandAgent</div>
-                <br />
-                <div><span className="text-emerald-500 font-bold">async def</span> <span className="text-text-primary font-bold">compile_agent</span>(config_path: str):</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;config = load_yaml(config_path)</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;adapter = LangGraphAdapter(graph=agent_graph)</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;band_agent = BandAgent(</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;agent_id=config[<span className="text-yellow-600">"agent_id"</span>],</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;api_key=config[<span className="text-yellow-600">"api_key"</span>],</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;adapter=adapter</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;)</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500 font-bold">await</span> band_agent.connect() &nbsp;<span className="text-neutral-500"># Connects to Band WebSocket event bus</span></div>
-                <br />
-                <div><span className="text-neutral-500"># incident_commander.py - Room invitation flow</span></div>
-                <div><span className="text-emerald-500 font-bold">await</span> band_agent.platform.thenvoi_add_participant(</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;room=<span className="text-yellow-600">"incident-command-room"</span>,</div>
-                <div>&nbsp;&nbsp;&nbsp;&nbsp;agent=<span className="text-yellow-600">"@Recon-Agent"</span></div>
-                <div>)</div>
-              </div>
-
-              {/* Protocol Spec Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                <div className="p-4 rounded-2xl bg-bg-subtle border border-border">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">DELIBERATION FLOW</span>
-                  <div className="mt-2 text-[11px] text-text-secondary leading-relaxed font-sans">
-                    <strong>1. Threat Alert:</strong> Threat Intel scans logs and CVE databases, then reports to Incident Commander.<br/>
-                    <strong>2. Investigation:</strong> Incident Commander recruits Recon and Detection agents to identify attack surface.
-                  </div>
+              {/* Code/JSON Display Container */}
+              {codeTab === 'python' ? (
+                <div className="font-mono text-[10.5px] bg-bg-subtle border border-border p-4 rounded-xl overflow-x-auto text-accent space-y-1.5 leading-relaxed noscrollbar flex-1 min-h-[460px] text-left">
+                  <div><span className="text-neutral-500 font-sans tracking-wide mb-1 block"># base_agent.py - Real-mode thenvoi adapter wiring</span></div>
+                  <div><span className="text-emerald-500 font-bold">from</span> thenvoi.adapters <span className="text-emerald-500 font-bold">import</span> LangGraphAdapter</div>
+                  <div><span className="text-emerald-500 font-bold">from</span> thenvoi <span className="text-emerald-500 font-bold">import</span> Agent <span className="text-emerald-500 font-bold">as</span> BandAgent</div>
+                  <br />
+                  <div><span className="text-emerald-500 font-bold">async def</span> <span className="text-text-primary font-bold">compile_agent</span>(config_path: str):</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;config = load_yaml(config_path)</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;adapter = LangGraphAdapter(graph=agent_graph)</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;band_agent = BandAgent(</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;agent_id=config[<span className="text-yellow-600">"agent_id"</span>],</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;api_key=config[<span className="text-yellow-600">"api_key"</span>],</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;adapter=adapter</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;)</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500 font-bold">await</span> band_agent.connect() &nbsp;<span className="text-neutral-500"># Connects to Band WebSocket event bus</span></div>
+                  <br />
+                  <div><span className="text-neutral-500 font-sans tracking-wide mb-1 block"># incident_commander.py - Room invitation flow</span></div>
+                  <div><span className="text-emerald-500 font-bold">await</span> band_agent.platform.thenvoi_add_participant(</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;room=<span className="text-yellow-600">"incident-command-room"</span>,</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;agent=<span className="text-yellow-600">"@Recon-Agent"</span></div>
+                  <div>)</div>
                 </div>
-                <div className="p-4 rounded-2xl bg-bg-subtle border border-border">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">DISSENT & CONSENSUS</span>
-                  <div className="mt-2 text-[11px] text-text-secondary leading-relaxed font-sans">
-                    <strong>3. Assessment:</strong> Red Team maps simulated paths. Attack Path calculates risks.<br/>
-                    <strong>4. Playbook:</strong> Blue Team maps defenses. Executive Decision routes consensus.
-                  </div>
+              ) : (
+                <div className="font-mono text-[10.5px] bg-bg-subtle border border-border p-4 rounded-xl overflow-x-auto text-accent space-y-1.5 leading-relaxed noscrollbar flex-1 min-h-[460px] text-left">
+                  <div><span className="text-neutral-500 font-sans tracking-wide mb-1 block">// Real-time event payload routed via Band WebSocket Room</span></div>
+                  <div>{"{"}</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"event"</span>: <span className="text-yellow-600">"message_published"</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"room"</span>: <span className="text-yellow-600">"incident-command-room"</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"sender"</span>: <span className="text-yellow-600">"@Threat-Intel-Agent"</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"recipient"</span>: <span className="text-yellow-600">"@Incident-Commander"</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"timestamp"</span>: <span className="text-yellow-600">"2026-06-17T01:12:45Z"</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"payload"</span>: {"{"}</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"threat_type"</span>: <span className="text-yellow-600">"Spearphishing Attachment"</span>,</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"mitre_ttps"</span>: [<span className="text-yellow-600">"T1566"</span>, <span className="text-yellow-600">"T1566.001"</span>, <span className="text-yellow-600">"T1204.002"</span>],</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"cves"</span>: [{"{"} <span className="text-emerald-500">"id"</span>: <span className="text-yellow-600">"CVE-2024-21378"</span>, <span className="text-emerald-500">"cvss"</span>: <span className="text-yellow-600">9.8</span>, <span className="text-emerald-500">"severity"</span>: <span className="text-yellow-600">"CRITICAL"</span> {"}"}],</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"severity_score"</span>: <span className="text-yellow-600">82</span>,</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"target"</span>: {"{"} <span className="text-emerald-500">"email"</span>: <span className="text-yellow-600">"ceo@techcorp.com"</span>, <span className="text-emerald-500">"role"</span>: <span className="text-yellow-600">"CEO"</span>, <span className="text-emerald-500">"admin"</span>: <span className="text-yellow-600">true</span> {"}"},</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"recommended_actions"</span>: [<span className="text-yellow-600">"Isolate mail server"</span>, <span className="text-yellow-600">"Block sender domain"</span>]</div>
+                  <div>&nbsp;&nbsp;{"}"}</div>
+                  <div>{"}"}</div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -2780,15 +2785,29 @@ function LandingPage({ onLogin }: LandingPageProps) {
         <div className="max-w-[1550px] mx-auto px-8 md:px-16 grid grid-cols-1 md:grid-cols-4 gap-8 text-left">
           
           <div className="space-y-4">
-            <div className="flex items-center gap-1">
-              <FusionLogo className="h-7" />
-              <span className="text-text-muted font-mono text-lg font-bold select-none px-0.5">×</span>
-              <BandLogoFull className="h-7" />
-            </div>
-            <p className="text-[11px] text-text-secondary leading-relaxed font-sans">
-              Collaborative multi-agent boardroom due diligence platform. Grounded mathematically using a python calculations engine.
-            </p>
-          </div>
+             <div className="flex items-center gap-1">
+               <FusionLogo className="h-7" />
+               <span className="text-text-muted font-mono text-lg font-bold select-none px-0.5">×</span>
+               <BandLogoFull className="h-7" />
+             </div>
+             <p className="text-[11px] text-text-secondary leading-relaxed font-sans">
+               Collaborative multi-agent boardroom due diligence platform. Grounded mathematically using a python calculations engine.
+             </p>
+             <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
+               <span className="text-[9px] font-mono text-text-muted uppercase tracking-wider font-bold">Built with</span>
+               <div className="flex items-center gap-4">
+                 <div className="flex items-center gap-1.5 font-sans font-semibold text-white text-[12px]">
+                   <ClaudeLogo className="h-4.5 w-4.5 text-[#ea8258]" />
+                   <span>Claude</span>
+                 </div>
+                 <span className="text-text-muted/40 font-mono text-[10px]">&amp;</span>
+                 <div className="flex items-center gap-1.5 font-sans font-semibold text-white text-[12px]">
+                   <AntigravityLogo className="h-4.5 w-4.5 text-accent" />
+                   <span>Antigravity</span>
+                 </div>
+               </div>
+             </div>
+           </div>
 
           <div>
             <h5 className="font-mono text-text-primary uppercase tracking-wider font-bold mb-4">Roundtable Map</h5>
@@ -2821,23 +2840,8 @@ function LandingPage({ onLogin }: LandingPageProps) {
           </div>
 
         </div>
-        
-        <div className="max-w-[1550px] mx-auto px-8 md:px-16 border-t border-border mt-8 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-[9px] text-text-muted font-mono">
-          <div>
-            &copy; 2026 FUSION Investment Swarm Boardroom. All rights reserved. Powered by Band AI event bus.
-          </div>
-          <div className="flex items-center gap-3 bg-bg-subtle px-3 py-1.5 rounded-xl border border-border">
-            <span className="text-text-secondary">Built with</span>
-            <div className="flex items-center gap-1.5 font-sans font-semibold text-text-primary text-[10px]">
-              <ClaudeLogo className="h-3.5 w-3.5 text-orange-600/80" />
-              <span>Claude</span>
-            </div>
-            <span className="text-text-muted/40">&amp;</span>
-            <div className="flex items-center gap-1.5 font-sans font-semibold text-text-primary text-[10px]">
-              <AntigravityLogo className="h-3.5 w-3.5 text-accent" />
-              <span>Antigravity</span>
-            </div>
-          </div>
+        <div className="max-w-[1550px] mx-auto px-8 md:px-16 border-t border-border mt-8 pt-6 text-center text-[9px] text-text-muted font-mono">
+          &copy; 2026 FUSION Investment Swarm Boardroom. All rights reserved. Powered by Band AI event bus.
         </div>
       </footer>
 

@@ -891,9 +891,10 @@ class BaseAgent:
         """LLM client pointed at this server's deterministic /mock-llm engine."""
         port = os.getenv("PORT", "8000")
         return ChatOpenAI(
-            base_url=f"http://localhost:{port}/mock-llm",
+            base_url=f"http://127.0.0.1:{port}/mock-llm",
             api_key="dummy",
-            model=f"mock-{self.name}"
+            model=f"mock-{self.name}",
+            default_headers={"X-Agent-Name": self.name}
         )
 
     def load_credentials(self) -> tuple[str, str]:
