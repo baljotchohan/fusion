@@ -1132,6 +1132,30 @@ function LandingPage({ onLogin }: LandingPageProps) {
   const [authError, setAuthError] = useState<string | null>(null)
   const spotlightRef = useRef<HTMLDivElement>(null)
 
+  const cleanAuthErrorMessage = (msg: string | null): string | null => {
+    if (!msg) return null
+    if (msg.includes('auth/popup-blocked') || msg.includes('popup-blocked')) {
+      return 'The sign-in popup was blocked by your browser. Please allow popups or try again.'
+    }
+    if (msg.includes('auth/popup-closed-by-user') || msg.includes('popup-closed')) {
+      return 'Sign-in was cancelled by closing the window. Please try again.'
+    }
+    if (msg.includes('auth/cancelled-popup-request') || msg.includes('cancelled-popup')) {
+      return 'Sign-in was cancelled. Please try again.'
+    }
+    if (msg.includes('auth/operation-not-allowed')) {
+      return 'Google Sign-In is not enabled yet in your Firebase Console.'
+    }
+    if (msg.includes('auth/unauthorized-domain')) {
+      return 'This domain is not authorized. Please add it to your Firebase Auth Authorized Domains.'
+    }
+    if (msg.includes('auth/network-request-failed')) {
+      return 'Network connection error. Please check your internet connection.'
+    }
+    // Clean up generic Firebase: Error (auth/...) prefix
+    return msg.replace(/Firebase:\s*/g, '').replace(/\(auth\/.*\)\.?/g, '').trim()
+  }
+
   // Roundtable Simulation States
   const [simState, setSimState] = useState<'idle' | 'running' | 'completed'>('idle')
   const [simStepIdx, setSimStepIdx] = useState(-1)
@@ -2894,7 +2918,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
                   {/* Real Error display box */}
                   {authError && (
                     <div className="mb-4 p-3.5 rounded-xl bg-red-950/30 border border-red-500/20 text-red-400 text-xs font-sans text-center leading-relaxed">
-                      ⚠️ {authError}
+                      ⚠️ {cleanAuthErrorMessage(authError)}
                     </div>
                   )}
 
