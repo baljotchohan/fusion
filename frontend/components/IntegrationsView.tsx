@@ -46,61 +46,55 @@ function Snippet({ code }: { code: string }) {
 /* ──────────────────────────────────────────────────────────────
    Setup recipes per client. {URL} is replaced with the live endpoint.
    ────────────────────────────────────────────────────────────── */
-type ClientId = 'paste' | 'claude-code' | 'config' | 'local'
+type ClientId = 'claude-desktop' | 'cursor' | 'claude-code' | 'config'
 
 const CLIENTS: { id: ClientId; label: string; Icon: LucideIcon }[] = [
-  { id: 'paste', label: 'Paste a link', Icon: Link2 },
+  { id: 'claude-desktop', label: 'Claude Desktop (1-Click)', Icon: Sparkles },
+  { id: 'cursor', label: 'Cursor (SSE)', Icon: Link2 },
   { id: 'claude-code', label: 'Claude Code', Icon: Terminal },
-  { id: 'config', label: 'Config file', Icon: FileCode2 },
-  { id: 'local', label: 'Local (advanced)', Icon: HardDrive },
+  { id: 'config', label: 'Manual JSON', Icon: FileCode2 },
 ]
 
 function recipe(id: ClientId, url: string): { steps: string[]; code?: string } {
   switch (id) {
-    case 'paste':
+    case 'claude-desktop':
       return {
         steps: [
-          'Open your AI tool (Claude, Cursor, …) and find “Add connector”, “Add custom MCP”, or “Integrations”.',
-          'Paste the FUSION link above into the URL box and confirm.',
-          'Ask it: “Use FUSION to evaluate this startup.” — that’s it. ✅',
+          'Open your terminal app.',
+          'Copy and paste the command below, then press Enter:',
+          'FUSION is now added to your Claude Desktop config. Restart Claude Desktop to use it! 🚀',
+        ],
+        code: `python -c "import json, os; p = os.path.expanduser('~/Library/Application Support/Claude/claude_desktop_config.json') if os.name != 'nt' else os.path.join(os.environ.get('APPDATA', ''), 'Claude', 'claude_desktop_config.json'); os.makedirs(os.path.dirname(p), exist_ok=True); d = json.load(open(p)) if os.path.exists(p) else {}; d.setdefault('mcpServers', {})['fusion'] = {'type': 'http', 'url': '${url}'}; json.dump(d, open(p, 'w'), indent=2); print('✓ FUSION MCP server added to Claude Desktop!')"`,
+      }
+    case 'cursor':
+      return {
+        steps: [
+          'Open Cursor Settings -> Features -> MCP.',
+          'Click "+ Add New MCP Server".',
+          'Name: "fusion", Type: "SSE", URL: click "Copy link" below and paste it in.',
+          'Click Save and restart Cursor to activate. ✅',
         ],
       }
     case 'claude-code':
       return {
         steps: [
           'Open your terminal.',
-          'Paste this one command and press Enter:',
-          'FUSION’s 5 tools are now available in Claude Code.',
+          'Run this command to register FUSION in Claude Code:',
+          'FUSION is now registered. Run /mcp inside Claude Code to verify connection. 🚀',
         ],
         code: `claude mcp add --transport http fusion ${url}`,
       }
     case 'config':
       return {
         steps: [
-          'Open your client’s MCP config (e.g. Claude Desktop’s claude_desktop_config.json).',
-          'Add this block, then restart the app.',
+          'Open your MCP config file (e.g. claude_desktop_config.json).',
+          'Paste this JSON block into your "mcpServers" object:',
         ],
         code: `{
   "mcpServers": {
     "fusion": {
       "type": "http",
       "url": "${url}"
-    }
-  }
-}`,
-      }
-    case 'local':
-      return {
-        steps: [
-          'Only if you’re running FUSION on your own machine from source.',
-          'Add this to your client config (the repo also ships a ready .mcp.json):',
-        ],
-        code: `{
-  "mcpServers": {
-    "fusion": {
-      "command": "python",
-      "args": ["/path/to/fusion/mcp_server.py"],
-      "env": { "FUSION_API_URL": "http://localhost:8000" }
     }
   }
 }`,
@@ -116,7 +110,7 @@ function McpConnectCard() {
   const [online, setOnline] = useState<boolean | null>(null)
   const [toolCount, setToolCount] = useState<number>(5)
   const [tools, setTools] = useState<{ name: string; description: string }[]>([])
-  const [active, setActive] = useState<ClientId>('paste')
+  const [active, setActive] = useState<ClientId>('claude-desktop')
 
   useEffect(() => {
     let cancelled = false
