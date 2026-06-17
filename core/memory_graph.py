@@ -32,9 +32,12 @@ def _utcnow() -> str:
 class MemoryGraph:
     """Shared deal memory graph used by every FUSION agent."""
 
-    def __init__(self, graphify_dir: str = str(Path(__file__).parent.parent / "fusion_memory")):
-        self.base_path = Path(graphify_dir)
-        self.base_path.mkdir(exist_ok=True)
+    def __init__(self, graphify_dir: str = str(Path(__file__).parent.parent / "fusion_memory"), uid: str | None = None):
+        # If a uid is given, scope all memory under fusion_memory/<uid>/
+        # so every user has completely isolated deal history and chat.
+        base = Path(graphify_dir)
+        self.base_path = (base / uid) if uid else base
+        self.base_path.mkdir(parents=True, exist_ok=True)
         self.incidents_file = self.base_path / "incidents.json"
         self.patterns_file = self.base_path / "attack_patterns.json"
         self.agent_profiles_file = self.base_path / "agent_profiles.json"
