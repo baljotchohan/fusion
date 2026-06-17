@@ -35,7 +35,13 @@ logger = logging.getLogger("fusion.api")
 # mounted at /mcp, so ANY MCP client can connect to the deployed FUSION by URL.
 # Tool behavior is shared via mcp_tools.dispatch — stdio and HTTP can't drift.
 # streamable_http_path="/" + mount("/mcp") => the endpoint is exactly /mcp.
-fusion_mcp = FastMCP("fusion-mcp", stateless_http=True, streamable_http_path="/")
+from mcp.server.transport_security import TransportSecuritySettings
+fusion_mcp = FastMCP(
+    "fusion-mcp",
+    stateless_http=True,
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 _MCP_DESC = {t.name: t.description for t in mcp_tools.TOOLS}
 
 
