@@ -1,0 +1,14 @@
+{
+  "name": "fusion-vc",
+  "displayName": "FUSION VC Investment Committee",
+  "description": "5 AI partner agents (Financial, Legal, Technical, Market, Managing) that investigate startup pitches, debate findings via Band chat rooms, and deliver INVEST / PASS / CONDITIONAL verdicts with weighted risk scores.",
+  "license": "MIT",
+  "remote": {
+    "url": "https://baljot07-fusion.hf.space/mcp"
+  },
+  "startCommand": {
+    "type": "http",
+    "configSchema": {},
+    "exampleConfig": {}
+  }
+}

@@ -1173,9 +1173,17 @@ MCP_TOOLS = [
 ]
 
 
-def _mcp_transports() -> list:
+def _mcp_transports(request=None) -> list:
     """The two ways any MCP client can connect to FUSION's committee tools."""
-    public_url = os.getenv("FUSION_PUBLIC_URL", "http://localhost:8000").rstrip("/")
+    public_url = os.getenv("FUSION_PUBLIC_URL", "").rstrip("/")
+    if not public_url and request:
+        # Auto-detect from reverse-proxy headers (HF Spaces, Vercel, etc.)
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+        proto = request.headers.get("x-forwarded-proto", "https" if host and "localhost" not in host else "http")
+        if host:
+            public_url = f"{proto}://{host}"
+    if not public_url:
+        public_url = "http://localhost:8000"
     mcp_url = os.getenv("FUSION_MCP_URL", f"{public_url}/mcp/")
     return [
         {
@@ -1283,11 +1291,11 @@ async def update_system_settings(patch: SettingsPatch):
 
 
 @router.get("/system/mcp")
-async def get_mcp_registry():
+async def get_mcp_registry(request: Request):
     """The MCP tool surface external AI apps can call, and how to connect."""
     return {
         "server": "fusion-mcp",
-        "transports": _mcp_transports(),
+        "transports": _mcp_transports(request),
         "tool_count": len(MCP_TOOLS),
         "tools": MCP_TOOLS,
     }
@@ -3144,3 +3152,14 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
         'Content-Disposition': f'attachment; filename="FUSION_Report_{company_name.replace(" ", "_")}.md"'
     }
     return StreamingResponse(file_like, media_type="text/markdown", headers=headers)
+
+
+@router.get("/profile")
+async def get_profile(request: Request):
+    """Return the authenticated user's Firestore profile (totalDeals, displayName, etc.)."""
+    from core.auth import get_uid
+    from core.firestore_profile import get_user
+    uid = await get_uid(request)
+    profile = get_user(uid) or {}
+    # Strip server timestamps (not JSON-serialisable) — replace with None
+    return {k: (v if not hasattr(v, '_type') else None) for k, v in profile.items()}

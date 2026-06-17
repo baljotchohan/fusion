@@ -1,259 +1,352 @@
-// components/IntegrationsView.tsx — "Connect FUSION to your AI" (MCP, non-technical)
-// + the decorative workspace integrations grid below.
+// components/IntegrationsView.tsx — Connect FUSION to any AI tool
+// True one-click deep links for Cursor + VS Code; Smithery handles everything else.
 import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import {
-  HardDrive, type LucideIcon, Plug, Copy, Check, Sparkles, Link2, Terminal, FileCode2,
-} from 'lucide-react'
+import { Plug, Copy, Check, ExternalLink, Zap } from 'lucide-react'
 import { API_BASE } from '@/lib/agents'
 
-/* ──────────────────────────────────────────────────────────────
-   Copy-to-clipboard button (mirrors the DocsView pattern)
-   ────────────────────────────────────────────────────────────── */
-function CopyButton({ text, label = 'Copy', className = '' }: { text: string; label?: string; className?: string }) {
-  const [copied, setCopied] = useState(false)
-  const copy = () => {
-    navigator.clipboard?.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1400)
-  }
+const SMITHERY_URL = 'https://smithery.ai/server/@baljotchohan/fusion-vc'
+
+/* ── tiny helpers ───────────────────────────────────────────────────────────── */
+
+function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+  const [ok, setOk] = useState(false)
   return (
     <button
-      onClick={copy}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors cursor-pointer ${
-        copied ? 'bg-accent text-white' : 'bg-accent/10 text-accent hover:bg-accent/20'
-      } ${className}`}
-      aria-label={label}
+      onClick={() => { navigator.clipboard?.writeText(text); setOk(true); setTimeout(() => setOk(false), 1400) }}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold cursor-pointer transition-colors ${ok ? 'bg-accent text-white' : 'bg-accent/10 text-accent hover:bg-accent/20'} ${className}`}
     >
-      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-      {copied ? 'Copied!' : label}
+      {ok ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+      {ok ? 'Copied!' : 'Copy'}
     </button>
   )
 }
 
-/* A monospace code/snippet box with its own copy button */
-function Snippet({ code }: { code: string }) {
+function CodeBox({ code }: { code: string }) {
   return (
-    <div className="relative rounded-xl border border-border bg-bg-subtle font-mono text-[11.5px] text-text-primary">
-      <pre className="overflow-x-auto p-3.5 pr-20 whitespace-pre-wrap break-all leading-relaxed">{code}</pre>
-      <div className="absolute top-2.5 right-2.5">
-        <CopyButton text={code} />
+    <div className="relative rounded-xl border border-border bg-bg-subtle">
+      <pre className="overflow-x-auto p-3.5 pr-[72px] font-mono text-[11.5px] text-text-primary whitespace-pre-wrap break-all leading-relaxed">{code}</pre>
+      <div className="absolute top-2.5 right-2.5"><CopyButton text={code} /></div>
+    </div>
+  )
+}
+
+/* ── section label ── */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <div className="h-px flex-1 bg-border/60" />
+      <span className="text-[10px] font-bold uppercase tracking-widest text-text-muted px-1 shrink-0">{children}</span>
+      <div className="h-px flex-1 bg-border/60" />
+    </div>
+  )
+}
+
+/* ── deep-link install card ─────────────────────────────────────────────────── */
+function DeepLinkCard({
+  logo, name, tagline, deepLink, note,
+}: {
+  logo: React.ReactNode
+  name: string
+  tagline: string
+  deepLink: string
+  note?: string
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-bg-muted border border-border flex items-center justify-center shrink-0">
+          {logo}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-text-primary">{name}</p>
+          <p className="text-[11.5px] text-text-secondary">{tagline}</p>
+        </div>
+      </div>
+      <a
+        href={deepLink}
+        className="inline-flex items-center justify-center gap-2 w-full rounded-lg bg-accent text-white text-[12.5px] font-semibold py-2.5 hover:opacity-90 transition-opacity cursor-pointer no-underline"
+      >
+        <Zap className="w-3.5 h-3.5" />
+        Install in {name}
+      </a>
+      {note && <p className="text-[10.5px] text-text-muted text-center">{note}</p>}
+    </div>
+  )
+}
+
+/* ── external-link card (Smithery) ──────────────────────────────────────────── */
+function SmitheryCard() {
+  return (
+    <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-bg-muted border border-border flex items-center justify-center shrink-0 text-[18px]">
+          🔮
+        </div>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-text-primary">Smithery</p>
+          <p className="text-[11.5px] text-text-secondary">Claude Desktop · Windsurf · Zed · Cline · 10+ more</p>
+        </div>
+      </div>
+      <a
+        href={SMITHERY_URL}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center justify-center gap-2 w-full rounded-lg bg-bg-muted border border-border text-text-primary text-[12.5px] font-semibold py-2.5 hover:border-accent/40 hover:text-accent transition-colors cursor-pointer no-underline"
+      >
+        <ExternalLink className="w-3.5 h-3.5" />
+        Open on Smithery
+      </a>
+      <p className="text-[10.5px] text-text-muted text-center">Opens smithery.ai → pick your app → one click → done</p>
+    </div>
+  )
+}
+
+/* ── script card (Claude Desktop auto-install) ──────────────────────────────── */
+function ScriptCard({ url }: { url: string }) {
+  // Patches claude_desktop_config.json automatically on Mac + Windows
+  const script = `python3 -c "import json,os; p=(os.path.expanduser('~/Library/Application Support/Claude/claude_desktop_config.json') if os.name!='nt' else os.path.join(os.environ.get('APPDATA',''),'Claude','claude_desktop_config.json')); os.makedirs(os.path.dirname(p),exist_ok=True); d=json.load(open(p)) if os.path.exists(p) else {}; d.setdefault('mcpServers',{})['fusion-vc']={'type':'http','url':'${url}'}; json.dump(d,open(p,'w'),indent=2); print('FUSION added to Claude Desktop! Restart the app.')"`
+
+  return (
+    <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-bg-muted border border-border flex items-center justify-center shrink-0 text-[18px]">
+          🖥
+        </div>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-text-primary">Claude Desktop</p>
+          <p className="text-[11.5px] text-text-secondary">Mac &amp; Windows — auto-patches your config</p>
+        </div>
+      </div>
+      <ol className="space-y-1.5 list-none pl-0">
+        {['Open Terminal (Mac: Cmd+Space → "Terminal")', 'Copy the command below, paste it, press Enter', 'Restart Claude Desktop — FUSION appears in tools'].map((s, i) => (
+          <li key={i} className="flex gap-2.5">
+            <span className="shrink-0 w-4 h-4 rounded-full bg-accent/10 text-accent text-[10px] font-bold flex items-center justify-center mt-px">{i + 1}</span>
+            <span className="text-[12px] text-text-secondary">{s}</span>
+          </li>
+        ))}
+      </ol>
+      <CodeBox code={script} />
+    </div>
+  )
+}
+
+/* ── command card (Claude Code, Windsurf, etc.) ─────────────────────────────── */
+function CommandCard({
+  emoji, name, subtitle, command,
+}: { emoji: string; name: string; subtitle: string; command: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-2.5">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-lg bg-bg-muted border border-border flex items-center justify-center shrink-0 text-[16px]">{emoji}</div>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-text-primary">{name}</p>
+          <p className="text-[11.5px] text-text-secondary">{subtitle}</p>
+        </div>
+      </div>
+      <CodeBox code={command} />
+    </div>
+  )
+}
+
+/* ── manual JSON card ────────────────────────────────────────────────────────── */
+function ManualCard({ url }: { url: string }) {
+  const json = JSON.stringify({ mcpServers: { 'fusion-vc': { type: 'http', url } } }, null, 2)
+  return (
+    <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-2.5">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-lg bg-bg-muted border border-border flex items-center justify-center shrink-0 text-[16px]">📋</div>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-text-primary">Any MCP Client</p>
+          <p className="text-[11.5px] text-text-secondary">Paste into your config file under "mcpServers"</p>
+        </div>
+      </div>
+      <CodeBox code={json} />
+    </div>
+  )
+}
+
+/* ── tool chip ──────────────────────────────────────────────────────────────── */
+function ToolChip({ name, description }: { name: string; description: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-bg-subtle px-3 py-2">
+      <Check className="w-3.5 h-3.5 text-accent shrink-0 mt-0.5" />
+      <div className="min-w-0">
+        <code className="text-[11px] font-mono text-text-primary">{name}</code>
+        <p className="text-[10.5px] text-text-muted leading-snug mt-0.5 line-clamp-2">{description}</p>
       </div>
     </div>
   )
 }
 
-/* ──────────────────────────────────────────────────────────────
-   Setup recipes per client. {URL} is replaced with the live endpoint.
-   ────────────────────────────────────────────────────────────── */
-type ClientId = 'claude-desktop' | 'cursor' | 'claude-code' | 'config'
-
-const CLIENTS: { id: ClientId; label: string; Icon: LucideIcon }[] = [
-  { id: 'claude-desktop', label: 'Claude Desktop (1-Click)', Icon: Sparkles },
-  { id: 'cursor', label: 'Cursor (SSE)', Icon: Link2 },
-  { id: 'claude-code', label: 'Claude Code', Icon: Terminal },
-  { id: 'config', label: 'Manual JSON', Icon: FileCode2 },
-]
-
-function recipe(id: ClientId, url: string): { steps: string[]; code?: string } {
-  switch (id) {
-    case 'claude-desktop':
-      return {
-        steps: [
-          'Open your terminal app.',
-          'Copy and paste the command below, then press Enter:',
-          'FUSION is now added to your Claude Desktop config. Restart Claude Desktop to use it! 🚀',
-        ],
-        code: `python -c "import json, os; p = os.path.expanduser('~/Library/Application Support/Claude/claude_desktop_config.json') if os.name != 'nt' else os.path.join(os.environ.get('APPDATA', ''), 'Claude', 'claude_desktop_config.json'); os.makedirs(os.path.dirname(p), exist_ok=True); d = json.load(open(p)) if os.path.exists(p) else {}; d.setdefault('mcpServers', {})['fusion'] = {'type': 'http', 'url': '${url}'}; json.dump(d, open(p, 'w'), indent=2); print('✓ FUSION MCP server added to Claude Desktop!')"`,
-      }
-    case 'cursor':
-      return {
-        steps: [
-          'Open Cursor Settings -> Features -> MCP.',
-          'Click "+ Add New MCP Server".',
-          'Name: "fusion", Type: "SSE", URL: click "Copy link" below and paste it in.',
-          'Click Save and restart Cursor to activate. ✅',
-        ],
-      }
-    case 'claude-code':
-      return {
-        steps: [
-          'Open your terminal.',
-          'Run this command to register FUSION in Claude Code:',
-          'FUSION is now registered. Run /mcp inside Claude Code to verify connection. 🚀',
-        ],
-        code: `claude mcp add --transport http fusion ${url}`,
-      }
-    case 'config':
-      return {
-        steps: [
-          'Open your MCP config file (e.g. claude_desktop_config.json).',
-          'Paste this JSON block into your "mcpServers" object:',
-        ],
-        code: `{
-  "mcpServers": {
-    "fusion": {
-      "type": "http",
-      "url": "${url}"
-    }
-  }
-}`,
-      }
-  }
+/* ── Cursor SVG logo ─────────────────────────────────────────────────────────── */
+function CursorIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-text-primary">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
 }
 
-/* ──────────────────────────────────────────────────────────────
-   The MCP connect card
-   ────────────────────────────────────────────────────────────── */
-function McpConnectCard() {
+/* ── VS Code SVG logo ────────────────────────────────────────────────────────── */
+function VSCodeIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" className="text-[#007ACC]">
+      <path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.94a1.5 1.5 0 0 0-.85-1.353zm-5.146 14.861L10.826 12l7.178-5.448v10.896z" />
+    </svg>
+  )
+}
+
+/* ── main component ─────────────────────────────────────────────────────────── */
+export function IntegrationsView() {
   const [url, setUrl] = useState(`${API_BASE}/mcp`)
   const [online, setOnline] = useState<boolean | null>(null)
-  const [toolCount, setToolCount] = useState<number>(5)
+  const [toolCount, setToolCount] = useState(5)
   const [tools, setTools] = useState<{ name: string; description: string }[]>([])
-  const [active, setActive] = useState<ClientId>('claude-desktop')
 
   useEffect(() => {
-    let cancelled = false
+    let alive = true
     fetch(`${API_BASE}/api/v1/system/mcp`)
       .then(r => r.json())
       .then(d => {
-        if (cancelled) return
-        const http = (d.transports || []).find((t: { type: string }) => t.type === 'streamable-http')
-        if (http?.url) setUrl(http.url)
+        if (!alive) return
+        const http = (d.transports ?? []).find((t: { type: string }) => t.type === 'streamable-http')
+        // Only use backend URL if it's a real public URL (not localhost fallback)
+        if (http?.url && !http.url.includes('localhost') && !http.url.includes('127.0.0.1')) {
+          setUrl(http.url)
+        }
         if (typeof d.tool_count === 'number') setToolCount(d.tool_count)
-        if (Array.isArray(d.tools)) setTools(d.tools.map((t: { name: string; description: string }) => ({ name: t.name, description: t.description })))
+        if (Array.isArray(d.tools)) setTools(d.tools)
         setOnline(true)
       })
-      .catch(() => { if (!cancelled) setOnline(false) })
-    return () => { cancelled = true }
+      .catch(() => { if (alive) setOnline(false) })
+    return () => { alive = false }
   }, [])
 
-  const r = recipe(active, url)
+  // Cursor: base64-encoded JSON config using mcp-remote as HTTP bridge
+  const cursorDeepLink = (() => {
+    try {
+      const cfg = JSON.stringify({ command: 'npx', args: ['-y', 'mcp-remote', url] })
+      return `cursor://anysphere.cursor-deeplink/mcp/install?name=fusion-vc&config=${btoa(cfg)}`
+    } catch { return SMITHERY_URL }
+  })()
+
+  // VS Code: URL-encoded JSON config (native HTTP MCP support in VS Code 1.99+)
+  const vsCodeDeepLink = (() => {
+    try {
+      const cfg = JSON.stringify({ name: 'fusion-vc', type: 'http', url })
+      return `vscode:mcp/install?${encodeURIComponent(cfg)}`
+    } catch { return SMITHERY_URL }
+  })()
+
+  const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${url}`
+
+  const windsurfConfig = JSON.stringify(
+    { mcpServers: { 'fusion-vc': { command: 'npx', args: ['-y', 'mcp-remote', url] } } },
+    null, 2
+  )
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 14 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="rounded-2xl bg-bg-card border border-border/80 shadow-sm overflow-hidden"
+      transition={{ duration: 0.25 }}
+      className="space-y-6 max-w-3xl mx-auto py-4"
     >
-      {/* Header band */}
-      <div className="p-5 sm:p-6 border-b border-border/60 bg-accent/[0.04]">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-accent" />
-            </div>
-            <div>
-              <h2 className="text-[17px] font-bold text-text-primary tracking-tight">Connect FUSION to your AI</h2>
-              <p className="text-[12.5px] text-text-secondary mt-0.5">
-                Use the full investment committee inside Claude, Cursor, or any AI tool — no coding.
-              </p>
-            </div>
-          </div>
-          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-semibold ${
-            online === false
-              ? 'bg-bg-muted text-text-muted'
-              : 'bg-success-soft text-success'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${online === false ? 'bg-text-muted' : 'bg-success animate-pulse'}`} />
-            {online === false ? 'Offline — start the server' : `Live · ${toolCount} tools`}
-          </span>
-        </div>
-      </div>
-
-      <div className="p-5 sm:p-6 space-y-5">
-        {/* The one thing they need: the link */}
-        <div>
-          <label className="text-[10.5px] font-bold uppercase tracking-wider text-text-muted">Your FUSION link</label>
-          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-            <code className="flex-1 min-w-[200px] rounded-xl border border-border bg-bg-subtle px-3.5 py-2.5 text-[13px] font-mono text-text-primary break-all">
-              {url}
-            </code>
-            <CopyButton text={url} label="Copy link" className="px-4 py-2.5" />
-          </div>
-        </div>
-
-        {/* Client picker */}
-        <div className="flex flex-wrap gap-1.5">
-          {CLIENTS.map(c => {
-            const on = active === c.id
-            return (
-              <button
-                key={c.id}
-                onClick={() => setActive(c.id)}
-                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition-colors cursor-pointer ${
-                  on ? 'border-accent bg-accent/10 text-accent' : 'border-border bg-bg-card text-text-secondary hover:border-border-strong'
-                }`}
-              >
-                <c.Icon className="w-3.5 h-3.5" />
-                {c.label}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Steps for the chosen client */}
-        <ol className="space-y-2.5">
-          {r.steps.map((step, i) => (
-            <li key={i} className="flex gap-3">
-              <span className="shrink-0 w-5 h-5 rounded-full bg-accent/10 text-accent text-[11px] font-bold flex items-center justify-center mt-px">
-                {i + 1}
-              </span>
-              <span className="text-[12.5px] text-text-secondary leading-relaxed">{step}</span>
-            </li>
-          ))}
-        </ol>
-        {r.code && <Snippet code={r.code} />}
-
-        {/* What it can do */}
-        {tools.length > 0 && (
-          <div className="pt-4 border-t border-border/60">
-            <p className="text-[10.5px] font-bold uppercase tracking-wider text-text-muted mb-2.5">What your AI can now do</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {tools.map(t => (
-                <div key={t.name} className="flex items-start gap-2 rounded-lg border border-border/60 bg-bg-subtle px-3 py-2">
-                  <Check className="w-3.5 h-3.5 text-accent shrink-0 mt-0.5" />
-                  <div className="min-w-0">
-                    <code className="text-[11px] font-mono text-text-primary">{t.name}</code>
-                    <p className="text-[10.5px] text-text-muted leading-snug mt-0.5 line-clamp-2">{t.description}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </motion.div>
-  )
-}
-
-export function IntegrationsView() {
-  return (
-    <div className="space-y-6 max-w-5xl mx-auto py-4">
-      {/* Header */}
+      {/* ── header ── */}
       <div>
         <div className="flex items-center gap-2 mb-1.5">
           <Plug className="w-5 h-5 text-accent" />
-          <h1 className="text-2xl font-bold text-text-primary tracking-tight">Integrations</h1>
+          <h1 className="text-2xl font-bold text-text-primary tracking-tight">Connect your AI</h1>
         </div>
         <p className="text-text-secondary text-[13px]">
-          Connect the FUSION investment committee to your AI assistant in seconds.
+          Use FUSION's full investment committee inside any AI tool — no browser, no login.
         </p>
       </div>
 
-      {/* The real integration: MCP */}
-      <McpConnectCard />
+      {/* ── status + link ── */}
+      <div className="rounded-2xl border border-border bg-bg-card p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${online === false ? 'bg-text-muted' : 'bg-success animate-pulse'}`} />
+          <span className={`text-[12px] font-semibold ${online === false ? 'text-text-muted' : 'text-success'}`}>
+            {online === false ? 'Offline — start the server' : `Live · ${toolCount} tools`}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <code className="flex-1 min-w-0 rounded-lg border border-border bg-bg-subtle px-3 py-2 text-[12px] font-mono text-text-primary truncate">{url}</code>
+          <CopyButton text={url} />
+        </div>
+      </div>
 
-      {/* Honest note about other tools */}
+      {/* ── one-click section ── */}
+      <div>
+        <SectionLabel>One click — app opens and installs automatically</SectionLabel>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <DeepLinkCard
+            logo={<CursorIcon />}
+            name="Cursor"
+            tagline="Opens Cursor — confirm install"
+            deepLink={cursorDeepLink}
+            note="Requires Cursor to be installed"
+          />
+          <DeepLinkCard
+            logo={<VSCodeIcon />}
+            name="VS Code"
+            tagline="Opens VS Code — confirm install"
+            deepLink={vsCodeDeepLink}
+            note="Requires VS Code 1.99+"
+          />
+          <SmitheryCard />
+        </div>
+      </div>
+
+      {/* ── quick setup section ── */}
+      <div>
+        <SectionLabel>Quick setup — copy one thing, paste, done</SectionLabel>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <ScriptCard url={url} />
+          <div className="flex flex-col gap-3">
+            <CommandCard
+              emoji="⚡"
+              name="Claude Code"
+              subtitle="Terminal — run once, works immediately"
+              command={claudeCodeCmd}
+            />
+            <CommandCard
+              emoji="🌊"
+              name="Windsurf"
+              subtitle="Paste into ~/.codeium/windsurf/mcp_config.json"
+              command={windsurfConfig}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ── manual / any client ── */}
+      <div>
+        <SectionLabel>Any other MCP client</SectionLabel>
+        <ManualCard url={url} />
+      </div>
+
+      {/* ── what FUSION can do ── */}
+      {tools.length > 0 && (
+        <div>
+          <SectionLabel>What your AI can now do</SectionLabel>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {tools.map(t => <ToolChip key={t.name} name={t.name} description={t.description} />)}
+          </div>
+        </div>
+      )}
+
+      {/* ── other tools note ── */}
       <div className="rounded-2xl border border-border/70 bg-bg-subtle p-5">
-        <h2 className="text-[13px] font-bold text-text-primary mb-1.5">Slack, Google Drive, Notion & more</h2>
+        <h2 className="text-[13px] font-bold text-text-primary mb-1.5">Slack, Notion, Google Drive &amp; more</h2>
         <p className="text-[12.5px] text-text-secondary leading-relaxed">
-          Those tools already publish their own MCP connectors. Add them to the{' '}
-          <span className="font-semibold text-text-primary">same AI assistant</span> you connected FUSION to,
-          and your assistant can use FUSION and your workspace tools together — no separate setup here.
+          Those tools publish their own MCP servers. Add them to the{' '}
+          <span className="font-semibold text-text-primary">same AI assistant</span> you connected FUSION to — your
+          AI can then use FUSION and your workspace tools together in one conversation.
         </p>
       </div>
-    </div>
+    </motion.div>
   )
 }

@@ -2,9 +2,9 @@
 import { initializeApp, getApps } from 'firebase/app'
 import {
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
   signInWithPopup,
-  signInWithRedirect,
   signInAnonymously,
   signOut as firebaseSignOut,
   onAuthStateChanged,
@@ -24,6 +24,11 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
 export const auth = getAuth(app)
 
+// Silently handle any pending redirect from a previous broken attempt.
+// signInWithRedirect is broken in Chrome M115+/Firefox 109+/Safari 16.1+ due to
+// third-party storage blocking — we no longer use it, but clean up if mid-flow.
+getRedirectResult(auth).catch(() => {})
+
 const googleProvider = new GoogleAuthProvider()
 googleProvider.setCustomParameters({ prompt: 'select_account' })
 
@@ -32,8 +37,8 @@ export const signInWithGoogle = async () => {
     return await signInWithPopup(auth, googleProvider)
   } catch (error: any) {
     if (error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request') {
-      console.warn('Popup blocked or cancelled. Falling back to redirect...', error)
-      return await signInWithRedirect(auth, googleProvider)
+      // signInWithRedirect is broken in modern browsers — surface a clear message instead.
+      throw new Error('POPUP_BLOCKED')
     }
     throw error
   }

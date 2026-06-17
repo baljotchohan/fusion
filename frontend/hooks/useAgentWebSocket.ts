@@ -1,5 +1,6 @@
 // hooks/useAgentWebSocket.ts
 import { useState, useEffect } from 'react'
+import { getCurrentIdToken } from '@/lib/firebase'
 
 export type AgentStatus = 'idle' | 'working' | 'done' | 'alert'
 
@@ -48,8 +49,10 @@ export function useAgentWebSocket() {
     let reconnectDelay = 1000
     const maxDelay = 10000
 
-    function connect() {
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws'
+    async function connect() {
+      const baseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws'
+      const token = await getCurrentIdToken().catch(() => null)
+      const wsUrl = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
       ws = new WebSocket(wsUrl)
 
       ws.onopen = () => {

@@ -11,6 +11,7 @@ class SimulationState:
     def __init__(self):
         self.running: bool = False
         self.active_uid: Optional[str] = None
+        self.active_user_name: Optional[str] = None
         # Last known status per agent ('idle' | 'working' | 'done' | 'alert')
         self.agent_statuses: Dict[str, str] = {}
         # Incident currently being worked by the swarm
@@ -55,6 +56,7 @@ class SimulationState:
     def reset(self):
         self.running = False
         self.active_uid = None
+        self.active_user_name = None
         self.agent_statuses = {}
         self.active_incident_id = None
         self.dispatched_deals.clear()
