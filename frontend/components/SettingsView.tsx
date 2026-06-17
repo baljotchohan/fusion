@@ -1,7 +1,7 @@
 // components/SettingsView.tsx — preferences panel.
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Trash2 } from 'lucide-react'
+import { Sun, Moon, Trash2, Plug, Copy, Check, ExternalLink } from 'lucide-react'
 import { AGENTS, API_BASE } from '@/lib/agents'
 
 interface SettingsViewProps {
@@ -15,6 +15,23 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
 
   const [confirmReset, setConfirmReset] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [mcpTab, setMcpTab] = useState<'smithery' | 'claude_code' | 'claude_desktop'>('smithery')
+  const [copied, setCopied] = useState(false)
+
+  const mcpUrl = `${API_BASE}/mcp`
+  const smitheryUrl = 'https://smithery.ai/server/@baljotchohan/fusion-vc'
+  const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${mcpUrl}`
+  const claudeDesktopJson = JSON.stringify(
+    { mcpServers: { 'fusion-vc': { command: 'npx', args: ['mcp-remote', mcpUrl] } } },
+    null, 2
+  )
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
 
 
@@ -98,6 +115,63 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
 
 
 
+
+      {/* MCP Connect */}
+      <section className={sectionCls}>
+        <div className="flex items-center gap-2 mb-1">
+          <Plug className="w-4 h-4 text-accent" />
+          <p className={labelCls}>Connect via MCP</p>
+        </div>
+        <p className="text-[11.5px] text-text-secondary mb-4">
+          Use FUSION's 5-agent VC committee directly from your AI tools — no browser needed.
+        </p>
+
+        {/* Tabs */}
+        <div className="flex gap-1 mb-4 bg-bg-muted rounded-lg p-1 w-fit">
+          {([['smithery', 'Smithery (easiest)'], ['claude_code', 'Claude Code'], ['claude_desktop', 'Claude Desktop']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setMcpTab(id)}
+              className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${mcpTab === id ? 'bg-bg-card text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {mcpTab === 'smithery' && (
+          <div className="space-y-3">
+            <p className="text-[12px] text-text-secondary">Click the button below — Smithery opens in your browser and auto-configures your AI client. No terminal, no config files.</p>
+            <a href={smitheryUrl} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-[12px] font-semibold hover:opacity-90 transition">
+              <ExternalLink className="w-3.5 h-3.5" />
+              Connect on Smithery
+            </a>
+          </div>
+        )}
+
+        {mcpTab === 'claude_code' && (
+          <div className="space-y-3">
+            <p className="text-[12px] text-text-secondary">Run this one command in your terminal:</p>
+            <div className="flex items-center gap-2 bg-bg-muted rounded-lg px-3 py-2.5 font-mono text-[11px] text-text-primary">
+              <span className="flex-1 truncate">{claudeCodeCmd}</span>
+              <button onClick={() => copyToClipboard(claudeCodeCmd)} className="shrink-0 text-text-muted hover:text-accent transition cursor-pointer">
+                {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mcpTab === 'claude_desktop' && (
+          <div className="space-y-3">
+            <p className="text-[12px] text-text-secondary">Add this to your <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">claude_desktop_config.json</code>:</p>
+            <div className="relative">
+              <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopJson}</pre>
+              <button onClick={() => copyToClipboard(claudeDesktopJson)}
+                className="absolute top-2 right-2 text-text-muted hover:text-accent transition cursor-pointer">
+                {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* Danger Zone — Reset & Clear All History */}
       <section className="rounded-2xl bg-bg-card border border-danger/30 shadow-sm p-6">

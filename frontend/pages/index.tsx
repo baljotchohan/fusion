@@ -19,6 +19,7 @@ import SettingsView from '@/components/SettingsView'
 import { IntegrationsView } from '@/components/IntegrationsView'
 import { PartnersView } from '@/components/PartnersView'
 import DocsView from '@/components/DocsView'
+import ErrorBoundary from '@/components/ErrorBoundary'
 import DemoDeals from '@/components/DemoDeals'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ClaudeLogo } from '@/components/ClaudeLogo'
@@ -690,6 +691,33 @@ export default function FUSION() {
         </div>
 
         <div className="p-2 border-t border-border space-y-1">
+          {/* Profile chip */}
+          {firebaseUser && (
+            <div className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg ${sidebarCollapsed ? 'justify-center' : ''}`}>
+              {firebaseUser.photoURL ? (
+                <img
+                  src={firebaseUser.photoURL}
+                  referrerPolicy="no-referrer"
+                  alt=""
+                  className="w-7 h-7 rounded-full border border-border shrink-0"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center text-[11px] font-bold text-white shrink-0">
+                  {(firebaseUser.displayName ?? firebaseUser.email ?? '?')[0].toUpperCase()}
+                </div>
+              )}
+              {!sidebarCollapsed && (
+                <div className="min-w-0">
+                  <p className="text-[12px] font-medium text-text-primary truncate leading-tight">
+                    {firebaseUser.displayName ?? firebaseUser.email?.split('@')[0] ?? 'Partner'}
+                  </p>
+                  <p className="text-[10px] text-text-muted truncate leading-tight" title={firebaseUser.email ?? ''}>
+                    {firebaseUser.isAnonymous ? 'Guest session' : (firebaseUser.email ?? '')}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           <button onClick={() => setTab('settings')}
             className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg transition-colors text-[13px] ${isActive('settings') ? 'bg-accent-soft text-accent font-semibold' : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary'}`}>
             <Settings className={`w-[18px] h-[18px] shrink-0 ${isActive('settings') ? 'text-accent' : 'text-text-muted'}`} />
@@ -742,6 +770,7 @@ export default function FUSION() {
         {/* Content + Chat */}
         <div className="flex-1 flex overflow-hidden">
           <main className="flex-1 overflow-y-auto overflow-x-hidden relative">
+            <ErrorBoundary>
             <div className="p-4 sm:p-6 lg:p-8 max-w-[1100px] w-full mx-auto">
 
               {/* ═══ OVERVIEW ═══ */}
@@ -956,6 +985,7 @@ export default function FUSION() {
               {tab === 'settings' && <SettingsView theme={theme} onToggleTheme={toggleTheme} />}
               {tab === 'docs' && <DocsView />}
             </div>
+            </ErrorBoundary>
           </main>
 
           {/* ═══ RESIZABLE SIDE CHAT ═══ */}
@@ -1134,8 +1164,8 @@ function LandingPage({ onLogin }: LandingPageProps) {
 
   const cleanAuthErrorMessage = (msg: string | null): string | null => {
     if (!msg) return null
-    if (msg.includes('auth/popup-blocked') || msg.includes('popup-blocked')) {
-      return 'The sign-in popup was blocked by your browser. Please allow popups or try again.'
+    if (msg === 'POPUP_BLOCKED' || msg.includes('auth/popup-blocked') || msg.includes('popup-blocked')) {
+      return 'Sign-in popup was blocked. Please allow popups for this site in your browser settings, then try again.'
     }
     if (msg.includes('auth/popup-closed-by-user') || msg.includes('popup-closed')) {
       return 'Sign-in was cancelled by closing the window. Please try again.'

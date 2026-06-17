@@ -10,7 +10,8 @@ import asyncio
 import random
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List, Optional
+from collections import defaultdict
+from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,8 +71,8 @@ async def learn_risk_pattern(keyword: str, checklist: str, success_rate: float =
 _mcp_http_app = fusion_mcp.streamable_http_app()
 
 
-# Active WebSocket dashboard connections
-active_websockets: List[WebSocket] = []
+# Active WebSocket dashboard connections keyed by uid (or "__public__" for unauthenticated)
+active_websockets: dict[str, set] = defaultdict(set)
 
 def _clear_agent_busy_flags():
     if is_mock_mode():
@@ -355,18 +356,21 @@ async def broadcast_event_to_websockets(event_data: dict):
         _clear_agent_busy_flags()
         logger.warning("FastAPI: Agent error broke the chain — simulation lock released.")
 
-    if not active_websockets:
+    uid = sim_state.active_uid or "__public__"
+    targets = active_websockets.get(uid, set())
+    if not targets:
         return
 
     message = json.dumps(event_data)
-    # Broadcast to all connected clients
-    for ws in list(active_websockets):
+    dead = set()
+    for ws in list(targets):
         try:
             await ws.send_text(message)
         except Exception as e:
             logger.error(f"Failed to send to WebSocket: {e}")
-            if ws in active_websockets:
-                active_websockets.remove(ws)
+            dead.add(ws)
+    for ws in dead:
+        active_websockets[uid].discard(ws)
 
 
 @asynccontextmanager
@@ -385,7 +389,7 @@ async def lifespan(_app: FastAPI):
     logger.info("FastAPI: Event bus WebSocket listener unregistered.")
 
 
-app = FastAPI(title="FUSION API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="FUSION API", version="1.0.0", lifespan=lifespan, redirect_slashes=False)
 app.include_router(v1_router)
 app.mount("/mcp", _mcp_http_app)
 
@@ -420,9 +424,12 @@ async def trigger_attack():
         mode=res.get("mode", "mock")
     )
 
+_last_trigger: dict[str, float] = {}  # uid → epoch seconds of last trigger
+
 @app.post("/api/trigger-deal")
 async def trigger_deal(request: Request, company: Optional[str] = None, raise_amount: str = "$10M"):
     """Triggers the FUSION investment committee on a deal."""
+    import time as _time
     if sim_state.is_stale(max_idle_seconds=300):
         sim_state.reset()
         _clear_agent_busy_flags()
@@ -432,6 +439,14 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
 
     uid = await get_uid_optional(request)
 
+    # Per-user cooldown: 30 s between submissions to prevent abuse
+    if uid:
+        last = _last_trigger.get(uid, 0)
+        if _time.time() - last < 30:
+            remaining = int(30 - (_time.time() - last))
+            return {"status": "rate_limited", "message": f"Please wait {remaining}s before submitting another deal.", "mode": "mock" if is_mock_mode() else "real"}
+        _last_trigger[uid] = _time.time()
+
     # Reset simulation state and agent flags for a fresh run
     sim_state.reset()
     _clear_agent_busy_flags()
@@ -439,6 +454,20 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
     sim_state.active_uid = uid
     sim_state.running = True
     sim_state.touch()
+
+    # Extract display name from Firebase token for agent context + Firestore profile
+    if uid:
+        try:
+            import firebase_admin.auth as _fb_auth
+            tok = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+            _decoded = _fb_auth.verify_id_token(tok)
+            sim_state.active_user_name = _decoded.get("name") or (_decoded.get("email", "").split("@")[0] or None)
+            # Fire-and-forget Firestore update (non-blocking, non-fatal)
+            from core.firestore_profile import upsert_user, increment_deal_count
+            upsert_user(uid, sim_state.active_user_name, _decoded.get("email"), _decoded.get("picture"))
+            increment_deal_count(uid)
+        except Exception:
+            pass
 
     try:
         from core.demo_registry import resolve_pitch_file
@@ -478,7 +507,8 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
         sim_state.dispatched_deals.clear()   # fresh run — nothing dispatched yet
         clear_pitch_cache()
 
-        brief = f"New deal submitted for committee review: {company} — Series A, {raise_amount} raise. Full pitch data is loaded in the deal brief. Please convene the investment committee and begin due diligence."
+        _submitter = f" Submitted by {sim_state.active_user_name}." if sim_state.active_user_name else ""
+        brief = f"New deal submitted for committee review: {company} — Series A, {raise_amount} raise.{_submitter} Full pitch data is loaded in the deal brief. Please convene the investment committee and begin due diligence."
 
         # Start the watchdog background task and track start time
         import time
@@ -584,6 +614,35 @@ async def get_status(request: Request):
         "completed_agents": list(sim_state.completed_agents),
         "deal_concluded": sim_state.deal_concluded,
     }
+
+@app.get("/mcp-connect")
+async def mcp_connect_info():
+    """Returns copy-paste MCP connection instructions for every client type."""
+    base = os.environ.get("FUSION_PUBLIC_URL", "http://localhost:8000")
+    mcp_url = f"{base}/mcp"
+    return {
+        "mcp_url": mcp_url,
+        "smithery": "https://smithery.ai/server/@baljotchohan/fusion-vc",
+        "claude_code": f"claude mcp add fusion-vc --transport http {mcp_url}",
+        "claude_desktop": {
+            "mcpServers": {
+                "fusion-vc": {"command": "npx", "args": ["mcp-remote", mcp_url]}
+            }
+        },
+        "cursor": {
+            "mcpServers": {
+                "fusion-vc": {"url": mcp_url, "transport": "http"}
+            }
+        },
+        "tools": [
+            "chat_with_managing_partner",
+            "get_deal_record",
+            "get_boardroom_verdict",
+            "query_deal_vault",
+            "learn_risk_pattern",
+        ],
+    }
+
 
 @app.post("/api/reset")
 async def reset_simulation():
@@ -1418,55 +1477,63 @@ async def mock_llm_completions(request: Request):
 # ─── WEBSOCKET ROUTE ──────────────────────────────────────────
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for the Next.js dashboard to stream live updates."""
-    await websocket.accept()
-    active_websockets.append(websocket)
-    logger.info(f"FastAPI: WebSocket connected. Active connections: {len(active_websockets)}")
+async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
+    """WebSocket endpoint for the Next.js dashboard to stream live updates.
 
-    # Send initial status/replay of all completed agent findings upon connection
+    Accepts a `token` query param (Firebase ID token) to scope events to the
+    authenticated user. Unauthenticated connections land in "__public__" bucket
+    and only receive events from unauthenticated deal triggers.
+    """
+    uid = "__public__"
+    if token:
+        try:
+            from firebase_admin import auth as fb_auth
+            decoded = fb_auth.verify_id_token(token)
+            uid = decoded["uid"]
+        except Exception:
+            pass  # invalid/expired token → public bucket
+
+    await websocket.accept()
+    active_websockets[uid].add(websocket)
+    total = sum(len(s) for s in active_websockets.values())
+    logger.info(f"FastAPI: WebSocket connected uid={uid}. Total connections: {total}")
+
+    # Replay completed agent findings for THIS user's active deal
     try:
-        deal_id = sim_state.active_incident_id or memory_graph.get_latest_incident_id()
+        user_memory = memory_graph.__class__(uid=uid) if uid != "__public__" else memory_graph
+        deal_id = sim_state.active_incident_id if sim_state.active_uid == uid else None
+        deal_id = deal_id or user_memory.get_latest_incident_id()
         if deal_id:
-            inc = memory_graph.get_incident(deal_id) or {}
+            inc = user_memory.get_incident(deal_id) or {}
             for event in inc.get("timeline", []):
-                agent_name = event.get("agent")
-                finding = event.get("finding")
                 await websocket.send_json({
                     "type": "agent_update",
-                    "agent": agent_name,
+                    "agent": event.get("agent"),
                     "status": "done",
-                    "output": {"report": finding},
+                    "output": {"report": event.get("finding")},
                     "timestamp": event.get("timestamp", "")
                 })
-            
             agent_names = ["managing_partner", "financial_partner", "legal_partner", "technical_partner", "market_partner"]
             for agent_name in agent_names:
-                status = sim_state.agent_statuses.get(agent_name, "idle")
-                if status == "working":
+                if sim_state.agent_statuses.get(agent_name) == "working" and sim_state.active_uid == uid:
                     await websocket.send_json({
-                        "type": "agent_update",
-                        "agent": agent_name,
-                        "status": "working",
-                        "output": {},
-                        "timestamp": ""
+                        "type": "agent_update", "agent": agent_name,
+                        "status": "working", "output": {}, "timestamp": ""
                     })
     except Exception as e:
         logger.error(f"FastAPI: Error sending initial state to WebSocket: {e}")
 
     try:
         while True:
-            # Maintain connection, check for keepalives
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=300.0)
                 logger.debug(f"FastAPI: Received WS message: {data}")
             except asyncio.TimeoutError:
-                # Send a ping to check client connection
                 await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:
-        active_websockets.remove(websocket)
-        logger.info(f"FastAPI: WebSocket disconnected. Active connections: {len(active_websockets)}")
+        active_websockets[uid].discard(websocket)
+        total = sum(len(s) for s in active_websockets.values())
+        logger.info(f"FastAPI: WebSocket disconnected uid={uid}. Total connections: {total}")
     except Exception as e:
         logger.error(f"FastAPI: WebSocket error: {e}")
-        if websocket in active_websockets:
-            active_websockets.remove(websocket)
+        active_websockets[uid].discard(websocket)

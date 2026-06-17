@@ -1228,8 +1228,19 @@ class BaseAgent:
             while True:
                 await asyncio.sleep(1)
         else:
-            logger.info(
-                f"[{self.display_name}] Connecting to Band via WebSocket "
-                f"(agent_id={self.runtime._agent_id[:8]}...)"
-            )
-            await self.real_agent.run()
+            delay = 5
+            while True:
+                try:
+                    logger.info(
+                        f"[{self.display_name}] Connecting to Band via WebSocket "
+                        f"(agent_id={self.runtime._agent_id[:8]}...)"
+                    )
+                    await self.real_agent.run()
+                    break  # clean exit — don't reconnect
+                except Exception as e:
+                    logger.warning(
+                        f"[{self.display_name}] Band disconnected: {e}. "
+                        f"Reconnecting in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 120)  # cap at 2 min
