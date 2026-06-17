@@ -2,7 +2,7 @@
 // True one-click deep links for Cursor + VS Code; Smithery handles everything else.
 import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Plug, Copy, Check, ExternalLink, Zap } from 'lucide-react'
+import { Plug, Copy, Check, ExternalLink, Zap, KeyRound, Mail } from 'lucide-react'
 import { API_BASE } from '@/lib/agents'
 
 const SMITHERY_URL = 'https://smithery.ai/server/@baljotchohan/fusion-vc'
@@ -239,10 +239,10 @@ export function IntegrationsView() {
     } catch { return SMITHERY_URL }
   })()
 
-  const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${url}`
+  const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${url} --header "Authorization: Bearer YOUR_KEY"`
 
   const windsurfConfig = JSON.stringify(
-    { mcpServers: { 'fusion-vc': { command: 'npx', args: ['-y', 'mcp-remote', url] } } },
+    { mcpServers: { 'fusion-vc': { command: 'npx', args: ['-y', 'mcp-remote', url, '--header', 'Authorization: Bearer YOUR_KEY'] } } },
     null, 2
   )
 
@@ -275,6 +275,20 @@ export function IntegrationsView() {
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <code className="flex-1 min-w-0 rounded-lg border border-border bg-bg-subtle px-3 py-2 text-[12px] font-mono text-text-primary truncate">{url}</code>
           <CopyButton text={url} />
+        </div>
+      </div>
+
+      {/* ── API key notice ── */}
+      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 flex gap-3">
+        <KeyRound className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-text-primary mb-0.5">API key required</p>
+          <p className="text-[12px] text-text-secondary leading-relaxed">
+            FUSION MCP is key-protected — only authorised partners can connect.
+            Each key allows <span className="font-semibold text-text-primary">30 tool calls / hour</span>.
+            Replace <code className="font-mono text-amber-500 bg-amber-500/10 px-1 rounded">YOUR_KEY</code> in every
+            snippet below with the key we issue you.
+          </p>
         </div>
       </div>
 
@@ -337,6 +351,38 @@ export function IntegrationsView() {
           </div>
         </div>
       )}
+
+      {/* ── request access ── */}
+      <div className="rounded-2xl border border-border bg-bg-card p-5 flex flex-col sm:flex-row gap-5 sm:items-center">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1.5">
+            <KeyRound className="w-4 h-4 text-accent" />
+            <h2 className="text-[13px] font-bold text-text-primary">Get your API key</h2>
+          </div>
+          <p className="text-[12px] text-text-secondary leading-relaxed">
+            Keys are issued by the FUSION team. Free keys available for hackathon evaluators,
+            judges, and approved partners. Commercial access available on request.
+          </p>
+          <div className="mt-3 flex flex-col gap-1.5">
+            <div className="flex items-center gap-2 text-[12px] text-text-secondary">
+              <span className="text-success font-bold">✓</span> Free tier — 30 calls/hour
+            </div>
+            <div className="flex items-center gap-2 text-[12px] text-text-secondary">
+              <span className="text-success font-bold">✓</span> Full access to all 5 partner agents
+            </div>
+            <div className="flex items-center gap-2 text-[12px] text-text-secondary">
+              <span className="text-success font-bold">✓</span> Works with Claude Desktop, Cursor, VS Code, Windsurf &amp; more
+            </div>
+          </div>
+        </div>
+        <a
+          href="mailto:jattbad328@gmail.com?subject=FUSION%20MCP%20Access%20Request&body=Hi%2C%20I%27d%20like%20to%20request%20an%20API%20key%20for%20FUSION%20MCP."
+          className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-white text-[13px] font-semibold hover:opacity-90 transition cursor-pointer no-underline"
+        >
+          <Mail className="w-4 h-4" />
+          Request access
+        </a>
+      </div>
 
       {/* ── other tools note ── */}
       <div className="rounded-2xl border border-border/70 bg-bg-subtle p-5">

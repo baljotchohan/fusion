@@ -5,6 +5,7 @@ to stream real-time agent updates to the Next.js dashboard.
 """
 import os
 import json
+import time
 import logging
 import asyncio
 import random
@@ -29,6 +30,12 @@ import mcp_tools
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("fusion.api")
+
+# MCP security — set MCP_API_KEY in HF Space secrets to require a key.
+# Leave unset for public access (e.g. during open hackathon judging).
+MCP_API_KEY = os.getenv("MCP_API_KEY", "")
+MCP_RATE_LIMIT = int(os.getenv("MCP_RATE_LIMIT", "30"))  # calls per hour per key/IP
+_mcp_rate: dict[str, list[float]] = defaultdict(list)
 
 # ── Remote MCP transport ─────────────────────────────────────────────────────
 # Expose the same 5 committee tools as mcp_server.py (stdio) over streamable HTTP,
@@ -425,6 +432,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def mcp_security(request: Request, call_next):
+    """Auth + rate-limit every request that touches /mcp or /mcp/."""
+    if not request.url.path.startswith("/mcp"):
+        return await call_next(request)
+
+    # Auth: if MCP_API_KEY is set, require a matching Bearer token
+    if MCP_API_KEY:
+        token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        if token != MCP_API_KEY:
+            return JSONResponse(
+                {"jsonrpc": "2.0", "id": None, "error": {
+                    "code": -32001,
+                    "message": (
+                        "Unauthorized — FUSION MCP requires an API key. "
+                        "Contact jattbad328@gmail.com to request access."
+                    )
+                }},
+                status_code=401,
+                headers={"WWW-Authenticate": 'Bearer realm="FUSION MCP"'},
+            )
+        bucket = f"key:{token[:12]}"
+    else:
+        ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+             or (request.client.host if request.client else "unknown")
+        bucket = f"ip:{ip}"
+
+    # Rate limit: sliding window per key/IP
+    now = time.time()
+    window = _mcp_rate[bucket] = [t for t in _mcp_rate[bucket] if now - t < 3600]
+    if len(window) >= MCP_RATE_LIMIT:
+        wait = int(3600 - (now - window[0]))
+        return JSONResponse(
+            {"jsonrpc": "2.0", "id": None, "error": {
+                "code": -32029,
+                "message": f"Rate limit: {MCP_RATE_LIMIT} MCP calls/hour. Resets in {wait // 60}m {wait % 60}s."
+            }},
+            status_code=429,
+            headers={"Retry-After": str(wait)},
+        )
+    _mcp_rate[bucket].append(now)
+
+    return await call_next(request)
+
 
 # ─── REST ENDPOINTS ───────────────────────────────────────────
 
