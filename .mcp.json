@@ -1,11 +1,3 @@
 {
-  "mcpServers": {
-    "fusion": {
-      "command": "python",
-      "args": ["mcp_server.py"],
-      "env": {
-        "FUSION_API_URL": "http://localhost:8000"
-      }
-    }
-  }
+  "mcpServers": {}
 }
