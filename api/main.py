@@ -391,6 +391,19 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="FUSION API", version="1.0.0", lifespan=lifespan, redirect_slashes=False)
 app.include_router(v1_router)
+
+
+@app.api_route("/mcp", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def _mcp_slash_redirect(request: Request):
+    # HF Space's built-in redirect goes to http://internal-host — rejected with 421.
+    # We intercept /mcp here and issue a 308 to the correct public HTTPS /mcp/ URL.
+    # 308 preserves the request method (POST stays POST) so mcp-remote reconnects correctly.
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "localhost:8000")
+    proto = request.headers.get("x-forwarded-proto", "https" if "localhost" not in host else "http")
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"{proto}://{host}/mcp/", status_code=308)
+
+
 app.mount("/mcp", _mcp_http_app)
 
 # Enable CORS for the Next.js War Room dashboard
