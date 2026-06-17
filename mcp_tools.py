@@ -17,7 +17,7 @@ from mcp.types import Tool
 
 logger = logging.getLogger("fusion.mcp.tools")
 
-FUSION_API_URL = os.getenv("FUSION_API_URL", "http://localhost:8000")
+FUSION_API_URL = os.getenv("FUSION_API_URL", f"http://localhost:{os.getenv('PORT', '8000')}")
 
 # ── Tool surface (schemas) ───────────────────────────────────────────────────
 TOOLS = [
