@@ -11,13 +11,15 @@ pinned: false
 # FUSION ⚡
 ### AI-Powered Venture Capital Investment Committee Swarm
 
-> **Five specialist AI partners collaborating over Band to autonomously audit startup pitch decks, conduct inter-agent boardroom debates, and deliver a unified investment verdict with a weighted risk scorecard in under 5 minutes.**
+> **Five specialized AI partners collaborating over Band to autonomously audit startup pitch decks, conduct inter-agent boardroom debates, and deliver a unified investment verdict with a weighted risk scorecard in under 5 minutes.**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://python.org)
 [![Band SDK](https://img.shields.io/badge/Band-SDK-purple.svg)](https://docs.thenvoi.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-orange.svg)](https://langchain-ai.github.io/langgraph)
-[![Status](https://img.shields.io/badge/status-production_ready-brightgreen.svg)]()
+[![React](https://img.shields.io/badge/Next.js-15+-black.svg)](https://nextjs.org)
+[![Vercel](https://img.shields.io/badge/deployed_on-Vercel-blueviolet.svg)](https://fusionos.vercel.app)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face%20Spaces-yellow.svg)](https://baljot07-fusion.hf.space)
 
 ---
 
@@ -27,41 +29,35 @@ Venture Capital due diligence is notoriously slow, costly ($100k–$500k in lega
 
 **FUSION solves this.**
 
-FUSION deploys a swarm of 5 specialized AI partner agents that coordinate over the **Band AI** platform. When a startup pitch is uploaded, the partners execute independent audits, debate conflicting findings in real-time, resolve details on shared memory, and deliver a unified investment verdict with a weighted risk scorecard.
+FUSION deploys a swarm of 5 specialized AI partner agents that coordinate over the **Band AI** platform. When a startup pitch is uploaded, the partners execute independent audits, debate conflicting findings in real-time, resolve details on a shared memory graph, and deliver a unified investment verdict with a weighted risk scorecard.
 
-```
-                  Startup Pitch Uploaded (JSON/PDF)
-                                │
-                                ▼
-                  ┌──────────────────────────┐
-                  │ 💼 Managing Partner      │
-                  │   (Committee Chair)      │
-                  └─────┬──────────────┬─────┘
-                        │              │
-         ┌──────────────┴──┐        ┌──┴──────────────┐
-         ▼                 ▼        ▼                 ▼
- 📊 Financial Partner  ⚖️ Legal   🔧 Tech Partner   📈 Market
-   (ARR, burn, LTV)    Partner    (GitHub clone,   (TAM, CAGR,
-                       (IP, law)   leaks, CVEs)    headwinds)
-         │                 │        │                 │
-         └──────────────┬──┴────────┴──┬──────────────┘
-                        │              │
-                        ▼              ▼
-                  ┌──────────────────────────┐
-                  │  Shared Memory Graph     │
-                  │  (Debate & Resolution)   │
-                  └─────────────┬────────────┘
-                                │
-                                ▼
-                  ┌──────────────────────────┐
-                  │ ⚖️ Committee Verdict      │
-                  │  - INVEST / REJECT       │
-                  │  - Weighted Risk Score   │
-                  └─────────────┬────────────┘
-                                │
-         ┌──────────────────────┴──────────────────────┐
-         ▼                                             ▼
-📄 styled PDF Diligence Report             🔌 MCP Server (Claude/Cursor)
+---
+
+## 🔄 Dilligence Debate & Consensus Workflow
+
+Below is the visual workflow demonstrating how the partner swarm receives the pitch data, conducts evaluations in parallel, debates issues over the Band WebSocket channels, and compiles the unified verdict:
+
+```mermaid
+graph TD
+    A[Pitch Uploaded / Trigger Deal] --> B[💼 Managing Partner]
+    B -->|Broadcasts Audit Prompt| C{Band Room Channels}
+    
+    C -->|Finance Room| D[📊 Financial Partner]
+    C -->|Legal Room| E[⚖️ Legal Partner]
+    C -->|Tech Room| F[🔧 Technical Partner]
+    C -->|Market Room| G[📈 Market Partner]
+    
+    D -->|Post Findings & Risk Score| H[🧠 Shared Memory Graph]
+    E -->|Post Findings & Risk Score| H
+    F -->|Post Findings & Risk Score| H
+    G -->|Post Findings & Risk Score| H
+    
+    H -->|Conflict Detected?| B
+    B -->|Initiate Boardroom Debate| I[👥 Inter-Agent Discussion / Mentions]
+    I -->|Reach Consensus| H
+    
+    H -->|Calculate Weighted Verdict| J[⚖️ Committee Verdict & Scorecard]
+    J -->|Generate ReportLab PDF| K[📄 Branded Diligence Report]
 ```
 
 ---
@@ -78,9 +74,44 @@ FUSION deploys a swarm of 5 specialized AI partner agents that coordinate over t
 
 ---
 
+## 🏗️ System Architecture & Event Flow
+
+FUSION is built as a highly decoupled, real-time platform. The Next.js frontend connects directly to our FastAPI gateway via WebSockets to stream log outputs from the event bus as the agents collaborate.
+
+```mermaid
+graph LR
+    subgraph Frontend [Next.js App - Vercel]
+        UI[Boardroom UI Dashboard]
+        WS_Client[WebSocket Client]
+    end
+
+    subgraph Backend [FastAPI - Hugging Face Spaces]
+        API[FastAPI Gateway]
+        EB[Event Bus]
+        DE[Diligence Engine]
+        MEM[(Shared Memory Graph)]
+        PDF[ReportLab Compiler]
+    end
+
+    subgraph Platform [Band AI Platform]
+        Band[Band WebSocket API]
+    end
+
+    UI <-->|HTTP/REST| API
+    WS_Client <-->|WebSockets| API
+    API <-->|Trigger & Stream| EB
+    EB <-->|Orchestrate Swarm| DE
+    DE <-->|Read/Write State| MEM
+    DE <-->|Send Mentions & Sync| Band
+    DE -->|Compile PDF| PDF
+```
+
+---
+
 ## ✨ Key Features
 
 *   **Real-time Boardroom UI:** Dynamic war-room dashboard showing WebSocket-streamed logs, audit timeline, and live agent status.
+*   **Firebase Authentication & User Isolation:** Complete per-user data isolation utilizing Firebase Client Auth (Google Sign-In + Guest Session access) and backend Token verification (`firebase-admin`).
 *   **Weighted Risk Engine:** Aggregates partner risk scores (1-10) into a single weighted score, with automatic **diligence overrides** for fatal flaws (e.g., operating fintech without money transmitter licenses).
 *   **Real Connectors:** Integrated GitHub Repository Scanner that clones startup codebases, audits packages for End-of-Life, and scans for leaked credentials.
 *   **Branded PDF Exporter:** Compiles raw Markdown audits into styled, publication-ready PDF briefs via a custom ReportLab layout.
@@ -88,44 +119,7 @@ FUSION deploys a swarm of 5 specialized AI partner agents that coordinate over t
 
 ---
 
-## 🛠️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        FUSION Platform                          │
-│                                                                 │
-│  ┌─────────────────┐      ┌──────────────────┐                 │
-│  │  Web UI (Next)  │◄────►│  REST API        │                 │
-│  │ - Boardroom log │      │  FastAPI :8000   │                 │
-│  │ - Risk Gauge    │      │  /api/v1/*       │                 │
-│  │ - PDF Downloader│      │  WebSockets      │                 │
-│  └─────────────────┘      └────────┬─────────┘                 │
-│                                    │                            │
-│                          ┌─────────▼─────────┐                  │
-│                          │  Event Bus (async)│                  │
-│                          └─────────┬─────────┘                 │
-│         ┌─────────────┐  ┌─────────▼──────────────────────┐    │
-│         │  Band SDK   │◄─┤  5 Partner Swarm (LangGraph)   │    │
-│         │ WebSocket   │  │  Managing · Financial · Legal  │    │
-│         │ @mentions   │  │  · Technical · Market Partner  │    │
-│         └─────────────┘  └──┬─────────┬──────────┬────────┘    │
-│                             │         │          │             │
-│                    ┌────────▼──┐ ┌────▼──────┐ ┌─▼──────────┐  │
-│                    │  Shared   │ │ LLM Router│ │ Connectors │  │
-│                    │  Memory   │ │ AimleAPI/ │ │ GitHub     │  │
-│                    │  Graph    │ │Featherless│ │  (PDF)     │  │
-│                    └───────────┘ └───────────┘ └────────────┘  │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  MCP Server — external AI apps recruit the partner swarm   │  │
-│  │  chat_with_managing_partner · get_deal_record · etc.     │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🚀 Quick Start
+## 🛠️ Quick Start
 
 ### Prerequisites
 *   Python 3.11+
@@ -164,6 +158,18 @@ BAND_MOCK=true
 BAND_API_KEY=your_band_api_key
 ```
 
+For frontend authentication, create a `.env.local` inside the `frontend/` directory with your Firebase configuration values:
+```env
+NEXT_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.firebasestorage.app
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=your_measurement_id
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
 ### 3. Run the Platform
 
 Start the FastAPI backend and Next.js frontend concurrently:
@@ -181,7 +187,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the FUSION Boardroom
 
 ---
 
-## 🔌 Model Context Protocol (MCP) Workflow
+## 🔌 Model Context Protocol (MCP) Integration
 
 FUSION exposes its entire investment committee to external AI clients (Claude Desktop, Cursor, custom agents) as **5 tools**:
 *   `chat_with_managing_partner`
@@ -193,7 +199,7 @@ FUSION exposes its entire investment committee to external AI clients (Claude De
 Discover them live at `GET /api/v1/system/mcp`.
 
 ### Option A — Remote URL (no install, works for anyone) ⭐
-Once FUSION is running (`python run.py`), the committee is served over **streamable-HTTP** at **`/mcp`** on the same port. Add it as a remote MCP server by URL:
+Once FUSION is running, the committee is served over **streamable-HTTP** at **`/mcp`** on the same port. Add it as a remote MCP server by URL:
 
 * **Local:** `http://localhost:8000/mcp`
 * **Deployed:** `https://<your-deploy>/mcp`
@@ -227,7 +233,7 @@ If you have the repo, the bundled `.mcp.json` registers FUSION automatically in 
 The ReportLab engine in `core/pdf_generator.py` produces institutional-grade diligence reports:
 *   **Cover Page:** Outlines target company metadata alongside a color-coded **Verdict Badge** (Emerald Green for `INVEST`, Orange for `CONDITIONAL`, Crimson Red for `REJECT`).
 *   **Structured Scorecards:** Renders risk scorecards in clean grids indicating weighted risk score distribution.
-*   **Debate Timeline:** Compiles cron logs, timestamps, and partner findings into clean cards, wrapping paragraphs to prevent orphan line page-breaks.
+*   **Debate Timeline:** Compiles logs, timestamps, and partner findings into clean cards, wrapping paragraphs to prevent orphan line page-breaks.
 
 ---
 
@@ -235,20 +241,19 @@ The ReportLab engine in `core/pdf_generator.py` produces institutional-grade dil
 
 ### Backend (Hugging Face Spaces)
 FUSION is configured for deployment on Hugging Face Spaces as a Docker Space.
-1. Create a new Space on Hugging Face and choose **Docker** as the SDK (with the Blank template, or Dockerfile will be detected).
-2. Set your environment variables (like `AIMLAPI_KEY`, `GOOGLE_API_KEY`, `FEATHERLESS_API_KEY`, etc.) in the Space settings.
-3. Push your repository to the Hugging Face Space remote (e.g., using `git push hf main` or via the `deploy-hf` branch workflow to clean history).
+1. Create a new Space on Hugging Face and choose **Docker** as the SDK.
+2. Set your environment variables (like `AIMLAPI_KEY`, `GOOGLE_API_KEY`, etc.) in the Space settings.
+3. Add a secret named `FIREBASE_SERVICE_ACCOUNT_B64` containing the base64-encoded string of your Firebase admin credentials JSON.
+4. Push your repository to the Hugging Face Space remote.
 
 ### Frontend (Vercel)
 Deploy the Next.js frontend to Vercel:
 1. Connect your GitHub repository to Vercel and specify `frontend` as the **Root Directory**.
-2. Add the environment variables in Vercel:
-   * `NEXT_PUBLIC_API_URL` = `https://your-space-name.hf.space` (e.g., `https://baljot07-fusion.hf.space`)
-   * `NEXT_PUBLIC_WS_URL` = `wss://your-space-name.hf.space/ws` (e.g., `wss://baljot07-fusion.hf.space/ws`)
+2. Add the `NEXT_PUBLIC_` environment variables in Vercel.
 3. Vercel will host the boardroom interface statically.
 
 ---
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
