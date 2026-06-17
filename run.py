@@ -66,9 +66,15 @@ async def main():
     )
     server = uvicorn.Server(config)
 
+    async def run_agent_with_delay(agent, delay: float):
+        if delay > 0:
+            logger.info(f"  → Staggering startup: waiting {delay}s before starting {agent.__class__.__name__}...")
+            await asyncio.sleep(delay)
+        await agent.run()
+
     logger.info(f"Starting FUSION backend on port {port} and all 5 partner agents...")
 
-    tasks = [server.serve()] + [agent.run() for agent in agents]
+    tasks = [server.serve()] + [run_agent_with_delay(agent, i * 4.0) for i, agent in enumerate(agents)]
 
     try:
         await asyncio.gather(*tasks)
