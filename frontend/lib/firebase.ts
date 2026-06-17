@@ -4,6 +4,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
   signInAnonymously,
   signOut as firebaseSignOut,
   onAuthStateChanged,
@@ -26,7 +27,17 @@ export const auth = getAuth(app)
 const googleProvider = new GoogleAuthProvider()
 googleProvider.setCustomParameters({ prompt: 'select_account' })
 
-export const signInWithGoogle = () => signInWithPopup(auth, googleProvider)
+export const signInWithGoogle = async () => {
+  try {
+    return await signInWithPopup(auth, googleProvider)
+  } catch (error: any) {
+    if (error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request') {
+      console.warn('Popup blocked or cancelled. Falling back to redirect...', error)
+      return await signInWithRedirect(auth, googleProvider)
+    }
+    throw error
+  }
+}
 export const signInAsGuest = () => signInAnonymously(auth)
 export const signOut = () => firebaseSignOut(auth)
 

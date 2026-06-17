@@ -1129,6 +1129,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loginStep, setLoginStep] = useState(0)
+  const [authError, setAuthError] = useState<string | null>(null)
   const spotlightRef = useRef<HTMLDivElement>(null)
 
   // Roundtable Simulation States
@@ -1314,20 +1315,24 @@ function LandingPage({ onLogin }: LandingPageProps) {
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setAuthError(null)
     // Real Google Sign-In — Firebase handles the popup + token
     try {
       await signInWithGoogle()
       // onAuthStateChanged in parent FUSION component will update isLoggedIn
-    } catch (err) {
+    } catch (err: any) {
       console.error('Google sign-in failed:', err)
+      setAuthError(err?.message || String(err))
     }
   }
 
   const handleGuestLogin = async () => {
+    setAuthError(null)
     try {
       await signInAsGuest()
-    } catch (err) {
+    } catch (err: any) {
       console.error('Guest sign-in failed:', err)
+      setAuthError(err?.message || String(err))
     }
   }
 
@@ -2885,6 +2890,13 @@ function LandingPage({ onLogin }: LandingPageProps) {
                       Sign in securely to access your private investment committee workspace.
                     </p>
                   </div>
+
+                  {/* Real Error display box */}
+                  {authError && (
+                    <div className="mb-4 p-3.5 rounded-xl bg-red-950/30 border border-red-500/20 text-red-400 text-xs font-sans text-center leading-relaxed">
+                      ⚠️ {authError}
+                    </div>
+                  )}
 
                   {/* Real Google Sign-In */}
                   <button
