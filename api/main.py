@@ -22,6 +22,7 @@ from core.band_client import mock_bus, is_mock_mode
 from core.memory_graph import memory_graph
 from api.state import sim_state
 from api.v1 import router as v1_router
+from core.auth import get_uid_optional
 from core.pitch_loader import _load_pitch_file
 import mcp_tools
 
@@ -420,7 +421,7 @@ async def trigger_attack():
     )
 
 @app.post("/api/trigger-deal")
-async def trigger_deal(company: Optional[str] = None, raise_amount: str = "$10M"):
+async def trigger_deal(request: Request, company: Optional[str] = None, raise_amount: str = "$10M"):
     """Triggers the FUSION investment committee on a deal."""
     if sim_state.is_stale(max_idle_seconds=300):
         sim_state.reset()
@@ -429,10 +430,13 @@ async def trigger_deal(company: Optional[str] = None, raise_amount: str = "$10M"
     if sim_state.running:
         return {"status": "already_running", "message": "Committee already in session.", "mode": "mock" if is_mock_mode() else "real"}
 
+    uid = await get_uid_optional(request)
+
     # Reset simulation state and agent flags for a fresh run
     sim_state.reset()
     _clear_agent_busy_flags()
 
+    sim_state.active_uid = uid
     sim_state.running = True
     sim_state.touch()
 
@@ -565,15 +569,17 @@ async def trigger_deal(company: Optional[str] = None, raise_amount: str = "$10M"
 
 
 @app.get("/api/status")
-async def get_status():
+async def get_status(request: Request):
     """Basic health check and configuration status."""
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
     return {
         "status": "healthy",
         "mock_mode": is_mock_mode(),
         "registered_rooms": list(mock_bus.rooms.keys()) if is_mock_mode() else [],
         "simulation_running": sim_state.running,
         "active_incident_id": sim_state.active_incident_id,
-        "memory_incidents": memory_graph.get_memory_stats()["total_incidents"],
+        "memory_incidents": user_memory.get_memory_stats()["total_incidents"],
         "agent_statuses": dict(sim_state.agent_statuses),
         "completed_agents": list(sim_state.completed_agents),
         "deal_concluded": sim_state.deal_concluded,
@@ -592,10 +598,12 @@ async def reset_simulation():
     return {"status": "reset", "message": "Simulation state cleared. Ready for next run."}
 
 @app.post("/api/force-verdict")
-async def api_force_verdict(incident_id: Optional[str] = None):
+async def api_force_verdict(request: Request, incident_id: Optional[str] = None):
     """Force rendering a partial verdict for a stalled deal."""
     from fastapi import HTTPException
-    target_id = incident_id or sim_state.active_incident_id or memory_graph.get_latest_incident_id()
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    target_id = incident_id or sim_state.active_incident_id or user_memory.get_latest_incident_id()
     if not target_id:
         raise HTTPException(status_code=400, detail="No active or past incident found to force verdict.")
     await force_partial_verdict(target_id)

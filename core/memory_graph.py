@@ -33,23 +33,59 @@ class MemoryGraph:
     """Shared deal memory graph used by every FUSION agent."""
 
     def __init__(self, graphify_dir: str = str(Path(__file__).parent.parent / "fusion_memory"), uid: str | None = None):
-        # If a uid is given, scope all memory under fusion_memory/<uid>/
-        # so every user has completely isolated deal history and chat.
-        base = Path(graphify_dir)
-        self.base_path = (base / uid) if uid else base
-        self.base_path.mkdir(parents=True, exist_ok=True)
-        self.incidents_file = self.base_path / "incidents.json"
-        self.patterns_file = self.base_path / "attack_patterns.json"
-        self.agent_profiles_file = self.base_path / "agent_profiles.json"
-        self.chat_file = self.base_path / "chat_history.json"
+        self.graphify_dir = graphify_dir
+        self._explicit_uid = uid
+
+    @property
+    def base_path(self) -> Path:
+        # If an explicit uid was passed (like in API requests), use it.
+        # Otherwise, check the active user uid in the running simulation (for background agents).
+        uid = self._explicit_uid
+        if uid is None:
+            try:
+                from api.state import sim_state
+                uid = getattr(sim_state, "active_uid", None)
+            except ImportError:
+                pass
+        
+        base = Path(self.graphify_dir)
+        p = (base / uid) if uid else base
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def incidents_file(self) -> Path:
         self._ensure_files()
+        return self.base_path / "incidents.json"
+
+    @property
+    def patterns_file(self) -> Path:
+        self._ensure_files()
+        return self.base_path / "attack_patterns.json"
+
+    @property
+    def agent_profiles_file(self) -> Path:
+        self._ensure_files()
+        return self.base_path / "agent_profiles.json"
+
+    @property
+    def chat_file(self) -> Path:
+        self._ensure_files()
+        return self.base_path / "chat_history.json"
 
     def _ensure_files(self):
-        for f in [self.incidents_file, self.patterns_file, self.agent_profiles_file]:
+        # Use base_path directly to prevent infinite recursion
+        base = self.base_path
+        inc = base / "incidents.json"
+        pat = base / "attack_patterns.json"
+        prof = base / "agent_profiles.json"
+        chat = base / "chat_history.json"
+        
+        for f in [inc, pat, prof]:
             if not f.exists():
                 f.write_text(json.dumps({}, indent=2))
-        if not self.chat_file.exists():
-            self.chat_file.write_text(json.dumps([], indent=2))
+        if not chat.exists():
+            chat.write_text(json.dumps([], indent=2))
 
     # ── Incidents ─────────────────────────────────────────────────────────
 
