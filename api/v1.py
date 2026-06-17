@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 from typing import List, Optional, Any, Dict
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, File, UploadFile
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, File, UploadFile, Request
+from core.auth import get_uid_optional
 from fastapi.responses import StreamingResponse
 import io
 from pypdf import PdfReader
@@ -812,8 +813,10 @@ def _build_thinking_steps(intent: str, dispatched: bool, incident_id: str) -> Li
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_with_commander(msg: ChatMessage):
+async def chat_with_commander(msg: ChatMessage, request: Request):
     """Chat with the FUSION Managing Partner or mentioned specialist partners."""
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
     incident_id = msg.incident_id or sim_state.active_incident_id or _new_incident_id()
     
     # Check for agent mention
@@ -833,7 +836,7 @@ async def chat_with_commander(msg: ChatMessage):
         
     intent = _classify_intent(msg.user_message)
     session_id = msg.session_id
-    memory_graph.append_chat("user", msg.user_message, {"intent": intent, "mentioned_agent": mentioned_agent}, session_id=session_id)
+    user_memory.append_chat("user", msg.user_message, {"intent": intent, "mentioned_agent": mentioned_agent}, session_id=session_id)
     
     dispatched = False
     if not mentioned_agent and intent == "trigger_evaluation" and not sim_state.running:
@@ -881,9 +884,11 @@ async def chat_with_commander(msg: ChatMessage):
 
 
 @router.get("/chat/history")
-async def chat_history(limit: int = 100, session_id: Optional[str] = None):
+async def chat_history(request: Request, limit: int = 100, session_id: Optional[str] = None):
     """Return persisted Commander chat history for the Memory tab."""
-    return {"history": memory_graph.get_chat_history(limit=limit, session_id=session_id)}
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    return {"history": user_memory.get_chat_history(limit=limit, session_id=session_id)}
 
 
 @router.delete("/chat/history")
@@ -1019,16 +1024,18 @@ async def list_incidents():
 
 
 @router.get("/deal-state")
-async def deal_state():
+async def deal_state(request: Request):
     """Lightweight snapshot of the active/latest concluded deal so the dashboard can
     restore the verdict card + report download buttons after a page refresh.
     Returns null fields (not an error) when no deal has concluded yet."""
-    incident_id = sim_state.active_incident_id or memory_graph.get_latest_incident_id()
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    incident_id = sim_state.active_incident_id or user_memory.get_latest_incident_id()
     empty = {"incident_id": None, "company": None, "verdict": None,
              "confidence": None, "weighted_score": None, "report_available": False}
     if not incident_id:
         return empty
-    inc = memory_graph.get_incident(incident_id)
+    inc = user_memory.get_incident(incident_id)
     if not inc:
         return empty
 
@@ -2617,10 +2624,13 @@ async def validate_document_relevance(text: str) -> tuple[bool, str]:
 
 @router.post("/upload-pitch")
 async def upload_pitch_document(
+    request: Request,
     file: Optional[UploadFile] = File(None),
     files: Optional[List[UploadFile]] = File(None)
 ):
     """Receives and parses real pitch documents/data room files (JSON, PDF, TXT, MD), structures them, and saves for active review."""
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
     uploaded_files = []
     if file:
         uploaded_files.append(file)

@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 // @ts-ignore — suppress missing type defs for lucide-react icons
 import Head from 'next/head'
+import { auth, onAuthStateChanged, signInWithGoogle, signInAsGuest, signOut as firebaseSignOut, type User } from '@/lib/firebase'
+import { apiFetch } from '@/lib/apiFetch'
 import { useAgentWebSocket } from '@/hooks/useAgentWebSocket'
 import { AGENTS, API_BASE } from '@/lib/agents'
 import { renderMarkdown } from '@/lib/markdown'
@@ -109,8 +111,10 @@ function riskTone(score: number): { cls: string; bar: string } {
 }
 
 export default function FUSION() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
+  // Derived: logged in when Firebase has a user
+  const isLoggedIn = firebaseUser !== null
 
   const {
     agentStates, agentOutputs, logEvents, threatScore, ceoDecision, isConnected, resetAll,
@@ -167,7 +171,7 @@ export default function FUSION() {
     try {
       setShowRecoveryPrompt(false)
       setShowStalledWarning(false)
-      await fetch(`${API_BASE}/api/force-verdict?incident_id=${activeIncidentId || ''}`, { method: 'POST' })
+      await apiFetch(`${API_BASE}/api/force-verdict?incident_id=${activeIncidentId || ''}`, { method: 'POST' })
     } catch (err) {
       console.error('Failed to force verdict synthesis:', err)
     }
@@ -264,12 +268,13 @@ export default function FUSION() {
 
   // Load chat history
   useEffect(() => {
-    fetch(`${API_BASE}/api/v1/chat/history?limit=40`).then(r => r.json()).then(d => {
+    if (!isLoggedIn) return
+    apiFetch(`${API_BASE}/api/v1/chat/history?limit=40`).then(r => r.json()).then(d => {
       if (Array.isArray(d.history) && d.history.length) {
         setChatHistory(d.history.map((t: any) => ({ role: t.role, content: t.content, incidentId: t.meta?.incident_id, intent: t.meta?.intent })))
       }
     }).catch(() => {})
-  }, [])
+  }, [isLoggedIn])
 
   // Restore the active deal's verdict + report buttons after a page refresh.
   // The backend can always re-derive the report from the persisted incident, so
@@ -277,7 +282,8 @@ export default function FUSION() {
   useEffect(() => {
     const cached = localStorage.getItem('fusion.activeIncidentId')
     if (cached) setActiveIncidentId(cached)
-    fetch(`${API_BASE}/api/v1/deal-state`).then(r => r.json()).then(d => {
+    if (!isLoggedIn) return
+    apiFetch(`${API_BASE}/api/v1/deal-state`).then(r => r.json()).then(d => {
       if (!d || !d.incident_id) return
       setActiveIncidentId(d.incident_id)
       if (d.company) setActiveCompany(d.company)
@@ -290,7 +296,7 @@ export default function FUSION() {
         if (typeof d.weighted_score === 'number') setThreatScore(d.weighted_score)
       }
     }).catch(() => {})
-  }, [setCeoDecision, setThreatScore])
+  }, [isLoggedIn, setCeoDecision, setThreatScore])
 
   // Keep the active incident id durable across refreshes.
   useEffect(() => {
@@ -316,7 +322,7 @@ export default function FUSION() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const response = await fetch(`${API_BASE}/api/v1/upload-pitch`, { method: 'POST', body: formData })
+      const response = await apiFetch(`${API_BASE}/api/v1/upload-pitch`, { method: 'POST', body: formData })
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.detail || 'Upload failed')
@@ -336,7 +342,7 @@ export default function FUSION() {
     resetAll()
     setIsSimulating(true); setActiveCompany(companyName); setTab('overview'); setOverviewTab('roundtable')
     try {
-      const res = await fetch(`${API_BASE}/api/trigger-deal?company=${encodeURIComponent(companyName)}`, { method: 'POST' })
+      const res = await apiFetch(`${API_BASE}/api/trigger-deal?company=${encodeURIComponent(companyName)}`, { method: 'POST' })
       const data = await res.json()
       if (data.deal_id) setActiveIncidentId(data.deal_id)
     } catch {
@@ -348,7 +354,7 @@ export default function FUSION() {
 
   const resetSimulation = async () => {
     setIsSimulating(false); setUploadStatus('idle'); setUploadedFile(null); setActiveIncidentId(null); setActiveCompany(null); setUploadError(null); resetAll()
-    try { await fetch(`${API_BASE}/api/reset`, { method: 'POST' }) } catch {}
+    try { await apiFetch(`${API_BASE}/api/reset`, { method: 'POST' }) } catch {}
   }
 
   const toggleTheme = () => setTheme(prev => { const next = prev === 'dark' ? 'light' : 'dark'; localStorage.setItem('theme', next); return next })
@@ -365,7 +371,7 @@ export default function FUSION() {
     if (!text || chatThinking) return
     setChatHistory(prev => [...prev, { role: 'user', content: text }]); setChatInput(''); setChatThinking(true); setShowMentionPopup(false)
     try {
-      const response = await fetch(`${API_BASE}/api/v1/chat`, {
+      const response = await apiFetch(`${API_BASE}/api/v1/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_message: text, incident_id: activeIncidentId || undefined }),
@@ -556,17 +562,20 @@ export default function FUSION() {
     </div>
   )
 
-  const handleSignOut = () => {
-    localStorage.removeItem('fusion_authed')
-    setIsLoggedIn(false)
+  const handleSignOut = async () => {
+    await firebaseSignOut()
+    localStorage.removeItem('fusion.activeIncidentId')
+    setChatHistory([])
+    resetAll()
   }
 
+  // Firebase auth state observer — single source of truth for login state
   useEffect(() => {
-    const authed = localStorage.getItem('fusion_authed')
-    if (authed === 'true') {
-      setIsLoggedIn(true)
-    }
-    setCheckingAuth(false)
+    const unsub = onAuthStateChanged(auth, (user: User | null) => {
+      setFirebaseUser(user)
+      setCheckingAuth(false)
+    })
+    return unsub
   }, [])
 
   if (checkingAuth) {
@@ -582,12 +591,8 @@ export default function FUSION() {
 
   if (!isLoggedIn) {
     return (
-      <LandingPage 
-        onLogin={() => {
-          localStorage.setItem('fusion_authed', 'true')
-          setIsLoggedIn(true)
-        }} 
-      />
+      // onLogin is now a no-op — Firebase onAuthStateChanged handles the state transition
+      <LandingPage onLogin={() => {}} />
     )
   }
 
@@ -1307,20 +1312,23 @@ function LandingPage({ onLogin }: LandingPageProps) {
     }
   }
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email || !password) return
-    
-    setLoginStep(1)
-    setTimeout(() => {
-      setLoginStep(2)
-      setTimeout(() => {
-        setLoginStep(3)
-        setTimeout(() => {
-          onLogin()
-        }, 1000)
-      }, 1200)
-    }, 1200)
+    // Real Google Sign-In — Firebase handles the popup + token
+    try {
+      await signInWithGoogle()
+      // onAuthStateChanged in parent FUSION component will update isLoggedIn
+    } catch (err) {
+      console.error('Google sign-in failed:', err)
+    }
+  }
+
+  const handleGuestLogin = async () => {
+    try {
+      await signInAsGuest()
+    } catch (err) {
+      console.error('Guest sign-in failed:', err)
+    }
   }
 
   const scrollTo = (id: string) => {
@@ -2874,55 +2882,47 @@ function LandingPage({ onLogin }: LandingPageProps) {
                     </div>
                     <h3 className="text-lg font-bold text-white">Boardroom Admission</h3>
                     <p className="mt-2 text-xs text-neutral-500 font-sans leading-relaxed">
-                      Secure venture partner authentication interface. Access credentials verified mathematically.
+                      Sign in securely to access your private investment committee workspace.
                     </p>
                   </div>
 
-                  <form onSubmit={handleLoginSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-[10px] uppercase tracking-wider text-neutral-500 mb-2 font-bold">Partner Email / ID</label>
-                      <div className="relative">
-                        <Mail className="absolute left-4 top-3.5 w-4 h-4 text-neutral-600" />
-                        <input 
-                          type="text" 
-                          required
-                          placeholder="venture_partner@fusion.vc" 
-                          value={email}
-                          onChange={e => setEmail(e.target.value)}
-                          className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-white/[0.06] dark:border-border bg-black text-xs text-white placeholder-neutral-700 focus:bg-white/[0.02] focus:border-accent/80 transition-all outline-none"
-                        />
-                      </div>
-                    </div>
+                  {/* Real Google Sign-In */}
+                  <button
+                    onClick={handleLoginSubmit}
+                    className="w-full flex items-center justify-center gap-3 py-3.5 rounded-xl border border-white/[0.1] bg-white text-black font-bold text-xs uppercase tracking-wider hover:shadow-[0_0_20px_rgba(255,255,255,0.15)] transition-all duration-300 cursor-pointer mb-3"
+                  >
+                    {/* Google G logo */}
+                    <svg width="18" height="18" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    </svg>
+                    Continue with Google
+                  </button>
 
-                    <div>
-                      <label className="block text-[10px] uppercase tracking-wider text-neutral-500 mb-2 font-bold">Access Code</label>
-                      <div className="relative">
-                        <Key className="absolute left-4 top-3.5 w-4 h-4 text-neutral-600" />
-                        <input 
-                          type="password" 
-                          required
-                          placeholder="••••••••" 
-                          value={password}
-                          onChange={e => setPassword(e.target.value)}
-                          className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-white/[0.06] dark:border-border bg-black text-xs text-white placeholder-neutral-700 focus:bg-white/[0.02] focus:border-accent/80 transition-all outline-none"
-                        />
-                      </div>
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-white/[0.06]" />
                     </div>
-
-                    <div className="pt-2">
-                      <button 
-                        type="submit" 
-                        className="w-full py-3.5 rounded-xl bg-accent text-black font-bold text-xs uppercase tracking-wider hover:shadow-[0_0_20px_rgba(91,191,82,0.35)] transition-all duration-300 cursor-pointer"
-                      >
-                        Admit to Boardroom
-                      </button>
+                    <div className="relative flex justify-center">
+                      <span className="px-3 bg-[#0a0a0a] text-[10px] text-neutral-600 font-mono uppercase tracking-wider">or</span>
                     </div>
-                  </form>
+                  </div>
 
-                  <div className="mt-5 text-center text-[9px] text-neutral-600 border-t border-white/[0.05] pt-4 font-sans leading-relaxed">
-                    💡 Any username and password will grant boardroom clearance for review.
+                  {/* Guest Access */}
+                  <button
+                    onClick={handleGuestLogin}
+                    className="w-full py-3 rounded-xl border border-white/[0.06] bg-transparent text-neutral-400 font-semibold text-xs uppercase tracking-wider hover:border-accent/30 hover:text-accent transition-all duration-300 cursor-pointer"
+                  >
+                    Try as Guest  <span className="text-neutral-600 normal-case tracking-normal font-sans ml-1">(temporary session)</span>
+                  </button>
+
+                  <div className="mt-5 text-center text-[9px] text-neutral-700 border-t border-white/[0.05] pt-4 font-sans leading-relaxed">
+                    Your workspace is private — no one can access your deals or history.
                   </div>
                 </>
+
               ) : (
                 <div className="flex flex-col items-center justify-center py-8 text-center font-mono">
                   <RefreshCw className="w-8 h-8 text-accent animate-spin mb-6" />
