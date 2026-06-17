@@ -359,12 +359,13 @@ async def _dispatch_incident(incident_id: str, user_message: str):
             await mock_bus.send_message("Advisor-Chat", "managing-partner-room", brief)
 
 
-def _incident_headline(incident_id: Optional[str]) -> Optional[dict]:
+def _incident_headline(incident_id: Optional[str], uid: Optional[str] = None) -> Optional[dict]:
     """A tight, structured snapshot of one incident — verdict, risk, top finding —
     so chat replies stay clean instead of dumping the whole raw timeline."""
     if not incident_id:
         return None
-    inc = memory_graph.get_incident(incident_id)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    inc = user_memory.get_incident(incident_id)
     if not inc:
         return None
     verdict = None
@@ -395,12 +396,12 @@ def _incident_headline(incident_id: Optional[str]) -> Optional[dict]:
 
 def _deterministic_reply(intent: str, user_message: str, incident_id: str,
                          dispatched: bool, stats: dict, latest_summary: str,
-                         latest_id: Optional[str]) -> str:
+                         latest_id: Optional[str], uid: Optional[str] = None) -> str:
     """Offline-safe, intent-aware Managing Partner reply built from real memory state with premium formatting."""
     n_inc = stats["total_incidents"]
     n_pat = len(stats["learned_patterns"])
     active = [a for a, s in _agent_statuses().items() if s == "working"]
-    head = _incident_headline(latest_id)
+    head = _incident_headline(latest_id, uid=uid)
 
     from core.pitch_loader import _load_pitch_file
     from core.diligence_engine import run_diligence_calculations
@@ -469,7 +470,8 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
             f"The committee uses shared memory to store prior diligence learnings and detect recurring risk patterns on subsequent reviews."
         )
     if intent in ("list_deals", "compare_deals"):
-        all_incidents = memory_graph.list_incidents()
+        user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+        all_incidents = user_memory.list_incidents()
         if not all_incidents:
             return "📋 No deals have been evaluated yet. Say **\"evaluate NovaPay\"** to kick off the committee."
         deals = []
@@ -607,15 +609,16 @@ def _display(agent_key: str) -> str:
 
 
 async def _commander_reply(intent: str, user_message: str, incident_id: str,
-                           dispatched: bool, session_id: Optional[str] = None) -> str:
+                           dispatched: bool, session_id: Optional[str] = None, uid: Optional[str] = None) -> str:
     """Synthesize the Managing Partner's reply. Real LLM when a key is live and healthy,
     otherwise an intent-aware deterministic reply from the shared memory graph."""
-    stats = memory_graph.get_memory_stats()
-    latest_id = memory_graph.get_latest_incident_id()
-    latest_summary = memory_graph.get_team_summary(latest_id) if latest_id else "No deals on record yet."
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    stats = user_memory.get_memory_stats()
+    latest_id = user_memory.get_latest_incident_id()
+    latest_summary = user_memory.get_team_summary(latest_id) if latest_id else "No deals on record yet."
 
     # Load all evaluated deals to resolve target and build index
-    all_incidents = memory_graph.list_incidents()
+    all_incidents = user_memory.list_incidents()
     deals_history = []
     for inc_id, inc_data in all_incidents.items():
         metadata = inc_data.get("metadata", {})
@@ -665,13 +668,13 @@ async def _commander_reply(intent: str, user_message: str, incident_id: str,
     
     # Target deal details
     target_id = target_deal["incident_id"] if target_deal else latest_id
-    target_summary = memory_graph.get_team_summary(target_id) if target_id else "No deals on record yet."
+    target_summary = user_memory.get_team_summary(target_id) if target_id else "No deals on record yet."
 
     from core.base_agent import llm_degraded, degrade_llm
 
     llm_router = get_router()
     if llm_router.available_providers():
-        recent = memory_graph.get_chat_history(limit=12, session_id=session_id)
+        recent = user_memory.get_chat_history(limit=12, session_id=session_id)
         chat_history_str = "\n".join(f"{t['role'].upper()}: {t['content']}" for t in recent) if recent else "No chat history yet."
         
         # Dynamic instructions based on intent to prevent irrelevant deal dumping
@@ -772,7 +775,7 @@ User message: "{user_message}"
             logger.warning(f"Managing Partner chat LLM failed, using deterministic reply: {e}")
 
     return _deterministic_reply(intent, user_message, incident_id, dispatched,
-                                stats, latest_summary, latest_id)
+                                stats, latest_summary, latest_id, uid=uid)
 
 
 def _build_thinking_steps(intent: str, dispatched: bool, incident_id: str) -> List[str]:
@@ -842,34 +845,35 @@ async def chat_with_commander(msg: ChatMessage, request: Request):
     if not mentioned_agent and intent == "trigger_evaluation" and not sim_state.running:
         # Reset simulation state and clear agent busy flags for a fresh run
         sim_state.reset()
+        sim_state.active_uid = uid
         if is_mock_mode():
             for room_agents in mock_bus.rooms.values():
                 for agent in room_agents:
                     agent._is_busy = False
 
-        memory_graph.create_incident(incident_id, {
+        user_memory.create_incident(incident_id, {
             "trigger": "commander_chat",
             "user_message": msg.user_message[:300],
             "threat_level": 5,
         })
         await _dispatch_incident(incident_id, msg.user_message)
         dispatched = True
-    elif msg.incident_id is None and not sim_state.active_incident_id and memory_graph.get_latest_incident_id():
-        incident_id = memory_graph.get_latest_incident_id()
+    elif msg.incident_id is None and not sim_state.active_incident_id and user_memory.get_latest_incident_id():
+        incident_id = user_memory.get_latest_incident_id()
         
     thinking_steps = _build_thinking_steps(intent, dispatched, incident_id)
     if mentioned_agent:
         intent = "agent_mention"
         thinking_steps += [f"Mention detected → routing to **{_display(mentioned_agent)}**", "Loading agent persona and memory graph context"]
-        commander_response = await _agent_reply(mentioned_agent, msg.user_message, incident_id, session_id=session_id)
+        commander_response = await _agent_reply(mentioned_agent, msg.user_message, incident_id, session_id=session_id, uid=uid)
     else:
-        commander_response = await _commander_reply(intent, msg.user_message, incident_id, dispatched, session_id=session_id)
+        commander_response = await _commander_reply(intent, msg.user_message, incident_id, dispatched, session_id=session_id, uid=uid)
         
-    memory_context = memory_graph.get_team_summary(incident_id)
+    memory_context = user_memory.get_team_summary(incident_id)
     
-    memory_graph.append_chat("assistant", commander_response,
-                             {"intent": intent, "incident_id": incident_id, "dispatched": dispatched, "agent": mentioned_agent},
-                             session_id=session_id)
+    user_memory.append_chat("assistant", commander_response,
+                            {"intent": intent, "incident_id": incident_id, "dispatched": dispatched, "agent": mentioned_agent},
+                            session_id=session_id)
                              
     return ChatResponse(
         commander_response=commander_response,
@@ -892,9 +896,11 @@ async def chat_history(request: Request, limit: int = 100, session_id: Optional[
 
 
 @router.delete("/chat/history")
-async def clear_chat_history(session_id: Optional[str] = None):
+async def clear_chat_history(request: Request, session_id: Optional[str] = None):
     """Clear the persisted Commander chat history."""
-    memory_graph.clear_chat_history(session_id=session_id)
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory.clear_chat_history(session_id=session_id)
     return {"status": "cleared"}
 
 
@@ -992,9 +998,11 @@ async def analyze_threat(request: ThreatRequest):
 # ─── INCIDENT MEMORY ──────────────────────────────────────────
 
 @router.get("/incidents")
-async def list_incidents():
+async def list_incidents(request: Request):
     """List all deals in the shared team memory graph."""
-    incidents = memory_graph.list_incidents()
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    incidents = user_memory.list_incidents()
 
     def _company(meta):
         c = meta.get("company")
@@ -1062,9 +1070,11 @@ async def deal_state(request: Request):
 
 
 @router.get("/incident/{incident_id}")
-async def get_incident(incident_id: str):
+async def get_incident(incident_id: str, request: Request):
     """Retrieve past deal details and the team's response timeline."""
-    inc = memory_graph.get_incident(incident_id)
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    inc = user_memory.get_incident(incident_id)
     if not inc:
         raise HTTPException(status_code=404, detail="Deal not found")
     return {
@@ -1074,20 +1084,24 @@ async def get_incident(incident_id: str):
         "timeline": inc["timeline"],
         "final_decision": inc["final_decision"],
         "created_at": inc["created_at"],
-        "summary": memory_graph.get_team_summary(incident_id),
+        "summary": user_memory.get_team_summary(incident_id),
     }
 
 
 @router.get("/memory/stats")
-async def memory_stats():
+async def memory_stats(request: Request):
     """How much the team has learned across all evaluated deals."""
-    return memory_graph.get_memory_stats()
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    return user_memory.get_memory_stats()
 
 
 @router.get("/memory/similar/{keyword}")
-async def similar_deals(keyword: str, limit: int = 5):
+async def similar_deals(keyword: str, request: Request, limit: int = 5):
     """Query team memory for past deals matching a keyword."""
-    past = await memory_graph.query_similar_incidents(keyword, limit=limit)
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    past = await user_memory.query_similar_incidents(keyword, limit=limit)
     return {"keyword": keyword, "similar_deals": past}
 
 
@@ -1280,10 +1294,12 @@ async def get_mcp_registry():
 
 
 @router.post("/system/reset-all")
-async def reset_all_history():
+async def reset_all_history(request: Request):
     """Danger zone: wipe ALL deals, learned patterns, agent profiles, and chat history,
     then reset live simulation state. Powers the Settings 'Reset & Clear All History' button."""
-    memory_graph.clear_all()
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory.clear_all()
     sim_state.reset()
     # Clear any stuck agent busy flags so the next run starts clean
     if is_mock_mode():
@@ -1303,12 +1319,13 @@ async def reset_all_history():
 # ─── AGENT DIRECT CHAT & DOCUMENT SaaS ENDPOINTS ────────────
 
 async def _agent_reply(agent_name: str, user_message: str, incident_id: str,
-                       session_id: Optional[str] = None) -> str:
+                       session_id: Optional[str] = None, uid: Optional[str] = None) -> str:
     """Generate a high-quality persona-specific response for a targeted agent."""
-    stats = memory_graph.get_memory_stats()
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    stats = user_memory.get_memory_stats()
     
     # Load all evaluated deals to resolve target and build index
-    all_incidents = memory_graph.list_incidents()
+    all_incidents = user_memory.list_incidents()
     deals_history = []
     for inc_id, inc_data in all_incidents.items():
         metadata = inc_data.get("metadata", {})
@@ -1356,10 +1373,10 @@ async def _agent_reply(agent_name: str, user_message: str, incident_id: str,
         history_lines.append(f"{idx+1}. Company: {d['company_name']} | Deal ID: {d['incident_id']} | Verdict: {d['verdict']}")
     all_deals_index = "\n".join(history_lines) if history_lines else "No deals on record yet."
 
-    latest_id = memory_graph.get_latest_incident_id()
+    latest_id = user_memory.get_latest_incident_id()
     target_id = target_deal["incident_id"] if target_deal else (incident_id or latest_id)
     
-    inc = memory_graph.get_incident(target_id) if target_id else None
+    inc = user_memory.get_incident(target_id) if target_id else None
     
     agent_findings = []
     if inc:
@@ -1379,7 +1396,7 @@ async def _agent_reply(agent_name: str, user_message: str, incident_id: str,
         from core.demo_registry import resolve_pitch_file
         
         if target_id:
-            inc_target = memory_graph.get_incident(target_id)
+            inc_target = user_memory.get_incident(target_id)
             if inc_target and "metadata" in inc_target:
                 company_name = inc_target["metadata"].get("company")
                 if company_name:
@@ -1530,7 +1547,7 @@ async def _agent_reply(agent_name: str, user_message: str, incident_id: str,
             f"using your findings on the target deal: {findings_str}."
         )
 
-    recent = memory_graph.get_chat_history(limit=12, session_id=session_id)
+    recent = user_memory.get_chat_history(limit=12, session_id=session_id)
     chat_history_str = "\n".join(f"{t['role'].upper()}: {t['content']}" for t in recent) if recent else "No chat history yet."
 
     prompt = f"""You are the {p['name']} ({p['role']}) at FUSION VC investment committee.
@@ -2727,7 +2744,7 @@ async def upload_pitch_document(
     clear_pitch_cache()
     
     display_filename = ", ".join(u_file.filename for u_file in uploaded_files if u_file.filename) or "uploaded_data_room"
-    memory_graph.create_incident(incident_id, {
+    user_memory.create_incident(incident_id, {
         "trigger": "document_upload",
         "company": sim_state.active_company_name,
         "filename": display_filename,
@@ -2761,13 +2778,15 @@ def _report_signature(inc: dict, pitch_data: dict) -> tuple:
 
 
 @router.api_route("/generate-report", methods=["GET", "POST"])
-async def generate_research_report(incident_id: Optional[str] = None, format: Optional[str] = "md"):
+async def generate_research_report(request: Request, incident_id: Optional[str] = None, format: Optional[str] = "md"):
     """Generates a downloadable Markdown or PDF VC due diligence report.
     Defaults to the active deal, then the latest deal on record."""
-    incident_id = incident_id or sim_state.active_incident_id or memory_graph.get_latest_incident_id()
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    incident_id = incident_id or sim_state.active_incident_id or user_memory.get_latest_incident_id()
     if not incident_id:
         raise HTTPException(status_code=404, detail="No deal evaluations on record. Run an evaluation first.")
-    inc = memory_graph.get_incident(incident_id)
+    inc = user_memory.get_incident(incident_id)
     if not inc:
         raise HTTPException(status_code=404, detail="Incident/deal record not found.")
         
