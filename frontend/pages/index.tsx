@@ -114,6 +114,7 @@ function riskTone(score: number): { cls: string; bar: string } {
 export default function FUSION() {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
+  const [showLanding, setShowLanding] = useState(false)
   // Derived: logged in when Firebase has a user
   const isLoggedIn = firebaseUser !== null
 
@@ -564,6 +565,7 @@ export default function FUSION() {
   )
 
   const handleSignOut = async () => {
+    setShowLanding(true)   // show home immediately, don't wait for Firebase round-trip
     await firebaseSignOut()
     localStorage.removeItem('fusion.activeIncidentId')
     setChatHistory([])
@@ -575,6 +577,7 @@ export default function FUSION() {
     const unsub = onAuthStateChanged(auth, (user: User | null) => {
       setFirebaseUser(user)
       setCheckingAuth(false)
+      if (user) setShowLanding(false)  // auto-route to boardroom on sign-in
     })
     return unsub
   }, [])
@@ -590,10 +593,13 @@ export default function FUSION() {
     )
   }
 
-  if (!isLoggedIn) {
+  if (!isLoggedIn || showLanding) {
     return (
-      // onLogin is now a no-op — Firebase onAuthStateChanged handles the state transition
-      <LandingPage onLogin={() => {}} />
+      <LandingPage
+        onLogin={() => {}}
+        isLoggedIn={isLoggedIn}
+        onEnterBoardroom={() => setShowLanding(false)}
+      />
     )
   }
 
@@ -1150,9 +1156,11 @@ function use3DTilt() {
 
 interface LandingPageProps {
   onLogin: () => void
+  isLoggedIn?: boolean
+  onEnterBoardroom?: () => void
 }
 
-function LandingPage({ onLogin }: LandingPageProps) {
+function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps) {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [codeTab, setCodeTab] = useState<'python' | 'json'>('python')
   const [isLoginOpen, setIsLoginOpen] = useState(false)
@@ -1453,12 +1461,12 @@ function LandingPage({ onLogin }: LandingPageProps) {
               {theme === 'dark' ? <Sun className="w-4 h-4 text-accent" /> : <Moon className="w-4 h-4 text-emerald-600" />}
             </button>
             
-            <button 
-              onClick={() => setIsLoginOpen(true)}
+            <button
+              onClick={() => isLoggedIn && onEnterBoardroom ? onEnterBoardroom() : setIsLoginOpen(true)}
               className="relative group overflow-hidden px-6 py-2.5 rounded-xl bg-accent text-black font-mono font-bold text-xs uppercase tracking-wider hover:shadow-[0_0_25px_rgba(91,191,82,0.45)] transition-all duration-300 cursor-pointer"
             >
               <span className="relative z-10 flex items-center gap-2">
-                Enter Boardroom <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                {isLoggedIn ? 'Return to Boardroom' : 'Enter Boardroom'} <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
               </span>
               <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 to-accent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             </button>
@@ -1486,10 +1494,10 @@ function LandingPage({ onLogin }: LandingPageProps) {
 
           <div className="mt-8 sm:mt-12 flex flex-wrap gap-3 sm:gap-4 font-mono text-xs uppercase tracking-wider font-bold">
             <button
-              onClick={() => setIsLoginOpen(true)}
+              onClick={() => isLoggedIn && onEnterBoardroom ? onEnterBoardroom() : setIsLoginOpen(true)}
               className="px-6 py-3 sm:px-8 sm:py-4 rounded-xl bg-accent text-black hover:shadow-[0_0_30px_rgba(91,191,82,0.5)] transition-all duration-300 flex items-center gap-2.5 cursor-pointer"
             >
-              <Play className="w-4 h-4 fill-current" /> Initialize Swarm Room
+              <Play className="w-4 h-4 fill-current" /> {isLoggedIn ? 'Return to Boardroom' : 'Initialize Swarm Room'}
             </button>
             <button
               onClick={() => scrollTo('roundtable-sec')}
