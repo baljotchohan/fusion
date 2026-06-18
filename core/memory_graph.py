@@ -105,18 +105,54 @@ class MemoryGraph:
             }
             self._write_file(self.incidents_file, incidents)
             logger.info(f"Memory: created incident {incident_id}")
-            return incidents[incident_id]
+        # Mirror to Firestore so it survives server restarts
+        try:
+            from core.firestore_memory import fs_save_incident
+            fs_save_incident(self._explicit_uid, incident_id, incidents[incident_id])
+        except Exception:
+            pass
+        return incidents[incident_id]
 
     def get_incident(self, incident_id: str) -> Optional[dict]:
-        return self._read_file(self.incidents_file).get(incident_id)
+        data = self._read_file(self.incidents_file).get(incident_id)
+        if data:
+            return data
+        # Fallback: local file was wiped (server restart) — try Firestore
+        try:
+            from core.firestore_memory import fs_get_incident
+            fs_data = fs_get_incident(self._explicit_uid, incident_id)
+            if fs_data:
+                logger.info(f"[Memory] Recovered incident {incident_id} from Firestore")
+                # Write back to local file so subsequent reads are fast
+                with _LOCK:
+                    incidents = self._read_file(self.incidents_file)
+                    incidents[incident_id] = fs_data
+                    self._write_file(self.incidents_file, incidents)
+                return fs_data
+        except Exception:
+            pass
+        return None
 
     def list_incidents(self) -> Dict[str, dict]:
-        return self._read_file(self.incidents_file)
+        local = self._read_file(self.incidents_file)
+        if local:
+            return local
+        # Fallback to Firestore if local is empty
+        try:
+            from core.firestore_memory import fs_list_incidents
+            return fs_list_incidents(self._explicit_uid)
+        except Exception:
+            return {}
 
     def get_latest_incident_id(self) -> Optional[str]:
         incidents = self._read_file(self.incidents_file)
         if not incidents:
-            return None
+            # Fallback to Firestore
+            try:
+                from core.firestore_memory import fs_get_latest_incident_id
+                return fs_get_latest_incident_id(self._explicit_uid)
+            except Exception:
+                return None
         return max(incidents, key=lambda k: incidents[k].get("created_at", ""))
 
     async def log_finding(
@@ -141,6 +177,7 @@ class MemoryGraph:
                 "timestamp": _utcnow(),
             })
             self._write_file(self.incidents_file, incidents)
+            updated = incidents[incident_id]
 
             # Update agent learning profile
             profiles = self._read_file(self.agent_profiles_file)
@@ -150,6 +187,12 @@ class MemoryGraph:
                 profile["incidents"].append(incident_id)
             profile["last_active"] = _utcnow()
             self._write_file(self.agent_profiles_file, profiles)
+        # Mirror updated incident to Firestore
+        try:
+            from core.firestore_memory import fs_save_incident
+            fs_save_incident(self._explicit_uid, incident_id, updated)
+        except Exception:
+            pass
         return True
 
     def set_final_decision(self, incident_id: str, decision: str) -> bool:
@@ -159,6 +202,13 @@ class MemoryGraph:
                 return False
             incidents[incident_id]["final_decision"] = decision
             self._write_file(self.incidents_file, incidents)
+            updated = incidents[incident_id]
+        # Mirror to Firestore
+        try:
+            from core.firestore_memory import fs_save_incident
+            fs_save_incident(self._explicit_uid, incident_id, updated)
+        except Exception:
+            pass
         return True
 
     async def query_similar_incidents(
