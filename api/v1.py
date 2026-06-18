@@ -3183,6 +3183,37 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     return StreamingResponse(file_like, media_type="text/markdown", headers=headers)
 
 
+@router.get("/rtdb-test")
+async def rtdb_test():
+    """Diagnostic: write a test entry to RTDB and return status. No auth required."""
+    import firebase_admin
+    from datetime import datetime, timezone
+    from core.rtdb import _init, _db, write_activity
+
+    admin_ok = bool(firebase_admin._apps)
+    rtdb_ok = _init()
+
+    result = {
+        "firebase_admin_initialized": admin_ok,
+        "rtdb_connected": rtdb_ok,
+        "test_write": None,
+        "error": None,
+    }
+
+    if rtdb_ok and _db is not None:
+        try:
+            ref = _db.reference("/diagnostics/ping")
+            ref.set({"ts": datetime.now(timezone.utc).isoformat(), "source": "rtdb-test endpoint"})
+            result["test_write"] = "ok — check /diagnostics/ping in Firebase Console"
+        except Exception as exc:
+            result["test_write"] = "failed"
+            result["error"] = str(exc)
+    else:
+        result["error"] = "RTDB not connected — check FIREBASE_DATABASE_URL and FIREBASE_SERVICE_ACCOUNT_B64 secrets"
+
+    return result
+
+
 @router.get("/profile")
 async def get_profile(request: Request):
     """Return the authenticated user's Firestore profile (totalDeals, displayName, etc.)."""
