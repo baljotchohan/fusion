@@ -38,6 +38,15 @@ jobs:
         run: |
           git config --global user.email "actions@github.com"
           git config --global user.name "GitHub Actions"
+          
+          # Stage README.md modification
           git add README.md
           git commit -m "build: inject Hugging Face Space metadata"
+          
+          # Initialize Git LFS and migrate all binary files in history to LFS pointers
+          git lfs install
+          git lfs migrate import --everything --include="*.png,*.PNG,*.jpg,*.jpeg,*.mp4,*.MP4,*.pdf,*.PDF"
+          
+          # Push to Hugging Face Space
           git push -f https://baljot07:$HF_TOKEN@huggingface.co/spaces/baljot07/fusion HEAD:main
+
