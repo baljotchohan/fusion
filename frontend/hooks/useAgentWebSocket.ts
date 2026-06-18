@@ -121,12 +121,12 @@ export function useAgentWebSocket(uid?: string | null) {
                 setThreatScore(Number(riskMatch[1]))
               }
 
-              const decisionMatch = update.output.report.match(/decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-z_]+)/i)
+              const decisionMatch = update.output.report.match(/decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-z_\s-]+)/i)
               const confidenceMatch = update.output.report.match(/confidence\s*\*?\*?\s*:\s*\*?\*?\s*(\d+)/i)
               const justificationMatch = update.output.report.match(/PRIMARY REASONS:\s*([^\0]+)/i)
               if (decisionMatch) {
                 setCeoDecision({
-                  verdict: decisionMatch[1].toUpperCase(),
+                  verdict: decisionMatch[1].trim().toUpperCase(),
                   confidence: confidenceMatch ? Number(confidenceMatch[1]) : 91,
                   justification: justificationMatch ? justificationMatch[1].trim() : 'Committee review completed.',
                 })
