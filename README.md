@@ -1,13 +1,3 @@
----
-title: FUSION
-emoji: ⚡
-colorFrom: indigo
-colorTo: purple
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # FUSION ⚡
 ### AI-Powered Venture Capital Investment Committee Swarm
 
