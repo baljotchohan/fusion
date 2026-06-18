@@ -36,8 +36,10 @@ def _init_firebase():
     try:
         sa_dict = json.loads(base64.b64decode(b64).decode("utf-8"))
         cred = credentials.Certificate(sa_dict)
-        firebase_admin.initialize_app(cred)
-        logger.info("Firebase Admin SDK initialized ✓")
+        db_url = os.environ.get("FIREBASE_DATABASE_URL", "").strip()
+        options = {"databaseURL": db_url} if db_url else {}
+        firebase_admin.initialize_app(cred, options)
+        logger.info("Firebase Admin SDK initialized ✓%s", " (RTDB enabled)" if db_url else " (no RTDB URL)")
     except Exception as e:
         logger.error(f"Firebase Admin SDK init failed: {e}")
     _initialized = True

@@ -1603,6 +1603,21 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     total = sum(len(s) for s in active_websockets.values())
     logger.info(f"FastAPI: WebSocket connected uid={uid}. Total connections: {total}")
 
+    # RTDB: record live presence so Firebase Console shows who's connected
+    if uid != "__public__":
+        try:
+            from core.rtdb import write_activity, upsert_profile
+            if token:
+                try:
+                    from firebase_admin import auth as _fba
+                    _dec = _fba.verify_id_token(token)
+                    upsert_profile(uid, _dec.get("name"), _dec.get("email"), _dec.get("picture"))
+                except Exception:
+                    pass
+            write_activity(uid, "session_connected", {"totalConnections": total})
+        except Exception:
+            pass
+
     # Replay completed agent findings for THIS user's active deal
     try:
         user_memory = memory_graph.__class__(uid=uid)
