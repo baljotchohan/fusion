@@ -3124,11 +3124,15 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
             continue
         agent_display = agent_display_map.get(agent_key, agent_key)
         
+        finding_clean = re.sub(r'thenvoi_send_message\s*\(.*?\)', '', ev.get('finding', ''), flags=re.DOTALL)
+        finding_clean = re.sub(r'Then I will report[^\n]*\n?', '', finding_clean, flags=re.IGNORECASE)
+        finding_clean = re.sub(r'If you need further assistance[^\n]*\n?', '', finding_clean, flags=re.IGNORECASE)
+        finding_clean = re.sub(r'\n{3,}', '\n\n', finding_clean).strip()
         report_md += f"""
 ### {agent_display} (Severity: {ev.get('severity', 5)}/10)
 *Timestamp: {ev.get('timestamp')}*
 
-{ev.get('finding')}
+{finding_clean}
 
 """
         
