@@ -26,13 +26,14 @@ _ready = False
 
 def _init() -> bool:
     global _db, _ready
-    if _ready:
-        return _db is not None
+    if _db is not None:
+        return True  # already connected
 
-    _ready = True
     url = os.environ.get("FIREBASE_DATABASE_URL", "").strip()
     if not url:
-        logger.info("FIREBASE_DATABASE_URL not set — RTDB writes disabled")
+        if not _ready:
+            logger.info("FIREBASE_DATABASE_URL not set — RTDB writes disabled")
+        _ready = True
         return False
 
     try:
@@ -40,16 +41,18 @@ def _init() -> bool:
         from firebase_admin import db as _fdb
 
         if not firebase_admin._apps:
-            logger.warning("Firebase Admin not yet initialized — RTDB unavailable")
+            # Admin not yet initialized — don't set _ready so we retry next call
+            logger.debug("RTDB init deferred: Firebase Admin not ready yet")
             return False
 
-        # Test the connection with a cheap no-op reference build
-        _fdb.reference("/")
+        _fdb.reference("/")   # validates the URL without a network round-trip
         _db = _fdb
+        _ready = True
         logger.info("Firebase RTDB ready ✓  url=%s", url)
         return True
     except Exception as exc:
         logger.error("RTDB init failed: %s", exc)
+        _ready = True   # permanent failure — stop retrying
         return False
 
 
