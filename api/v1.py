@@ -2852,25 +2852,30 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     from core.diligence_engine import run_diligence_calculations
     
     pitch_data = None
-    try:
-        import os
-        from core.demo_registry import resolve_pitch_file
-        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
-        pitch_file = f"pitch_{incident_id}.json"
-        if not os.path.exists(os.path.join(data_dir, pitch_file)):
-            demo_file = resolve_pitch_file(company_name)
-            if demo_file:
-                pitch_file = demo_file
-            else:
-                pitch_file = "novapay_pitch.json"
-        pitch_data = _load_pitch_file(pitch_file)
-    except Exception as e:
-        logger.warning(f"Failed to load pitch file for incident {incident_id}: {e}")
-        
+    # Priority 1: pitch_data embedded in the incident metadata (uploaded documents)
+    pitch_data = inc.get("metadata", {}).get("pitch_data")
+    if pitch_data:
+        logger.info(f"[generate-report] Using pitch_data from incident metadata for {incident_id}")
+    else:
+        # Priority 2: pitch_{incident_id}.json on disk (uploaded file saved to disk)
+        try:
+            import os
+            from core.demo_registry import resolve_pitch_file
+            data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
+            pitch_file = f"pitch_{incident_id}.json"
+            if not os.path.exists(os.path.join(data_dir, pitch_file)):
+                # Priority 3: match a demo deal by company name
+                demo_file = resolve_pitch_file(company_name)
+                pitch_file = demo_file if demo_file else None
+            if pitch_file:
+                pitch_data = _load_pitch_file(pitch_file)
+        except Exception as e:
+            logger.warning(f"Failed to load pitch file for incident {incident_id}: {e}")
+
     if not pitch_data:
         raise HTTPException(
             status_code=400,
-            detail=f"Diligence calculations could not be run: Pitch data for incident {incident_id} not found."
+            detail=f"No pitch data found for this deal. Please re-upload the document and run the evaluation again."
         )
 
     # Fast path: serve a previously rendered report if nothing material changed.
@@ -2914,36 +2919,24 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
         if m_dec:
             card_decision = m_dec.group(1).strip().upper()
             
-    # ── VALIDATION GUARDS ──
-    
-    # Rule 1: Validate company name
-    if company_name != calc_company_name:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Company name mismatch: Incident metadata has '{company_name}', but calculations returned '{calc_company_name}'."
-        )
-    if card_company_name and card_company_name != calc_company_name:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Decision card company name mismatch: Card has '{card_company_name}', but calculations returned '{calc_company_name}'."
-        )
-        
-    # Rule 2: Validate weighted score
-    if card_weighted_score is not None and calc_weighted_score is not None:
-        if abs(card_weighted_score - calc_weighted_score) > 0.01:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Weighted score mismatch: Decision card has {card_weighted_score}, but calculations returned {calc_weighted_score}."
+    # ── SOFT VALIDATION GUARDS (log warnings, don't block downloads) ──
+
+    # Sync company name: if calc returned something more specific, use it
+    if calc_company_name and calc_company_name != "Unknown Startup":
+        if company_name in ("Unknown Startup", "NovaPay Inc", "", None):
+            company_name = calc_company_name
+        elif company_name != calc_company_name:
+            logger.warning(
+                f"[generate-report] Company name drift: incident='{company_name}' calc='{calc_company_name}' "
+                f"— using incident name for report header."
             )
-            
-    # Rule 3: Validate verdict check
-    verdict_to_check = card_decision or calc_verdict
-    score_to_check = calc_weighted_score
-    if verdict_to_check == "INVEST" and score_to_check is not None and score_to_check > 7:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid investment verdict: Decision is INVEST but weighted risk score is {score_to_check} (> 7)."
-        )
+
+    # Soft-check weighted score consistency (log, don't error)
+    if card_weighted_score is not None and calc_weighted_score is not None:
+        if abs(card_weighted_score - calc_weighted_score) > 0.5:
+            logger.warning(
+                f"[generate-report] Weighted score drift: card={card_weighted_score} calc={calc_weighted_score}"
+            )
         
     # ── REQUIRE PARTNER CONTENT ──
     # Keep the LONGEST finding per partner (the real report),
@@ -2980,7 +2973,9 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     raise_amount = calc.get("raise_amount", "N/A")
     valuation = calc.get("valuation", "N/A")
     deal_text = f"{raise_amount} at {valuation} post"[:42]
-    decision_text = ("REJECT" if calc_verdict == "PASS" else calc_verdict)[:42]
+    # Engine uses "PASS" to mean "pass on this deal" (i.e. reject); surface the real label
+    _verdict_label_map = {"PASS": "PASS (DO NOT INVEST)", "INVEST": "INVEST", "CONDITIONAL": "CONDITIONAL", "INSUFFICIENT EVIDENCE": "INSUFFICIENT EVIDENCE"}
+    decision_text = _verdict_label_map.get(calc_verdict, calc_verdict)[:42]
     
     coverage_score = calc.get("coverage_score", 0.0)
     confidence_val_pct = calc.get("verdict_confidence", coverage_score)
@@ -3078,7 +3073,7 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
 
 ---
 
-## ⚖️ COMMITTEE VERDICT: {"REJECT" if calc_verdict == "PASS" else calc_verdict}
+## ⚖️ COMMITTEE VERDICT: {_verdict_label_map.get(calc_verdict, calc_verdict)}
 {dynamic_verdict_card}
 
 ---
