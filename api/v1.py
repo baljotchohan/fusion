@@ -2751,6 +2751,28 @@ def validate_pitch_deck_signals(text: str) -> tuple[bool, str]:
     validate_document_relevance (runs first when a provider key is present).
     """
     t = (text or "").lower()
+
+    # Gate 0: reject public-company filings / earnings reports before checking startup signals.
+    # These docs are rich in financial data so they pass the startup gate but are not pitch decks.
+    public_filing_signals = [
+        r"\bq[1-4][-\s]20\d\d\b",           # "Q1 2026", "Q3-2025" quarter labels
+        r"\bforward[- ]looking statements\b",  # boilerplate in every public filing
+        r"\bnon-gaap\b",                       # public-company reconciliation tables
+        r"\bunaudited\b",                      # quarterly filing marker
+        r"\bweighted average shares\b",        # EPS calculation line
+        r"\bform 10-[kq]\b",                   # SEC form references
+        r"\bearnings per share\b",             # EPS terminology
+        r"\bdiluted eps\b",
+        r"\bshareholders?\b.*\bstockholders?\b",  # public company language
+        r"\bsec\s+filing\b",
+    ]
+    filing_hits = sum(1 for p in public_filing_signals if re.search(p, t))
+    if filing_hits >= 2:
+        return False, ("This appears to be a public company earnings report or investor filing, "
+                       "not a startup pitch deck. FUSION evaluates private startup investment "
+                       "opportunities. Please upload a pitch deck, investment memo, or company "
+                       "diligence document for a startup seeking funding.")
+
     categories = {
         "financial": [r"\$\s?\d", r"\barr\b", r"\bmrr\b", r"\brevenue\b", r"\bburn\b",
                       r"\brunway\b", r"\braise\b", r"\bvaluation\b", r"\bfunding\b",
