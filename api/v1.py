@@ -10,6 +10,7 @@ import os
 import json
 import logging
 import re
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional, Any, Dict
 from uuid import uuid4
@@ -1025,7 +1026,12 @@ async def list_incidents(request: Request):
     """List all deals in the shared team memory graph."""
     uid = await get_uid_optional(request)
     user_memory = memory_graph.__class__(uid=uid or "__public__")
-    incidents = user_memory.list_incidents()
+    incidents = dict(user_memory.list_incidents())
+    # Also surface deals that were triggered before sign-in (stored under __public__),
+    # so a page refresh never makes a just-concluded deal vanish from History.
+    if uid and uid != "__public__":
+        for inc_id, inc in memory_graph.__class__(uid="__public__").list_incidents().items():
+            incidents.setdefault(inc_id, inc)
 
     def _company(meta):
         c = meta.get("company")
@@ -1054,23 +1060,24 @@ async def list_incidents(request: Request):
     }
 
 
-@router.get("/deal-state")
-async def deal_state(request: Request):
-    """Lightweight snapshot of the active/latest concluded deal so the dashboard can
-    restore the verdict card + report download buttons after a page refresh.
-    Returns null fields (not an error) when no deal has concluded yet."""
-    uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid or "__public__")
-    incident_id = sim_state.active_incident_id or user_memory.get_latest_incident_id()
+def compute_deal_snapshot(uid: Optional[str], incident_id: Optional[str] = None) -> dict:
+    """Authoritative snapshot of the active/latest concluded deal: verdict, weighted
+    risk score (1-10) and confidence. Computed from the deterministic diligence engine
+    (the source of truth) with a regex fallback over the final-decision card.
+
+    Used both by GET /deal-state (refresh restore) and by the live Managing Partner
+    broadcast so the dashboard never has to scrape free-form LLM text for the score.
+    """
     empty = {"incident_id": None, "company": None, "verdict": None,
              "confidence": None, "weighted_score": None, "report_available": False}
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
+    incident_id = incident_id or sim_state.active_incident_id or user_memory.get_latest_incident_id()
     if not incident_id:
         return empty
     inc = user_memory.get_incident(incident_id)
     # Fallback: incident may have been created under __public__ (unauthenticated run)
     if not inc and uid and uid != "__public__":
-        public_memory = memory_graph.__class__(uid="__public__")
-        inc = public_memory.get_incident(incident_id)
+        inc = memory_graph.__class__(uid="__public__").get_incident(incident_id)
     if not inc:
         return empty
 
@@ -1084,48 +1091,65 @@ async def deal_state(request: Request):
     verdict_m = re.search(r"decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-zA-Z_\s]+)", decision_text, re.I)
     score_m = re.search(r"weighted\s*(?:risk\s*)?score\s*\*?\*?\s*:\s*\*?\*?\s*([\d.]+)", decision_text, re.I)
     conf_m = re.search(r"confidence\s*\*?\*?\s*:\s*\*?\*?\s*(\d+)", decision_text, re.I)
-    has_verdict = bool(verdict_m)
+    has_verdict = bool(verdict_m) or bool(re.search(r"DECISION\s*:", decision_text, re.I))
 
-    # Compute weighted score directly from pitch_data when regex can't find it in final_decision
-    weighted_score_val = float(score_m.group(1)) if score_m else None
-    if weighted_score_val is None:
-        try:
-            from core.diligence_engine import run_diligence_calculations
-            pitch_data = inc.get("metadata", {}).get("pitch_data")
-            if not pitch_data:
-                from core.pitch_loader import _load_pitch_file
-                from core.demo_registry import resolve_pitch_file
-                import os
-                data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
-                pf = f"pitch_{incident_id}.json"
-                if not os.path.exists(os.path.join(data_dir, pf)):
-                    pf = resolve_pitch_file(company) or None
-                if pf:
-                    pitch_data = _load_pitch_file(pf)
-            if pitch_data:
-                calc = run_diligence_calculations(pitch_data)
-                weighted_score_val = calc.get("weighted_score")
-        except Exception:
-            pass
+    # Prefer the deterministic engine — it is the source of truth for the score and
+    # the canonical verdict (INVEST / PASS / CONDITIONAL / INSUFFICIENT_EVIDENCE).
+    weighted_score_val: Optional[float] = None
+    verdict_val: Optional[str] = None
+    conf_val: Optional[int] = int(conf_m.group(1)) if conf_m else None
+    try:
+        from core.diligence_engine import run_diligence_calculations
+        pitch_data = inc.get("metadata", {}).get("pitch_data")
+        if not pitch_data:
+            from core.pitch_loader import _load_pitch_file
+            from core.demo_registry import resolve_pitch_file
+            data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
+            pf = f"pitch_{incident_id}.json"
+            if not os.path.exists(os.path.join(data_dir, pf)):
+                pf = resolve_pitch_file(company) or None
+            if pf:
+                pitch_data = _load_pitch_file(pf)
+        if pitch_data:
+            calc = run_diligence_calculations(pitch_data)
+            weighted_score_val = calc.get("weighted_score")
+            verdict_val = calc.get("verdict")
+            if conf_val is None and calc.get("verdict_confidence") is not None:
+                conf_val = int(round(calc["verdict_confidence"]))
+    except Exception:
+        pass
 
-    # Infer verdict from pitch_data calc if regex also failed
-    verdict_val = verdict_m.group(1).strip().upper() if verdict_m else None
+    # Regex fallback over the decision card if the engine couldn't run.
+    if weighted_score_val is None and score_m:
+        weighted_score_val = float(score_m.group(1))
+    if not verdict_val:
+        verdict_val = verdict_m.group(1).strip().upper() if verdict_m else None
     if not verdict_val and weighted_score_val is not None:
-        if weighted_score_val <= 4.0:
-            verdict_val = "INVEST"
-        elif weighted_score_val <= 6.5:
-            verdict_val = "CONDITIONAL"
-        else:
-            verdict_val = "PASS"
+        verdict_val = ("INVEST" if weighted_score_val <= 4.0
+                       else "CONDITIONAL" if weighted_score_val <= 6.5 else "PASS")
+
+    # The decision card shows a decline-to-invest ("PASS") as the unambiguous word
+    # "REJECT" for non-VC viewers — keep the dashboard verdict consistent with it.
+    if verdict_val == "PASS":
+        verdict_val = "REJECT"
 
     return {
         "incident_id": incident_id,
         "company": company,
         "verdict": verdict_val,
-        "confidence": int(conf_m.group(1)) if conf_m else (91 if has_verdict else None),
+        "confidence": conf_val if conf_val is not None else (91 if has_verdict else None),
         "weighted_score": weighted_score_val,
         "report_available": has_verdict,
     }
+
+
+@router.get("/deal-state")
+async def deal_state(request: Request):
+    """Lightweight snapshot of the active/latest concluded deal so the dashboard can
+    restore the verdict card + report download buttons after a page refresh.
+    Returns null fields (not an error) when no deal has concluded yet."""
+    uid = await get_uid_optional(request)
+    return compute_deal_snapshot(uid)
 
 
 @router.get("/incident/{incident_id}")
@@ -2716,6 +2740,44 @@ async def validate_document_relevance(text: str) -> tuple[bool, str]:
         return False, "The document does not contain startup, financial, legal, or technical due diligence information."
 
 
+def validate_pitch_deck_signals(text: str) -> tuple[bool, str]:
+    """Heuristic gate: does this document actually look like a startup pitch / diligence
+    pack? Requires a financial signal plus enough distinct business context so that random
+    PDFs (invoices, resumes, articles, receipts) are rejected with a clear message instead
+    of being run through diligence and producing a nonsense verdict.
+
+    ponytail: pure-regex whitelist — no LLM, no deps. Ceiling: a determined adversary can
+    craft text that ticks the boxes; upgrade path is the LLM classifier already in
+    validate_document_relevance (runs first when a provider key is present).
+    """
+    t = (text or "").lower()
+    categories = {
+        "financial": [r"\$\s?\d", r"\barr\b", r"\bmrr\b", r"\brevenue\b", r"\bburn\b",
+                      r"\brunway\b", r"\braise\b", r"\bvaluation\b", r"\bfunding\b",
+                      r"\bebitda\b", r"\bgross\s+margin\b"],
+        "team":      [r"\bfounder", r"\bco-?founder", r"\bceo\b", r"\bcto\b",
+                      r"\bteam\b", r"\bemployees?\b", r"\bheadcount\b"],
+        "product":   [r"\bproduct\b", r"\bplatform\b", r"\bsaas\b", r"\bsoftware\b",
+                      r"\bapp\b", r"\bsolution\b", r"\bapi\b", r"\btechnology\b"],
+        "market":    [r"\bmarket\b", r"\btam\b", r"\bsam\b", r"\bcustomers?\b",
+                      r"\busers?\b", r"\bcompetitors?\b", r"\bgrowth\b"],
+        "stage":     [r"\bpre-?seed\b", r"\bseed\b", r"\bseries\s+[a-d]\b", r"\bround\b",
+                      r"\bfinancing\b", r"\binvestors?\b", r"\bcap\s+table\b", r"\bpitch\b"],
+    }
+    hits = {cat: any(re.search(p, t) for p in pats) for cat, pats in categories.items()}
+    n_hits = sum(hits.values())
+    if not hits["financial"]:
+        return False, ("This does not look like a startup pitch deck — no financial metrics "
+                       "(revenue, ARR, burn, runway, valuation, raise, or funding) were found. "
+                       "Please upload an actual pitch deck or company diligence document.")
+    if n_hits < 3:
+        present = ", ".join(c for c, h in hits.items() if h) or "none"
+        return False, ("This does not look like a startup pitch deck — it lacks enough business "
+                       f"context (found only: {present}). A pitch should cover the company, its "
+                       "product/market, team, and funding ask. Please upload a real pitch deck.")
+    return True, ""
+
+
 @router.post("/upload-pitch")
 async def upload_pitch_document(
     request: Request,
@@ -2779,10 +2841,17 @@ async def upload_pitch_document(
         for fname, ftext in files_text.items():
             combined_text += f"\n\n--- DOCUMENT: {fname} ---\n{ftext}\n"
         
-        # Check relevance
+        # Gate 1: is this even a business/company document? (LLM classifier when a key
+        # is present, keyword fallback otherwise.)
         is_relevant, reject_reason = await validate_document_relevance(combined_text)
         if not is_relevant:
             raise HTTPException(status_code=400, detail=reject_reason)
+
+        # Gate 2: does it actually look like a pitch deck (not just any business text)?
+        # This is what stops a random PDF from producing a bogus verdict.
+        looks_like_pitch, pitch_reject = validate_pitch_deck_signals(combined_text)
+        if not looks_like_pitch:
+            raise HTTPException(status_code=400, detail=pitch_reject)
 
         display_filename = ", ".join(files_text.keys())
         structured_data = await parse_and_structure_file(combined_text, display_filename, incident_id)
@@ -2880,7 +2949,13 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     else:
         company_name = raw_company or "Unknown Startup"
         
-    if (not company_name or company_name == "NovaPay Inc" or company_name == "Unknown Startup") and sim_state.active_company_name:
+    # Only borrow the live active-company name when we are reporting on the CURRENTLY
+    # active incident. Otherwise a later upload (which changes active_company_name) would
+    # clobber a past deal's real company and break its pitch lookup. Also dropped the
+    # "NovaPay Inc" sentinel — that wrongly treated every real NovaPay deal as "unknown".
+    if ((not company_name or company_name == "Unknown Startup")
+            and sim_state.active_company_name
+            and incident_id == sim_state.active_incident_id):
         act_co = sim_state.active_company_name
         if isinstance(act_co, dict):
             company_name = act_co.get("value") or act_co.get("name") or "NovaPay Inc"

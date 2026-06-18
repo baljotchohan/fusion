@@ -48,8 +48,13 @@ class MemoryGraph:
             except ImportError:
                 pass
         
+        # Normalise an unauthenticated/guest session to the "__public__" namespace so
+        # that WRITES (a deal triggered with active_uid=None lands here) and READS (every
+        # API endpoint queries uid or "__public__") resolve to the SAME folder. Without
+        # this, anonymous deals were written to the root dir but queried from __public__,
+        # so history and the verdict score vanished on refresh.
         base = Path(self.graphify_dir)
-        p = (base / uid) if uid else base
+        p = base / (uid or "__public__")
         p.mkdir(parents=True, exist_ok=True)
         return p
 
