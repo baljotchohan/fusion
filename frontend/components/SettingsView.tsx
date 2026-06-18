@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Sun, Moon, Trash2, Plug, Copy, Check, ExternalLink } from 'lucide-react'
 import { AGENTS, API_BASE } from '@/lib/agents'
-import { logActivity } from '@/lib/apiFetch'
+import { apiFetch, logActivity } from '@/lib/apiFetch'
 
 interface SettingsViewProps {
   theme: 'dark' | 'light'
@@ -37,7 +37,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/v1/system/settings`)
+      const response = await apiFetch(`${API_BASE}/api/v1/system/settings`)
       if (!response.ok) throw new Error('Failed to load settings')
       const data = await response.json()
       if (data.simulation) {
@@ -54,7 +54,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
 
   const updateSetting = async (patch: { mock_pace?: number }) => {
     try {
-      const response = await fetch(`${API_BASE}/api/v1/system/settings`, {
+      const response = await apiFetch(`${API_BASE}/api/v1/system/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
@@ -74,7 +74,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
     setResetting(true)
     try {
       logActivity('danger_zone_reset_all')
-      await fetch(`${API_BASE}/api/v1/system/reset-all`, { method: 'POST' })
+      await apiFetch(`${API_BASE}/api/v1/system/reset-all`, { method: 'POST' })
     } catch (e) {
       console.error('Reset failed:', e)
     } finally {

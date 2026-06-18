@@ -154,3 +154,16 @@ def upsert_profile(uid: str, name: str | None, email: str | None,
     except Exception as exc:
         logger.error("RTDB upsert_profile %s: %s", uid, exc)
         return False
+
+
+def clear_user_data(uid: str) -> bool:
+    """Clear all data for the user in the Realtime Database to reset their history."""
+    ref = _ref(f"/users/{uid}")
+    if ref is None:
+        return False
+    try:
+        ref.delete()
+        return True
+    except Exception as exc:
+        logger.error("RTDB clear_user_data %s: %s", uid, exc)
+        return False

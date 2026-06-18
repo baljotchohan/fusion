@@ -1077,7 +1077,7 @@ async def deal_state(request: Request):
         company = raw_company or "Unknown"
 
     decision_text = inc.get("final_decision") or ""
-    verdict_m = re.search(r"decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-zA-Z_]+)", decision_text, re.I)
+    verdict_m = re.search(r"decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-zA-Z_\s]+)", decision_text, re.I)
     score_m = re.search(r"weighted\s*(?:risk\s*)?score\s*\*?\*?\s*:\s*\*?\*?\s*([\d.]+)", decision_text, re.I)
     conf_m = re.search(r"confidence\s*\*?\*?\s*:\s*\*?\*?\s*(\d+)", decision_text, re.I)
     has_verdict = bool(verdict_m)
@@ -1085,7 +1085,7 @@ async def deal_state(request: Request):
     return {
         "incident_id": incident_id,
         "company": company,
-        "verdict": verdict_m.group(1).upper() if verdict_m else None,
+        "verdict": verdict_m.group(1).strip().upper() if verdict_m else None,
         "confidence": int(conf_m.group(1)) if conf_m else (91 if has_verdict else None),
         "weighted_score": float(score_m.group(1)) if score_m else None,
         "report_available": has_verdict,
@@ -1333,6 +1333,14 @@ async def reset_all_history(request: Request):
     uid = await get_uid_optional(request)
     user_memory = memory_graph.__class__(uid=uid or "__public__")
     user_memory.clear_all()
+    
+    # Wipe user data in Firebase RTDB as well
+    try:
+        from core.rtdb import clear_user_data
+        clear_user_data(uid or "__public__")
+    except Exception as e:
+        logger.error(f"Failed to clear RTDB for user {uid}: {e}")
+        
     sim_state.reset()
     # Clear any stuck agent busy flags so the next run starts clean
     if is_mock_mode():
@@ -2782,6 +2790,7 @@ async def upload_pitch_document(
         "company": sim_state.active_company_name,
         "filename": display_filename,
         "threat_level": 5,
+        "pitch_data": structured_data,
     })
 
     logger.info(f"SaaS Ingestion: parsed and saved data room for incident {incident_id}: {sim_state.active_company_name}")
