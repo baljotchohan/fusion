@@ -905,11 +905,24 @@ async def clear_chat_history(request: Request, session_id: Optional[str] = None)
 
 
 @router.websocket("/ws/chat")
-async def websocket_chat(websocket: WebSocket, session_id: Optional[str] = None):
+async def websocket_chat(websocket: WebSocket, session_id: Optional[str] = None, token: Optional[str] = None):
     """Live chat with the Commander — streams agent updates while the swarm works."""
+    uid = "__public__"
+    if token:
+        try:
+            from firebase_admin import auth as fb_auth
+            decoded = fb_auth.verify_id_token(token)
+            uid = decoded["uid"]
+        except Exception:
+            pass
+
     await websocket.accept()
 
     async def forward_agent_event(event_data: dict):
+        # Only forward events belonging to this user's session — prevents cross-user leaking
+        event_uid = getattr(sim_state, "active_uid", None) or "__public__"
+        if event_uid != uid:
+            return
         try:
             await websocket.send_json(event_data)
         except Exception:
@@ -1234,9 +1247,11 @@ class SettingsPatch(BaseModel):
 
 
 @router.get("/system/settings")
-async def get_system_settings():
+async def get_system_settings(request: Request):
     """Everything the Settings tab renders: providers, LLM health, pace, mode, MCP tools."""
     from core.base_agent import llm_degraded
+    uid = await get_uid_optional(request)
+    is_my_session = (sim_state.active_uid == uid) if uid else (sim_state.active_uid is None)
     return {
         "mode": "mock" if is_mock_mode() else "real",
         "band_mock": is_mock_mode(),
@@ -1248,8 +1263,8 @@ async def get_system_settings():
                 if not llm_degraded() else "local-engine",
         },
         "simulation": {
-            "running": sim_state.running,
-            "active_incident_id": sim_state.active_incident_id,
+            "running": sim_state.running if is_my_session else False,
+            "active_incident_id": sim_state.active_incident_id if is_my_session else None,
             "mock_pace": float(os.getenv("ARGUS_MOCK_PACE", "0.2")),
             "max_file_size_mb": sim_state.max_file_size_mb,
         },
