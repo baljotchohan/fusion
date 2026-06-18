@@ -24,19 +24,25 @@ def _init_firebase():
         _initialized = True
         return
 
-    b64 = os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64", "")
-    if not b64:
+    sa_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+    b64 = os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64", "").strip()
+
+    if not sa_json and not b64:
         logger.warning(
-            "FIREBASE_SERVICE_ACCOUNT_B64 not set — auth verification will fail. "
+            "Neither FIREBASE_SERVICE_ACCOUNT_JSON nor FIREBASE_SERVICE_ACCOUNT_B64 set — auth verification will fail. "
             "All requests will be rejected unless running with FUSION_AUTH_DISABLED=true."
         )
         _initialized = True
         return
 
     try:
-        # HF Spaces strips trailing '=' from secrets — re-pad before decoding
-        b64_padded = b64.strip() + "=" * (-len(b64.strip()) % 4)
-        sa_dict = json.loads(base64.b64decode(b64_padded).decode("utf-8"))
+        if sa_json:
+            sa_dict = json.loads(sa_json)
+        else:
+            # HF Spaces strips trailing '=' from secrets — re-pad before decoding
+            b64_padded = b64 + "=" * (-len(b64) % 4)
+            sa_dict = json.loads(base64.b64decode(b64_padded).decode("utf-8"))
+        
         cred = credentials.Certificate(sa_dict)
         db_url = os.environ.get("FIREBASE_DATABASE_URL", "").strip()
         options = {"databaseURL": db_url} if db_url else {}
