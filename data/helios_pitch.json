@@ -1,0 +1,149 @@
+{
+  "company": {
+    "name": "Helios AI",
+    "industry": "Developer Tools / LLM Observability",
+    "stage": "Series A",
+    "raise_amount": "$12,000,000",
+    "post_money_valuation": "$60,000,000",
+    "founded": "2023",
+    "headquarters": "Seattle, WA",
+    "employees": 41,
+    "description": "Helios AI is the observability and evaluation platform for teams shipping LLM applications. We trace every prompt, score output quality in real time, and catch regressions before they reach production. 240 engineering teams run Helios in their CI and live traffic."
+  },
+  "pitch_claims": {
+    "arr": "$8,500,000",
+    "arr_raw": 8500000,
+    "yoy_growth": "180%",
+    "users": 240,
+    "nps_score": 71,
+    "net_revenue_retention": "138%",
+    "market_size_claim": "$48B AI developer-tooling market by 2030",
+    "unique_selling_point": "The only LLM observability suite with automated eval scoring wired directly into CI — regressions are blocked before merge."
+  },
+  "financials": {
+    "monthly_burn_usd": 420000,
+    "runway_months": 22,
+    "gross_margin_pct": 82,
+    "customers": "240 paying engineering teams",
+    "customer_revenue_breakdown": [
+      {
+        "customer": "Largest customer (Series-D fintech)",
+        "revenue_pct": 14,
+        "note": "Healthy diversification — no single customer exceeds 14% of ARR."
+      },
+      {
+        "customer": "Top 10 accounts (combined)",
+        "revenue_pct": 41,
+        "note": "Long-tail revenue base across 240 teams."
+      },
+      {
+        "customer": "Self-serve / mid-market (combined)",
+        "revenue_pct": 45
+      }
+    ],
+    "unit_economics": {
+      "cac_usd": 9000,
+      "ltv_usd": 64000,
+      "ltv_cac_ratio": "7.1x",
+      "payback_period_months": 8,
+      "note": "LTV:CAC of 7.1x is well above the Series A benchmark of 3x. Payback under 9 months."
+    },
+    "previous_funding": [
+      {"round": "Pre-seed", "amount": "$1,200,000", "investors": "South Park Commons", "date": "2023-02"},
+      {"round": "Seed", "amount": "$4,500,000", "investors": "Amplify Partners (lead)", "date": "2024-05"}
+    ],
+    "red_flags": []
+  },
+  "legal": {
+    "ip_status": "3 utility patents granted on automated eval scoring; all core IP assigned to the company with clean invention-assignment agreements.",
+    "litigation": {
+      "value": "No active lawsuits, IP disputes, or pending claims. Clean legal standing.",
+      "confidence": 95,
+      "provenance": "direct",
+      "evidence": "Legal diligence questionnaire and outside counsel confirmation"
+    },
+    "pending_litigation": [],
+    "regulatory_compliance": {
+      "soc2": "SOC 2 Type II certified (audited by Prescient Assurance, report dated 2026-03).",
+      "gdpr": "Fully GDPR compliant; EU data residency available; DPA in place with all enterprise customers.",
+      "licensing": "Developer tooling — no money-transmitter or sector licensing required. Fully compliant.",
+      "data_privacy": "Customer prompt data is tenant-isolated and encrypted; zero-retention mode available."
+    },
+    "cap_table": {
+      "founders_pct": 62,
+      "investors_pct": 26,
+      "employee_options_pool_pct": 12,
+      "note": "Clean cap table. Standard preferred terms, 1x non-participating, no unusual ratchets."
+    },
+    "red_flags": []
+  },
+  "technical": {
+    "tech_stack": {
+      "backend": "Go 1.22 and Node.js 20 (LTS, fully supported)",
+      "database": "PostgreSQL 16 + ClickHouse for trace analytics",
+      "infrastructure": "Kubernetes on AWS EKS, multi-AZ, infrastructure-as-code via Terraform",
+      "frontend": "React 19 + TypeScript"
+    },
+    "security": {
+      "last_penetration_test": "Annual third-party penetration test completed 2026-02 by NCC Group — no critical or high findings open.",
+      "pii_storage": "All customer data encrypted at rest with AES-256; secrets in AWS KMS.",
+      "encryption_at_rest": "AES-256 across all data stores.",
+      "mfa": "SSO/SAML and MFA enforced for all admin and customer accounts.",
+      "soc2": "SOC 2 Type II certified.",
+      "incident_history": "No security breaches or data-exposure events to date."
+    },
+    "architecture": {
+      "pattern": "Service-oriented; horizontally scalable ingestion pipeline.",
+      "scalability": "Sustains 3.2B traced events/day; load-tested to 5x current peak with autoscaling.",
+      "tech_debt_assessment": "LOW — strong test coverage (84%), documented services, no contractor-orphaned code.",
+      "uptime_sla": "99.95% contractual SLA; trailing-12-month actual uptime 99.97%."
+    },
+    "red_flags": []
+  },
+  "market": {
+    "sector": "AI Developer Tooling / LLM Observability",
+    "tam_claim": "$48B AI developer-tooling market by 2030",
+    "actual_market_trends": {
+      "ai_tooling_yoy_growth": "AI developer-tooling spend grew 61% in 2025 as enterprises moved LLM apps to production.",
+      "vc_funding": "Investment into AI infrastructure and tooling rose sharply in 2025.",
+      "adoption": "78% of enterprises now run at least one LLM application in production (up from 41% the prior year).",
+      "tailwinds": "Production LLM adoption is driving durable demand for evaluation and observability."
+    },
+    "competitors": [
+      {"name": "Grafana Labs (observability incumbent)", "funding_raised": "$535M", "market_share": "Broad APM, limited LLM-native evals"},
+      {"name": "Honeycomb", "funding_raised": "$150M", "market_share": "Tracing, expanding into LLM"},
+      {"name": "Arize", "funding_raised": "$131M", "market_share": "ML observability"}
+    ],
+    "positioning": "Helios is the only entrant with eval scoring wired into CI; incumbents focus on dashboards, not pre-merge gating.",
+    "red_flags": []
+  },
+  "team": {
+    "ceo": {
+      "name": "Priya Nadkarni",
+      "education": "Carnegie Mellon CS",
+      "previous_company": "Staff Engineer at Datadog (5 years), led tracing platform",
+      "assessment": "Deep observability domain expertise; built the category she is now selling into."
+    },
+    "cto": {
+      "name": "Daniel Reyes",
+      "education": "University of Waterloo CS",
+      "previous": "Ex-Google Cloud (distributed systems, 6 years)",
+      "assessment": "Strong distributed-systems pedigree; architected the high-throughput ingestion pipeline."
+    },
+    "team_gaps": [
+      "VP Sales hired Q1 2026 — go-to-market motion still ramping, but pipeline coverage is 3.1x."
+    ]
+  },
+  "deal_summary": {
+    "raise": "$12M Series A",
+    "valuation_post_money": "$60M",
+    "use_of_funds": {
+      "engineering": "45%",
+      "sales_marketing": "35%",
+      "operations": "20%"
+    },
+    "lead_investor_committed": true,
+    "existing_investor_participation": "Amplify Partners exercising full pro-rata; Seed investors over-subscribed.",
+    "timeline": "Targeting close by July 15, 2026"
+  }
+}

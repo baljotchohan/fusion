@@ -1,0 +1,277 @@
+{
+  "company": {
+    "name": "MediVault Health",
+    "industry": "HealthTech / AI Diagnostics SaaS",
+    "stage": "Series B",
+    "raise_amount": "$25,000,000",
+    "post_money_valuation": "$120,000,000",
+    "founded": "2021",
+    "headquarters": "Austin, TX",
+    "employees": 67,
+    "description": "MediVault is an AI-powered clinical decision support platform that integrates with hospital EHR systems to flag misdiagnoses, drug interactions, and billing anomalies in real-time. Our proprietary diagnostic engine has analyzed 14M+ patient encounters and claims 94% accuracy in catching preventable adverse events."
+  },
+  "pitch_claims": {
+    "arr": "$12,500,000",
+    "arr_raw": 12500000,
+    "yoy_growth": "185%",
+    "users": 340,
+    "nps_score": 68,
+    "market_size_claim": "$45B global clinical decision support market by 2030",
+    "unique_selling_point": "AI diagnostic engine with 94% adverse-event detection rate — 3x better than legacy CDS tools. Seamless EHR integration in under 72 hours."
+  },
+  "financials": {
+    "monthly_burn_usd": 920000,
+    "runway_months": 6,
+    "gross_margin_pct": 71,
+    "customer_revenue_breakdown": [
+      {
+        "customer": "HCA Healthcare (single enterprise contract — 42 hospitals)",
+        "revenue_pct": 64,
+        "contract_expiry": "2026-12-31",
+        "note": "Master agreement with 90-day termination-for-convenience clause. HCA CFO flagged 'vendor consolidation initiative' in Q1 2026 earnings call."
+      },
+      {
+        "customer": "Ascension Health (8 pilot hospitals)",
+        "revenue_pct": 19,
+        "contract_type": "Pilot — converting to full contract pending board approval in Q3 2026",
+        "note": "Pilot has been extended twice. Board approval delayed due to competing bid from Epic's built-in CDS module."
+      },
+      {
+        "customer": "Regional hospital systems (14 hospitals, 6 health networks)",
+        "revenue_pct": 12,
+        "note": "Average deal size $68k ARR. High churn — 4 of 14 hospitals have issued non-renewal notices for 2027."
+      },
+      {
+        "customer": "Direct-to-clinic SaaS subscriptions (120 clinics)",
+        "revenue_pct": 5,
+        "note": "Self-serve tier. $199/mo average. 11% monthly churn rate."
+      }
+    ],
+    "unit_economics": {
+      "cac_usd": 47000,
+      "ltv_usd": 168000,
+      "ltv_cac_ratio": "3.6x",
+      "payback_period_months": 14,
+      "note": "Enterprise CAC of $47k is healthy, but 14-month payback is long for a company with 6 months of runway. Self-serve clinic tier has CAC of $890 but LTV of only $1,800 (23-month lifespan at $199/mo with 11% churn)."
+    },
+    "previous_funding": [
+      {"round": "Seed", "amount": "$2,200,000", "investors": "Y Combinator W22, Floodgate", "date": "2022-01"},
+      {"round": "Series A", "amount": "$8,500,000", "investors": "a16z Bio Fund, General Catalyst", "date": "2023-09"},
+      {"round": "Bridge", "amount": "$3,000,000", "investors": "Existing investors (convertible note, 20% discount)", "date": "2025-06", "note": "Bridge suggests Series B timing pressure. 20% discount signals investor concern about valuation."}
+    ],
+    "red_flags": [
+      "64% revenue concentration in single client (HCA) with 90-day termination-for-convenience clause",
+      "HCA publicly signaled 'vendor consolidation' on Q1 2026 earnings call — MediVault may not survive the cut",
+      "Only 6 months runway at $920k/mo burn — critical cash pressure during fundraise",
+      "Bridge note at 20% discount 9 months ago suggests existing investors had valuation concerns",
+      "Self-serve clinic tier has 11% monthly churn — unit economics don't work at scale",
+      "4 of 14 regional hospitals issued non-renewal notices — net revenue retention declining",
+      "14-month payback period is dangerous with only 6 months of cash"
+    ]
+  },
+  "legal": {
+    "ip_status": "3 utility patents granted (US11,891,234; US11,902,567; US11,945,890) covering diagnostic inference pipeline. 2 additional provisional patents pending. However, core training dataset sourced from licensed hospital data under agreements that restrict commercial sublicensing — potential IP contamination if license terms are challenged.",
+    "pending_litigation": [
+      {
+        "case": "Doe v. MediVault Health Inc (Case No. 1:2025cv08934, S.D. Texas)",
+        "type": "Medical Malpractice / Product Liability",
+        "claim": "Family of deceased patient alleges MediVault's AI flagged a drug interaction warning but the alert was dismissed by attending physician. Plaintiff claims the alert UI was 'misleading and easily confused with routine notifications' contributing to patient death.",
+        "filed": "2025-11-20",
+        "status": "Pre-trial motions — defendant's motion to dismiss denied Feb 2026. Discovery ongoing.",
+        "potential_damages_usd": 15000000,
+        "note": "First 'AI-assisted malpractice' wrongful death case in Texas. If plaintiff prevails, precedent could expose MediVault to product liability for every AI recommendation. Insurance coverage unclear."
+      },
+      {
+        "case": "United States ex rel. Ramirez v. MediVault Health Inc (Case No. 4:2026cv02103, N.D. Texas)",
+        "type": "False Claims Act / Qui Tam (Whistleblower)",
+        "claim": "Former employee (billing analyst) alleges MediVault knowingly inflated 'billing anomaly detection' accuracy metrics in marketing materials presented to Medicare-participating hospitals, causing those hospitals to overbill Medicare based on MediVault's recommendations.",
+        "filed": "2026-02-10",
+        "status": "Under seal — DOJ reviewing whether to intervene. If DOJ intervenes, liability triples under False Claims Act.",
+        "potential_damages_usd": 30000000,
+        "note": "False Claims Act provides treble damages + $11k-$23k per false claim. Whistleblower was terminated in Jan 2026 — potential retaliation claim adds exposure. This lawsuit was NOT disclosed in the pitch materials."
+      }
+    ],
+    "regulatory_compliance": {
+      "hipaa": "Self-assessed as compliant. No independent HIPAA audit conducted. Last internal review: March 2025 — 14 months ago.",
+      "fda_status": "MediVault positions its product as 'clinical decision support' exempt from FDA 510(k) clearance under 21st Century Cures Act criteria. However, the diagnostic engine's autonomous flagging of misdiagnoses may cross the line into 'software as a medical device' (SaMD) requiring FDA clearance. FDA has been increasingly aggressive about reclassifying AI diagnostic tools in 2025-2026.",
+      "state_regulations": "Telehealth-adjacent regulations in 6 states (NY, CA, TX, FL, IL, MA) may require additional licensing for AI-driven clinical recommendations.",
+      "cms_requirements": "CMS issued draft rule in March 2026 requiring AI clinical tools used in Medicare-participating facilities to undergo algorithmic bias testing. MediVault has not conducted bias audits."
+    },
+    "data_privacy": {
+      "soc2": "Type I certified (point-in-time, June 2024). Type II audit (continuous) never completed — auditor flagged 'material control deficiencies' and MediVault chose not to proceed.",
+      "hipaa_baa": "BAAs in place with all hospital clients, but 3 subprocessor agreements (AWS, Anthropic API, and MongoDB Atlas) have terms that may conflict with BAA obligations regarding PHI processing.",
+      "data_residency": "Patient data processed in us-east-1 (Virginia) and us-west-2 (Oregon). No data residency controls for state-specific healthcare privacy laws."
+    },
+    "cap_table": {
+      "founders_pct": 38,
+      "yc_and_seed_pct": 15,
+      "series_a_pct": 22,
+      "bridge_note_pct": 5,
+      "employee_options_pool_pct": 12,
+      "advisor_shares_pct": 3,
+      "unallocated_pct": 5,
+      "note": "Founders at 38% pre-Series B — will dilute to ~28% post-raise. Existing a16z board seat has standard protective provisions + 1x non-participating liquidation preference. Bridge note converts at 20% discount to this round."
+    },
+    "red_flags": [
+      "Wrongful death lawsuit ($15M) — first AI-malpractice case in Texas, precedent-setting risk",
+      "UNDISCLOSED False Claims Act whistleblower suit ($30M treble damages) — DOJ reviewing intervention",
+      "Whistleblower was terminated — retaliation claim adds exposure",
+      "FDA reclassification risk — product may require 510(k) clearance as 'software as medical device'",
+      "SOC2 Type II audit abandoned after auditor found 'material control deficiencies'",
+      "HIPAA compliance is self-assessed only — no independent audit in 14 months",
+      "Anthropic API subprocessor agreement may conflict with HIPAA BAA for PHI processing",
+      "CMS algorithmic bias testing requirement not addressed"
+    ]
+  },
+  "technical": {
+    "tech_stack": {
+      "backend": "Python 3.9 (end-of-life October 2025 — running on unsupported runtime)",
+      "ml_framework": "PyTorch 1.13 (EOL May 2024) + custom inference engine",
+      "database": "MongoDB Atlas M50 cluster (production) + PostgreSQL 14 for billing",
+      "infrastructure": "AWS EKS (Kubernetes) — 3 clusters, us-east-1 and us-west-2",
+      "frontend": "React 18 + TypeScript",
+      "llm_integration": "Anthropic Claude 3 Haiku for natural language summaries of diagnostic findings — PHI passes through Anthropic API",
+      "ehr_integration": "HL7 FHIR R4 connectors for Epic, Cerner, Meditech. Custom HL7v2 ADT adapters for legacy systems."
+    },
+    "security": {
+      "last_penetration_test": "August 2024 — Rapid7 found 3 critical, 8 high-severity vulnerabilities. As of June 2026, 2 of 3 critical vulnerabilities remain unpatched.",
+      "pii_storage": "PHI encrypted at rest (AES-256) in MongoDB Atlas. However, diagnostic inference logs contain patient identifiers in plaintext and are retained indefinitely in CloudWatch Logs — accessible to all engineers with AWS console access.",
+      "encryption_in_transit": "TLS 1.2 enforced for API endpoints. Internal service-to-service communication uses mTLS. However, HL7v2 legacy adapters for 4 hospital clients transmit data over unencrypted TCP connections (MLLP without TLS wrapping).",
+      "mfa": "Enforced for production AWS access. NOT enforced for MongoDB Atlas admin, internal Slack, or GitHub — all of which contain PHI references in logs/discussions.",
+      "soc2": "Type I only (see legal section). Type II abandoned.",
+      "hitrust": "Not certified. 2 hospital prospects (Mayo Clinic, Cleveland Clinic) declined to proceed without HITRUST CSF certification.",
+      "incident_history": "March 2025: Engineer accidentally pushed production MongoDB connection string (including credentials) to public GitHub repository. Credentials were valid for 9 hours before rotation. No evidence of unauthorized access, but incident was not reported to affected hospital clients as required by BAA terms.",
+      "ai_model_security": "Diagnostic model weights stored in S3 with default bucket policies. No model versioning or integrity verification. Adversarial input testing never conducted."
+    },
+    "architecture": {
+      "pattern": "Microservices (12 services in Kubernetes). Diagnostic inference service is a monolithic Python app processing ~2,100 requests/minute at peak.",
+      "scalability": "Inference service auto-scales to 8 pods but latency degrades beyond 1,800 req/min (p99 jumps from 340ms to 2.4s). HCA contract requires <500ms p99 — currently in breach during peak hours.",
+      "single_points_of_failure": "Central FHIR gateway — if it goes down, all 42 HCA hospitals lose diagnostic support simultaneously. No circuit breaker or failover implemented.",
+      "tech_debt_assessment": "MEDIUM-HIGH — original CTO (co-founder) departed in Jan 2025 and was replaced by VP Eng promoted internally. Significant undocumented 'tribal knowledge' in inference pipeline. 34% of codebase has no test coverage.",
+      "uptime_sla": "99.9% SLA in HCA contract. Actual uptime last 12 months: 99.4%. 3 incidents exceeded 4-hour resolution target. Penalty clauses have not been enforced yet but HCA has logged formal service credits totaling $180k."
+    },
+    "red_flags": [
+      "Python 3.9 EOL — running production healthcare system on unsupported runtime",
+      "2 of 3 critical pentest vulnerabilities unpatched for 22 months",
+      "PHI in plaintext CloudWatch Logs accessible to all engineers — HIPAA violation",
+      "4 hospital HL7v2 connections transmit PHI over unencrypted TCP — HIPAA violation",
+      "MongoDB credentials leaked to public GitHub — not disclosed to hospital clients per BAA",
+      "PHI sent through Anthropic Claude API — potential HIPAA BAA conflict",
+      "Breaching HCA's <500ms SLA during peak hours — $180k in service credits already logged",
+      "Original CTO departed — inference pipeline has significant tribal knowledge risk",
+      "No adversarial testing on AI model that makes clinical recommendations"
+    ]
+  },
+  "market": {
+    "sector": "Clinical Decision Support (CDS) / AI Diagnostics",
+    "tam_claim": "$45B global CDS market by 2030 (company projection)",
+    "actual_market_trends": {
+      "us_cds_market_size_2025": "$2.1B (Gartner) — growing at 14% CAGR",
+      "ai_healthcare_funding_2025": "Down 31% YoY as investors rotate to AI infrastructure plays",
+      "hospital_it_budgets": "Flat to declining in 2025-2026 — hospitals prioritizing cost reduction post-COVID margin compression",
+      "ehr_vendor_competition": "Epic (62% market share) launched built-in AI diagnostic module 'Cognitive Computing' in Sept 2025 — included at no additional cost for existing customers. Cerner/Oracle Health following in Q3 2026.",
+      "regulatory_tailwinds": "CMS reimbursement for AI-assisted diagnostics proposed in 2027 rulemaking — if approved, could expand addressable market significantly"
+    },
+    "competitors": [
+      {
+        "name": "Epic Cognitive Computing",
+        "description": "Built-in CDS module bundled free with Epic EHR",
+        "market_share": "Already deployed in 200+ hospitals",
+        "threat_level": "CRITICAL — Epic owns 62% of hospital EHR market and is bundling AI diagnostics at zero marginal cost",
+        "note": "3 of MediVault's pipeline prospects switched to Epic's free module in Q1 2026"
+      },
+      {
+        "name": "Viz.ai",
+        "funding_raised": "$252M",
+        "valuation": "$1.2B",
+        "status": "FDA-cleared for stroke/PE detection. Expanding into general CDS.",
+        "market_share": "1,300+ hospitals"
+      },
+      {
+        "name": "Aidoc",
+        "funding_raised": "$250M",
+        "valuation": "$1.4B",
+        "status": "FDA-cleared, 1,000+ hospitals. Full AI diagnostic suite.",
+        "note": "Direct competitor with FDA clearance advantage"
+      },
+      {
+        "name": "Google Health / DeepMind",
+        "description": "Med-PaLM 2 clinical reasoning model available via Google Cloud",
+        "threat_level": "HIGH — if Google offers CDS-as-a-service through existing cloud hospital contracts"
+      },
+      {
+        "name": "Nuance DAX (Microsoft)",
+        "description": "AI clinical documentation expanding into diagnostic support",
+        "market_share": "550,000+ physician users",
+        "note": "Microsoft/Nuance already embedded in hospital workflows — adjacent expansion into CDS likely"
+      }
+    ],
+    "regulatory_headwinds": {
+      "fda_samd": "FDA increasingly reclassifying AI clinical tools as 'Software as Medical Device' — MediVault's exemption claim is legally untested",
+      "cms_bias_rule": "Draft CMS rule (March 2026) requires algorithmic bias testing for AI tools in Medicare facilities — compliance cost estimated $200k-$800k",
+      "state_ai_laws": "California SB-1047 (AI safety) and New York AI accountability laws may impose additional requirements on clinical AI systems in 2026-2027",
+      "eu_ai_act": "EU AI Act classifies medical AI as 'high risk' — blocks international expansion without full conformity assessment (estimated 12-18 months, $500k+)"
+    },
+    "red_flags": [
+      "Epic bundling free AI diagnostics to 62% of hospital EHR market — existential competitive threat",
+      "3 pipeline prospects already switched to Epic's free module in Q1 2026",
+      "Direct competitors Viz.ai ($1.2B) and Aidoc ($1.4B) both have FDA clearance — MediVault does not",
+      "Hospital IT budgets flat/declining — selling a $200k+ add-on in a cost-cutting environment",
+      "AI healthcare VC funding down 31% YoY — fundraising environment unfavorable",
+      "TAM claim of $45B by 2030 is 21x the current $2.1B market — implausible without extraordinary tailwinds",
+      "Google Health (Med-PaLM) and Microsoft/Nuance are adjacent threats with infinite distribution"
+    ]
+  },
+  "team": {
+    "ceo": {
+      "name": "Dr. Priya Sharma",
+      "age": 41,
+      "education": "MD Johns Hopkins 2010, MBA Wharton 2015",
+      "previous_company": "McKinsey Healthcare Practice (Principal, 2015-2020), then Chief Medical Officer at Tempus AI (2020-2021)",
+      "current_role_tenure": "CEO since founding in 2021 (5 years)",
+      "assessment": "Strong clinical + business pedigree. MD + MBA + McKinsey + Tempus is a credible founding profile. However, first-time CEO — no prior experience scaling a company past $10M ARR or managing 60+ person org."
+    },
+    "cto": {
+      "name": "James Wu",
+      "education": "PhD Computer Science, CMU 2014 (ML/NLP focus)",
+      "previous": "Google Brain (Research Scientist, 3 years), Apple Health (Senior ML Engineer, 2 years)",
+      "status": "DEPARTED — Left MediVault in January 2025 to join Anthropic. Listed as 'Technical Advisor' on website. Actually holds 0 advisory hours/month.",
+      "assessment": "Strong technical background but NO LONGER WITH THE COMPANY. Departure was not disclosed in pitch deck — he is still listed as CTO on the company website and investor materials."
+    },
+    "vp_engineering": {
+      "name": "Rachel Torres",
+      "education": "BS CS University of Texas 2016",
+      "previous": "MediVault (Senior Engineer → VP Eng), previously at Athenahealth (3 years)",
+      "current_role": "Promoted to VP Eng after CTO departure. De facto technical leader.",
+      "assessment": "Capable engineer but first VP-level role. Managing 22 engineers with 5 years total experience. No ML/AI research background — relies on CTO's original model architecture."
+    },
+    "cfo": {
+      "name": "Michael Okonkwo",
+      "previous": "Finance Director at Veeva Systems (Series D through IPO), then CFO at CarePort Health (acquired by WellSky for $1.35B)",
+      "assessment": "STRONG — one of the best hires. IPO-track experience at Veeva + successful exit at CarePort. Joined MediVault 8 months ago — may have been brought in to prep for Series B."
+    },
+    "team_gaps": [
+      "CTO departed but still listed as active team member in pitch materials — MISREPRESENTATION",
+      "No Chief Medical Officer replacing Dr. Sharma's clinical oversight after she shifted to full-time CEO duties",
+      "No VP Sales — enterprise sales motion run by CEO directly. Pipeline management is ad hoc.",
+      "No Head of Regulatory Affairs — critical gap given FDA/CMS regulatory exposure",
+      "No CISO or dedicated security lead — security decisions made by VP Eng who has no security specialization",
+      "ML team is 3 engineers maintaining CTO's original model — no senior ML researcher to iterate on core product"
+    ]
+  },
+  "deal_summary": {
+    "raise": "$25M Series B",
+    "valuation_post_money": "$120M",
+    "use_of_funds": {
+      "sales_and_marketing": "35%",
+      "engineering_and_ml": "30%",
+      "regulatory_and_compliance": "15%",
+      "clinical_ops": "10%",
+      "general_and_admin": "10%"
+    },
+    "lead_investor_committed": false,
+    "existing_investor_participation": "a16z Bio Fund indicating $5M follow-on. General Catalyst passing on this round.",
+    "timeline": "Targeting close by September 15, 2026",
+    "additional_context": "General Catalyst declining to participate in Series B is a negative signal — they led the Series A at $8.5M. Bridge note at 20% discount 9 months ago further suggests valuation pressure. Company needs to close this round within 6 months or will need another bridge or face down-round risk."
+  }
+}

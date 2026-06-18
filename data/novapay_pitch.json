@@ -1,0 +1,213 @@
+{
+  "company": {
+    "name": "NovaPay Inc",
+    "industry": "Fintech / Buy Now Pay Later (BNPL)",
+    "stage": "Series A",
+    "raise_amount": "$10,000,000",
+    "post_money_valuation": "$40,000,000",
+    "founded": "2022",
+    "headquarters": "San Francisco, CA",
+    "employees": 23,
+    "description": "NovaPay is an AI-powered BNPL platform enabling consumers to split any purchase into 4 interest-free payments. Our proprietary credit scoring model reduces default rates by 40% compared to industry average."
+  },
+  "pitch_claims": {
+    "arr": "$5,000,000",
+    "arr_raw": 5000000,
+    "yoy_growth": "200%",
+    "users": 50000,
+    "nps_score": 72,
+    "market_size_claim": "$700B global BNPL market by 2030",
+    "unique_selling_point": "AI-powered credit scoring with split payments — 40% lower default rate than Klarna/Affirm"
+  },
+  "financials": {
+    "monthly_burn_usd": 380000,
+    "runway_months": 8,
+    "gross_margin_pct": 62,
+    "customer_revenue_breakdown": [
+      {
+        "customer": "Amazon B2B Partnership (single enterprise client)",
+        "revenue_pct": 78,
+        "contract_expiry": "2026-09-30",
+        "note": "Contract renewal under negotiation. Amazon has not yet committed to renewal."
+      },
+      {
+        "customer": "Mid-market e-commerce clients (12 companies)",
+        "revenue_pct": 18,
+        "note": "No client exceeds $120k ARR individually"
+      },
+      {
+        "customer": "Long-tail SMBs (200+ micro-merchants)",
+        "revenue_pct": 4
+      }
+    ],
+    "unit_economics": {
+      "cac_usd": 124,
+      "ltv_usd": 310,
+      "ltv_cac_ratio": "2.5x",
+      "payback_period_months": 7,
+      "note": "LTV:CAC of 2.5x is below typical Series A benchmark of 3x+"
+    },
+    "previous_funding": [
+      {"round": "Pre-seed", "amount": "$500,000", "investors": "Friends & family", "date": "2022-03"},
+      {"round": "Seed", "amount": "$2,000,000", "investors": "AngelList syndicate", "date": "2023-06"}
+    ],
+    "red_flags": [
+      "78% revenue concentration in single client (Amazon) — extreme dependency",
+      "Amazon contract expires Sept 30, 2026 — only 3 months after close of this round",
+      "8 months runway at current burn — insufficient for 18-month growth plan",
+      "LTV:CAC of 2.5x is below Series A benchmark"
+    ]
+  },
+  "legal": {
+    "ip_status": "2 provisional patents filed (not yet granted). Core split-payment algorithm not yet protected.",
+    "pending_litigation": [
+      {
+        "case": "Klarna AB v. NovaPay Inc (Case No. 3:2026cv01847)",
+        "type": "Patent Infringement",
+        "claim": "NovaPay's split-payment algorithm allegedly infringes Klarna Patent #US11,234,567B2",
+        "filed": "2026-03-15",
+        "status": "Discovery phase — trial date set for 2027-01-20",
+        "potential_damages_usd": 8000000,
+        "note": "Potential damages of $8M represent 80% of this entire raise amount"
+      }
+    ],
+    "regulatory_compliance": {
+      "cfpb_bnpl_rules": "NON-COMPLIANT — CFPB issued mandatory BNPL guidelines effective Jan 1, 2026. NovaPay has not implemented required disclosures.",
+      "state_regulations": "Operating in 12 states that have pending additional BNPL legislation (CA, NY, TX, FL, WA, CO, IL, MA, OR, AZ, NV, GA)",
+      "money_transmitter_licenses": "Licensed in only 8 states. Operating in 4 states without required licenses."
+    },
+    "data_privacy": {
+      "soc2": "Not certified",
+      "ccpa": "Compliance not verified — legal counsel not engaged",
+      "gdpr": "Not applicable (US only currently)"
+    },
+    "cap_table": {
+      "founders_pct": 68,
+      "angels_pct": 22,
+      "employee_options_pool_pct": 10,
+      "note": "Clean cap table. No unusual terms or anti-dilution ratchets."
+    },
+    "red_flags": [
+      "Klarna patent lawsuit: $8M potential damages = 80% of raise amount",
+      "CFPB non-compliance: regulatory action risk in 2026",
+      "Unlicensed money transmission in 4 states — federal and state enforcement risk",
+      "No SOC2 — blocks enterprise sales pipeline"
+    ]
+  },
+  "technical": {
+    "tech_stack": {
+      "backend": "Node.js 14 (reached End-of-Life October 2023 — no security patches)",
+      "database": "MongoDB 4.2 (EOL Feb 2023)",
+      "infrastructure": "AWS EC2 bare metal (non-containerized, no Kubernetes)",
+      "frontend": "React 17"
+    },
+    "security": {
+      "last_penetration_test": "Never conducted",
+      "pii_storage": "Customer financial data and SSNs stored in plaintext MongoDB collections",
+      "encryption_at_rest": "None",
+      "mfa": "Not enforced for admin accounts or API access",
+      "pci_dss": "Not compliant — processing payments without PCI-DSS certification",
+      "soc2": "Not certified",
+      "incident_history": "One data exposure event in 2024 Q3 — 3,200 user records briefly accessible via misconfigured S3 bucket. Not reported to regulators."
+    },
+    "architecture": {
+      "pattern": "Monolithic — all services in single Node.js codebase",
+      "scalability": "Load tested to 10,000 concurrent users. Production peak: 8,200 users. No horizontal scaling implemented.",
+      "tech_debt_assessment": "HIGH — 60% of codebase written by contractors who are no longer engaged. Minimal documentation.",
+      "uptime_sla": "No formal SLA. Historical uptime: 97.2% (below enterprise 99.9% standard)"
+    },
+    "red_flags": [
+      "Node.js 14 + MongoDB 4.2: both EOL, unpatched security vulnerabilities",
+      "PII and SSNs stored in plaintext — catastrophic risk for a payments processor",
+      "No PCI-DSS: cannot legally process payments at scale",
+      "Undisclosed 2024 data breach — potential regulatory liability",
+      "No pentest ever: unknown attack surface for a financial services company"
+    ]
+  },
+  "market": {
+    "sector": "Buy Now Pay Later (BNPL)",
+    "tam_claim": "$700B by 2030 (company projection)",
+    "actual_market_trends": {
+      "us_bnpl_yoy_growth": "-12% in 2025 (regulatory headwinds, consumer credit tightening)",
+      "global_vc_funding_bnpl": "Down 67% YoY in 2025 vs 2024",
+      "default_rates": "Industry BNPL default rates rose to 4.1% in 2025 (from 2.3% in 2023)",
+      "consumer_sentiment": "BNPL usage declining among Gen Z (primary target segment) per Fed survey"
+    },
+    "competitors": [
+      {
+        "name": "Klarna",
+        "funding_raised": "$4.5B",
+        "valuation": "$6.7B",
+        "status": "IPO filed Q1 2026",
+        "market_share": "34% of US BNPL transactions"
+      },
+      {
+        "name": "Affirm",
+        "funding_raised": "$1.5B",
+        "market_cap": "$8.2B (NASDAQ: AFRM)",
+        "market_share": "28% of US BNPL transactions"
+      },
+      {
+        "name": "Afterpay (Block)",
+        "acquisition_price": "$29B by Square/Block",
+        "market_share": "19% of US BNPL transactions"
+      },
+      {
+        "name": "Sezzle",
+        "funding": "$60M",
+        "trend": "Declining — lost 40% of merchant base in 2025"
+      }
+    ],
+    "regulatory_headwinds": {
+      "cfpb": "Mandatory BNPL regulations effective Jan 2026 — increased compliance costs estimated $500k-$2M for players NovaPay's size",
+      "state_laws": "12 states with pending additional BNPL restrictions in 2026 legislative sessions",
+      "credit_reporting": "CFPB mandating BNPL credit bureau reporting by Q3 2026 — expected to reduce consumer usage 15-25%"
+    },
+    "red_flags": [
+      "US BNPL market declining 12% YoY — NovaPay's 200% growth claim contradicts sector trend",
+      "VC funding into BNPL down 67% — poor timing for sector bet",
+      "Competing against Klarna ($6.7B), Affirm ($8B market cap), Block ($29B M&A) with $40M valuation and $10M raise",
+      "CFPB credit reporting mandate (Q3 2026) projected to reduce BNPL usage 15-25%"
+    ]
+  },
+  "team": {
+    "ceo": {
+      "name": "Marcus Chen",
+      "age": 34,
+      "education": "Stanford MBA 2019",
+      "previous_company": "SplitPay Inc (Founder & CEO, 2019-2021)",
+      "splitpay_outcome": "Dissolved in 2021. SEC conducted investigation for allegedly misrepresenting user metrics to seed investors. Case closed 2022 — no charges filed, but SEC issued a formal caution letter.",
+      "current_role_tenure": "4 years at NovaPay",
+      "assessment": "Domain expertise strong. Prior regulatory scrutiny is a yellow flag."
+    },
+    "cto": {
+      "name": "Sarah Okafor",
+      "education": "MIT CS 2016",
+      "previous": "Stripe (Senior Engineer, 5 years), PayPal (2 years)",
+      "assessment": "Strong. Ex-Stripe is credible fintech pedigree."
+    },
+    "cfo": {
+      "name": "David Kim",
+      "previous": "Controller at Finly Inc (Series B SaaS)",
+      "assessment": "First CFO role. Limited scale experience. Series A companies typically need a seasoned CFO."
+    },
+    "team_gaps": [
+      "No General Counsel or in-house legal (critical gap given active litigation)",
+      "No Head of Compliance (critical gap given CFPB non-compliance)",
+      "CTO is sole senior engineer — bus factor risk"
+    ]
+  },
+  "deal_summary": {
+    "raise": "$10M Series A",
+    "valuation_post_money": "$40M",
+    "use_of_funds": {
+      "sales_marketing": "40%",
+      "engineering": "35%",
+      "compliance_legal": "15%",
+      "operations": "10%"
+    },
+    "lead_investor_committed": false,
+    "existing_investor_participation": "AngelList syndicate has indicated interest in $500k pro-rata",
+    "timeline": "Targeting close by August 1, 2026"
+  }
+}
