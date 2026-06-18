@@ -362,6 +362,19 @@ async def broadcast_event_to_websockets(event_data: dict):
         output_data = event_data.get("output") or {}
         report_text = output_data.get("report") or ""
         if re.search(r"DECISION:", report_text, re.I):
+            # Attach the authoritative score/verdict/confidence as STRUCTURED fields so
+            # the dashboard never has to scrape the free-form report text (which a real
+            # LLM does not format reliably). This is what makes the weighted risk score
+            # show up the moment the committee concludes, in every run mode.
+            try:
+                from api.v1 import compute_deal_snapshot
+                snap = compute_deal_snapshot(sim_state.active_uid, sim_state.active_incident_id)
+                output_data["weighted_score"] = snap.get("weighted_score")
+                output_data["verdict"] = snap.get("verdict")
+                output_data["confidence"] = snap.get("confidence")
+                event_data["output"] = output_data
+            except Exception as e:
+                logger.warning(f"FastAPI: could not enrich verdict broadcast: {e}")
             # Record that the MP has a verdict ready
             sim_state._mp_verdict_pending = True
             all_specialists_done = specialists.issubset(sim_state.completed_agents)
