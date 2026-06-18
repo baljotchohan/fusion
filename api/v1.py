@@ -3187,11 +3187,11 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
 async def rtdb_test():
     """Diagnostic: write a test entry to RTDB and return status. No auth required."""
     import firebase_admin
+    import core.rtdb as rtdb
     from datetime import datetime, timezone
-    from core.rtdb import _init, _db, write_activity
 
     admin_ok = bool(firebase_admin._apps)
-    rtdb_ok = _init()
+    rtdb_ok = rtdb._init()
 
     result = {
         "firebase_admin_initialized": admin_ok,
@@ -3200,9 +3200,9 @@ async def rtdb_test():
         "error": None,
     }
 
-    if rtdb_ok and _db is not None:
+    if rtdb_ok and rtdb._db is not None:
         try:
-            ref = _db.reference("/diagnostics/ping")
+            ref = rtdb._db.reference("/diagnostics/ping")
             ref.set({"ts": datetime.now(timezone.utc).isoformat(), "source": "rtdb-test endpoint"})
             result["test_write"] = "ok — check /diagnostics/ping in Firebase Console"
         except Exception as exc:
