@@ -675,16 +675,18 @@ async def get_status(request: Request):
     """Basic health check and configuration status."""
     uid = await get_uid_optional(request)
     user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    # Only expose live sim state to the user who triggered the current session
+    is_my_session = (sim_state.active_uid == uid) if uid else (sim_state.active_uid is None)
     return {
         "status": "healthy",
         "mock_mode": is_mock_mode(),
         "registered_rooms": list(mock_bus.rooms.keys()) if is_mock_mode() else [],
-        "simulation_running": sim_state.running,
-        "active_incident_id": sim_state.active_incident_id,
+        "simulation_running": sim_state.running if is_my_session else False,
+        "active_incident_id": sim_state.active_incident_id if is_my_session else None,
         "memory_incidents": user_memory.get_memory_stats()["total_incidents"],
-        "agent_statuses": dict(sim_state.agent_statuses),
-        "completed_agents": list(sim_state.completed_agents),
-        "deal_concluded": sim_state.deal_concluded,
+        "agent_statuses": dict(sim_state.agent_statuses) if is_my_session else {},
+        "completed_agents": list(sim_state.completed_agents) if is_my_session else [],
+        "deal_concluded": sim_state.deal_concluded if is_my_session else False,
     }
 
 @app.get("/mcp-connect")
