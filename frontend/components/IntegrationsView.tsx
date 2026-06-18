@@ -105,7 +105,7 @@ function SmitheryCard() {
 /* ── script card (Claude Desktop auto-install) ──────────────────────────────── */
 function ScriptCard({ url }: { url: string }) {
   // Patches claude_desktop_config.json automatically on Mac + Windows
-  const script = `python3 -c "import json,os; p=(os.path.expanduser('~/Library/Application Support/Claude/claude_desktop_config.json') if os.name!='nt' else os.path.join(os.environ.get('APPDATA',''),'Claude','claude_desktop_config.json')); os.makedirs(os.path.dirname(p),exist_ok=True); d=json.load(open(p)) if os.path.exists(p) else {}; d.setdefault('mcpServers',{})['fusion-vc']={'type':'http','url':'${url}'}; json.dump(d,open(p,'w'),indent=2); print('FUSION added to Claude Desktop! Restart the app.')"`
+  const script = `python3 -c "import json,os; p=(os.path.expanduser('~/Library/Application Support/Claude/claude_desktop_config.json') if os.name!='nt' else os.path.join(os.environ.get('APPDATA',''),'Claude','claude_desktop_config.json')); os.makedirs(os.path.dirname(p),exist_ok=True); d=json.load(open(p)) if os.path.exists(p) else {}; d.setdefault('mcpServers',{})['fusion-vc']={'command':'npx','args':['-y','mcp-remote','${url}','--header','Authorization: Bearer YOUR_KEY']}; json.dump(d,open(p,'w'),indent=2); print('FUSION added to Claude Desktop! Restart the app.')"`
 
   return (
     <div className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3">
@@ -226,16 +226,16 @@ export function IntegrationsView() {
   // Cursor: base64-encoded JSON config using mcp-remote as HTTP bridge
   const cursorDeepLink = (() => {
     try {
-      const cfg = JSON.stringify({ command: 'npx', args: ['-y', 'mcp-remote', url] })
+      const cfg = JSON.stringify({ command: 'npx', args: ['-y', 'mcp-remote', url, '--header', 'Authorization: Bearer YOUR_KEY'] })
       return `cursor://anysphere.cursor-deeplink/mcp/install?name=fusion-vc&config=${btoa(cfg)}`
     } catch { return SMITHERY_URL }
   })()
 
-  // VS Code: URL-encoded JSON config (native HTTP MCP support in VS Code 1.99+)
+  // VS Code: URL-encoded JSON config with auth header (native HTTP MCP, VS Code 1.99+)
   const vsCodeDeepLink = (() => {
     try {
-      const cfg = JSON.stringify({ name: 'fusion-vc', type: 'http', url })
-      return `vscode:mcp/install?${encodeURIComponent(cfg)}`
+      const cfg = JSON.stringify({ name: 'fusion-vc', type: 'http', url, headers: { Authorization: 'Bearer YOUR_KEY' } })
+      return `vscode:mcp/install?config=${encodeURIComponent(cfg)}`
     } catch { return SMITHERY_URL }
   })()
 
