@@ -1299,7 +1299,6 @@ def _provider_status() -> list:
         key = os.getenv(env)
         out.append({
             "id": pid,
-            "env": env,
             "label": label,
             "note": note,
             "configured": not _placeholder(key),
@@ -1351,7 +1350,10 @@ async def get_system_settings(request: Request):
 
 
 @router.post("/system/settings")
-async def update_system_settings(patch: SettingsPatch):
+async def update_system_settings(patch: SettingsPatch, request: Request):
+    uid = await get_uid_optional(request)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required to change settings.")
     """Apply runtime settings from the UI (pace, primary provider, clear LLM cooldown, file limits)."""
     applied = {}
     if patch.mock_pace is not None:
@@ -3326,35 +3328,6 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     return StreamingResponse(file_like, media_type="text/markdown", headers=headers)
 
 
-@router.get("/rtdb-test")
-async def rtdb_test():
-    """Diagnostic: write a test entry to RTDB and return status. No auth required."""
-    import firebase_admin
-    import core.rtdb as rtdb
-    from datetime import datetime, timezone
-
-    admin_ok = bool(firebase_admin._apps)
-    rtdb_ok = rtdb._init()
-
-    result = {
-        "firebase_admin_initialized": admin_ok,
-        "rtdb_connected": rtdb_ok,
-        "test_write": None,
-        "error": None,
-    }
-
-    if rtdb_ok and rtdb._db is not None:
-        try:
-            ref = rtdb._db.reference("/diagnostics/ping")
-            ref.set({"ts": datetime.now(timezone.utc).isoformat(), "source": "rtdb-test endpoint"})
-            result["test_write"] = "ok — check /diagnostics/ping in Firebase Console"
-        except Exception as exc:
-            result["test_write"] = "failed"
-            result["error"] = str(exc)
-    else:
-        result["error"] = "RTDB not connected — check FIREBASE_DATABASE_URL and FIREBASE_SERVICE_ACCOUNT_B64 secrets"
-
-    return result
 
 
 class ActivityPayload(BaseModel):
