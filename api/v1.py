@@ -3214,6 +3214,32 @@ async def rtdb_test():
     return result
 
 
+class ActivityPayload(BaseModel):
+    activity_type: str
+    data: Optional[Dict[str, Any]] = None
+
+
+@router.post("/activity")
+async def log_user_activity(payload: ActivityPayload, request: Request):
+    """Log client-side user activity to Firebase RTDB."""
+    from core.auth import get_uid_optional
+    from core.rtdb import write_activity, upsert_profile
+    uid = await get_uid_optional(request) or "__public__"
+
+    if uid != "__public__":
+        try:
+            token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+            if token:
+                from firebase_admin import auth as _fba
+                _dec = _fba.verify_id_token(token)
+                upsert_profile(uid, _dec.get("name"), _dec.get("email"), _dec.get("picture"))
+        except Exception:
+            pass
+
+    success = write_activity(uid, payload.activity_type, payload.data)
+    return {"status": "ok" if success else "disabled/failed"}
+
+
 @router.get("/profile")
 async def get_profile(request: Request):
     """Return the authenticated user's Firestore profile (totalDeals, displayName, etc.)."""

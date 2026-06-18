@@ -3,6 +3,7 @@ import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import { ChevronDown, CheckCircle2 } from 'lucide-react'
 import { AGENTS } from '../lib/agents'
+import { logActivity } from '@/lib/apiFetch'
 
 const AGENT_COLORS: Record<string, { bg: string; border: string }> = {
   managing_partner: { bg: 'bg-accent-soft', border: 'border-l-accent' },
@@ -66,7 +67,13 @@ export function PartnersView() {
               {/* Expandable Checklist */}
               <div className="border-t border-border">
                 <button
-                  onClick={() => setExpandedAgent(isExpanded ? null : agent.name)}
+                  onClick={() => {
+                    const next = isExpanded ? null : agent.name
+                    setExpandedAgent(next)
+                    if (next) {
+                      logActivity('partner_checklist_expanded', { agent: next })
+                    }
+                  }}
                   className="w-full flex items-center justify-between px-5 py-3 hover:bg-bg-subtle transition-colors"
                 >
                   <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">Due Diligence Checklist</span>

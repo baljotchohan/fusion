@@ -28,7 +28,7 @@ const HUMAN: Record<string, { line: string; tone: StoryBeat['tone'] }> = {
   market_partner: { line: 'Market Partner verified sector trends: noted the 12% YoY industry decline and BNPL saturation.', tone: 'alert' },
 }
 
-export function useAgentWebSocket() {
+export function useAgentWebSocket(uid?: string | null) {
   const [agentStates, setAgentStates] = useState<Record<string, AgentStatus>>({
     managing_partner: 'idle',
     financial_partner: 'idle',
@@ -43,7 +43,28 @@ export function useAgentWebSocket() {
   const [ceoDecision, setCeoDecision] = useState<Record<string, any> | null>(null)
   const [isConnected, setIsConnected] = useState<boolean>(false)
 
+  // Declare resetAll first so we can call it in the WebSocket useEffect
+  function resetAll() {
+    setThreatScore(0)
+    setCeoDecision(null)
+    setLogEvents([])
+    setStoryFeed([])
+    setAgentOutputs({})
+    setShowRecoveryPrompt(false)
+    setAgentStates({
+      managing_partner: 'idle',
+      financial_partner: 'idle',
+      legal_partner: 'idle',
+      technical_partner: 'idle',
+      market_partner: 'idle',
+    })
+  }
+
+  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
+
   useEffect(() => {
+    resetAll()
+
     let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let reconnectDelay = 1000
@@ -131,9 +152,7 @@ export function useAgentWebSocket() {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       ws?.close()
     }
-  }, [])
-
-  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
+  }, [uid])
 
   useEffect(() => {
     const specialists = ['financial_partner', 'legal_partner', 'technical_partner', 'market_partner']
@@ -149,22 +168,6 @@ export function useAgentWebSocket() {
       setShowRecoveryPrompt(false)
     }
   }, [agentStates])
-
-  function resetAll() {
-    setThreatScore(0)
-    setCeoDecision(null)
-    setLogEvents([])
-    setStoryFeed([])
-    setAgentOutputs({})
-    setShowRecoveryPrompt(false)
-    setAgentStates({
-      managing_partner: 'idle',
-      financial_partner: 'idle',
-      legal_partner: 'idle',
-      technical_partner: 'idle',
-      market_partner: 'idle',
-    })
-  }
 
   return {
     agentStates, agentOutputs, logEvents, storyFeed, threatScore, ceoDecision, isConnected,

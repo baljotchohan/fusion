@@ -3,17 +3,23 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plug, Copy, Check, ExternalLink, KeyRound, Mail, Lock, Unlock, Loader } from 'lucide-react'
 import { API_BASE } from '@/lib/agents'
+import { logActivity } from '@/lib/apiFetch'
 
 const SMITHERY_URL = 'https://smithery.ai/server/@baljotchohan/fusion-vc'
 const LS_KEY = 'fusion_mcp_key'
 
 /* ── copy button ── */
-function CopyButton({ text, disabled }: { text: string; disabled?: boolean }) {
+function CopyButton({ text, disabled, onCopy }: { text: string; disabled?: boolean; onCopy?: () => void }) {
   const [ok, setOk] = useState(false)
   return (
     <button
       disabled={disabled}
-      onClick={() => { navigator.clipboard?.writeText(text); setOk(true); setTimeout(() => setOk(false), 1400) }}
+      onClick={() => {
+        navigator.clipboard?.writeText(text)
+        setOk(true)
+        setTimeout(() => setOk(false), 1400)
+        if (onCopy) onCopy()
+      }}
       className={`shrink-0 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-all cursor-pointer
         ${disabled ? 'opacity-30 cursor-not-allowed' : ok ? 'bg-accent text-white' : 'bg-accent/10 text-accent hover:bg-accent/20'}`}
     >
@@ -24,13 +30,13 @@ function CopyButton({ text, disabled }: { text: string; disabled?: boolean }) {
 }
 
 /* ── command row: label + code + copy ── */
-function CmdRow({ label, code, locked }: { label: string; code: string; locked: boolean }) {
+function CmdRow({ label, code, locked, onCopy }: { label: string; code: string; locked: boolean; onCopy?: () => void }) {
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-[11px] font-semibold uppercase tracking-widest text-text-muted">{label}</p>
       <div className={`flex items-center gap-2 rounded-xl border bg-bg-subtle p-3 transition-opacity ${locked ? 'opacity-40 select-none' : ''}`}>
         <code className="flex-1 min-w-0 font-mono text-[11.5px] text-text-primary break-all leading-relaxed">{code}</code>
-        <CopyButton text={code} disabled={locked} />
+        <CopyButton text={code} disabled={locked} onCopy={onCopy} />
       </div>
     </div>
   )
@@ -109,17 +115,25 @@ export function IntegrationsView() {
       if (r.status === 401) {
         setKeyStatus('invalid')
         localStorage.removeItem(LS_KEY)
+        logActivity('mcp_key_invalid_attempt')
       } else {
         setKeyStatus('valid')
         localStorage.setItem(LS_KEY, k.trim())
+        logActivity('mcp_key_verified')
       }
     } catch {
       setKeyStatus('invalid')
+      logActivity('mcp_key_invalid_attempt')
     }
   }, [mcpUrl])
 
   const handleKeySubmit = (e: React.FormEvent) => { e.preventDefault(); verifyKey(key) }
-  const handleClear = () => { setKey(''); setKeyStatus('idle'); localStorage.removeItem(LS_KEY) }
+  const handleClear = () => {
+    setKey('')
+    setKeyStatus('idle')
+    localStorage.removeItem(LS_KEY)
+    logActivity('mcp_key_cleared')
+  }
 
   // Commands — populated with real key when unlocked
   const k = unlocked ? key.trim() : 'YOUR_KEY'
@@ -209,18 +223,19 @@ export function IntegrationsView() {
           <ClientCard icon="🖥" name="Claude Desktop" desc="Mac & Windows — paste one command in Terminal" locked={!unlocked}>
             <div className="flex flex-col gap-1.5">
               <p className="text-[11.5px] text-text-secondary">Open Terminal, paste this command, press Enter, then restart Claude Desktop:</p>
-              <CmdRow label="" code={claudeDesktopCmd} locked={!unlocked} />
+              <CmdRow label="" code={claudeDesktopCmd} locked={!unlocked} onCopy={() => logActivity('copied_claude_desktop_cmd')} />
             </div>
           </ClientCard>
 
           {/* Claude Code */}
           <ClientCard icon="⚡" name="Claude Code" desc="Terminal — run once, works immediately" locked={!unlocked}>
-            <CmdRow label="" code={claudeCodeCmd} locked={!unlocked} />
+            <CmdRow label="" code={claudeCodeCmd} locked={!unlocked} onCopy={() => logActivity('copied_claude_code_cmd')} />
           </ClientCard>
 
           {/* Cursor */}
           <ClientCard icon="🖱" name="Cursor" desc="One click — opens Cursor and installs automatically" locked={!unlocked}>
             <a href={unlocked ? cursorDeepLink : undefined}
+              onClick={() => { if (unlocked) logActivity('clicked_cursor_install') }}
               className={`inline-flex items-center justify-center gap-2 w-full rounded-xl py-2.5 text-[12.5px] font-semibold transition
                 ${unlocked ? 'bg-accent text-white hover:opacity-90 cursor-pointer no-underline' : 'bg-bg-muted text-text-muted cursor-not-allowed'}`}>
               {unlocked ? '⚡ Install in Cursor' : <><Lock className="w-3.5 h-3.5" /> Install in Cursor</>}
@@ -232,6 +247,7 @@ export function IntegrationsView() {
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 shrink-0"><VSCodeIcon /></div>
               <a href={unlocked ? vsCodeDeepLink : undefined}
+                onClick={() => { if (unlocked) logActivity('clicked_vscode_install') }}
                 className={`flex-1 inline-flex items-center justify-center gap-2 rounded-xl py-2.5 text-[12.5px] font-semibold transition
                   ${unlocked ? 'bg-accent text-white hover:opacity-90 cursor-pointer no-underline' : 'bg-bg-muted text-text-muted cursor-not-allowed'}`}>
                 {unlocked ? '⚡ Install in VS Code' : <><Lock className="w-3.5 h-3.5" /> Install in VS Code</>}
@@ -241,7 +257,7 @@ export function IntegrationsView() {
 
           {/* Windsurf */}
           <ClientCard icon="🌊" name="Windsurf" desc="Paste into ~/.codeium/windsurf/mcp_config.json" locked={!unlocked}>
-            <CmdRow label="" code={windsurfConfig} locked={!unlocked} />
+            <CmdRow label="" code={windsurfConfig} locked={!unlocked} onCopy={() => logActivity('copied_windsurf_config')} />
           </ClientCard>
 
           {/* Smithery — always available, handles its own auth */}
@@ -252,6 +268,7 @@ export function IntegrationsView() {
               <p className="text-[11.5px] text-text-secondary">Claude Desktop · Windsurf · Zed · Cline · 10+ apps</p>
             </div>
             <a href={SMITHERY_URL} target="_blank" rel="noreferrer"
+              onClick={() => logActivity('opened_smithery')}
               className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border text-[12px] font-semibold text-text-primary hover:border-accent/40 hover:text-accent transition no-underline cursor-pointer">
               <ExternalLink className="w-3.5 h-3.5" /> Open
             </a>
