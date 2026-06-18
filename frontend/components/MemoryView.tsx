@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Lightbulb, ShieldAlert, Inbox, X, Download, FileText, Eye, ChevronRight } from 'lucide-react'
 import { API_BASE, AGENTS } from '../lib/agents'
+import { apiFetch } from '../lib/apiFetch'
 
 type Tab = 'findings' | 'patterns'
 
@@ -73,8 +74,8 @@ export default function MemoryView({ defaultTab = 'findings' }: MemoryViewProps)
       setLoading(true)
       try {
         const [incRes, statRes] = await Promise.all([
-          fetch(`${API_BASE}/api/v1/incidents`).then(r => r.json()).catch(() => null),
-          fetch(`${API_BASE}/api/v1/memory/stats`).then(r => r.json()).catch(() => null),
+          apiFetch(`${API_BASE}/api/v1/incidents`).then(r => r.json()).catch(() => null),
+          apiFetch(`${API_BASE}/api/v1/memory/stats`).then(r => r.json()).catch(() => null),
         ])
         if (!alive) return
         if (incRes && Array.isArray(incRes.incidents)) setIncidents(incRes.incidents)
@@ -218,7 +219,7 @@ function HistoryDetail({ incidentId, onClose }: { incidentId: string; onClose: (
   useEffect(() => {
     let alive = true
     setLoading(true)
-    fetch(`${API_BASE}/api/v1/incident/${incidentId}`)
+    apiFetch(`${API_BASE}/api/v1/incident/${incidentId}`)
       .then(r => r.json())
       .then(d => { if (alive) setData(d) })
       .catch(() => { if (alive) setData(null) })
@@ -238,7 +239,7 @@ function HistoryDetail({ incidentId, onClose }: { incidentId: string; onClose: (
     if (preview) { setPreview(null); return }
     setPreviewLoading(true)
     try {
-      const r = await fetch(reportUrl('md'))
+      const r = await apiFetch(reportUrl('md'))
       setPreview(await r.text())
     } catch { setPreview('Could not load the report preview.') }
     finally { setPreviewLoading(false) }

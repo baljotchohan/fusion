@@ -1405,7 +1405,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
   const cardMarket = use3DTilt()
 
   return (
-    <div className="bg-bg-base text-text-primary min-h-screen relative font-sans selection:bg-accent/20 selection:text-accent transition-colors duration-300">
+    <div className="bg-bg-base text-text-primary min-h-screen relative font-sans selection:bg-accent/20 selection:text-accent transition-colors duration-300 overflow-x-hidden">
       
       {/* Immersive Glowing Spotlights */}
       <div 
@@ -1422,7 +1422,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
  
       {/* Sticky Header with FUSION × Band AI Collaboration Logo */}
       <header className="fixed top-0 left-0 w-full z-40 bg-bg-base/85 backdrop-blur-md border-b border-border transition-colors duration-300">
-        <div className="max-w-[1550px] mx-auto px-8 md:px-16 h-20 flex items-center justify-between">
+        <div className="max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 h-16 sm:h-20 flex items-center justify-between">
           <div className="flex items-center gap-1 cursor-pointer hover:opacity-95 transition-opacity" onClick={() => window.location.reload()}>
             {/* Real Logos Collaboration Rendering - SVG components */}
             <div className="flex items-center gap-1">
@@ -1467,13 +1467,13 @@ function LandingPage({ onLogin }: LandingPageProps) {
       </header>
 
       {/* Hero Section - Full width fluid spacing */}
-      <section id="overview-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 pt-40 pb-24 md:pt-52 md:pb-36 flex flex-col lg:flex-row items-center justify-between gap-12 lg:gap-16 z-10">
+      <section id="overview-sec" className="relative max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 pt-24 pb-12 sm:pt-36 sm:pb-20 md:pt-52 md:pb-36 flex flex-col lg:flex-row items-center justify-between gap-8 sm:gap-12 lg:gap-16 z-10">
         <div className="flex-1 flex flex-col items-start text-left max-w-xl lg:max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-[10px] font-mono text-accent mb-6 uppercase tracking-wider font-semibold">
             <Sparkles className="w-3.5 h-3.5" /> FUSION Swarm Operating System Live
           </div>
           
-          <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight leading-[1.05] text-text-primary">
+          <h1 className="text-[2.2rem] sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.05] text-text-primary">
             Autonomous VC <br />
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-accent via-emerald-400 to-emerald-500">
               Due Diligence Swarm
@@ -1484,22 +1484,22 @@ function LandingPage({ onLogin }: LandingPageProps) {
             Admit five specialized AI partner agents into parallel roundtable deliberation. Driven by a deterministic calculations engine to ground financial math, connected dynamically via the Band AI WebSocket event bus, and queryable using standard Model Context Protocol (MCP) servers.
           </p>
 
-          <div className="mt-12 flex flex-wrap gap-4 font-mono text-xs uppercase tracking-wider font-bold">
-            <button 
+          <div className="mt-8 sm:mt-12 flex flex-wrap gap-3 sm:gap-4 font-mono text-xs uppercase tracking-wider font-bold">
+            <button
               onClick={() => setIsLoginOpen(true)}
-              className="px-8 py-4 rounded-xl bg-accent text-black hover:shadow-[0_0_30px_rgba(91,191,82,0.5)] transition-all duration-300 flex items-center gap-2.5 cursor-pointer"
+              className="px-6 py-3 sm:px-8 sm:py-4 rounded-xl bg-accent text-black hover:shadow-[0_0_30px_rgba(91,191,82,0.5)] transition-all duration-300 flex items-center gap-2.5 cursor-pointer"
             >
               <Play className="w-4 h-4 fill-current" /> Initialize Swarm Room
             </button>
-            <button 
+            <button
               onClick={() => scrollTo('roundtable-sec')}
-              className="px-8 py-4 rounded-xl border border-border bg-bg-card text-text-secondary hover:bg-bg-muted hover:text-text-primary transition-all duration-300 flex items-center gap-2 cursor-pointer"
+              className="px-6 py-3 sm:px-8 sm:py-4 rounded-xl border border-border bg-bg-card text-text-secondary hover:bg-bg-muted hover:text-text-primary transition-all duration-300 flex items-center gap-2 cursor-pointer"
             >
               Explore Sandbox <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="mt-16 grid grid-cols-3 gap-8 border-t border-border pt-8 w-full max-w-2xl">
+          <div className="mt-8 sm:mt-16 grid grid-cols-3 gap-3 sm:gap-8 border-t border-border pt-6 sm:pt-8 w-full max-w-2xl">
             <div>
               <span className="block font-mono text-4xl font-bold text-text-primary">5</span>
               <span className="text-[10px] text-text-muted font-mono tracking-wider uppercase">Diligence Partners</span>
@@ -1519,7 +1519,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
         <div className="w-full lg:max-w-3xl lg:flex-[1.2] relative group z-10">
           <div className="absolute inset-0 bg-gradient-to-tr from-accent/20 to-emerald-500/20 rounded-3xl blur-3xl opacity-20 group-hover:opacity-35 transition-opacity" />
           
-          <div className="relative border border-border bg-bg-card rounded-3xl p-8 shadow-2xl backdrop-blur-xl transition-all duration-500 min-h-[480px] flex flex-col justify-between">
+          <div className="relative border border-border bg-bg-card rounded-3xl p-4 sm:p-8 shadow-2xl backdrop-blur-xl transition-all duration-500 min-h-[360px] sm:min-h-[480px] flex flex-col justify-between">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-5">
               <div className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 rounded-full bg-red-500 animate-pulse" />
@@ -1568,7 +1568,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
       </section>
 
       {/* Interactive Roundtable Deliberation Simulator - Full width fluid */}
-      <section id="roundtable-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-24 border-t border-border z-10">
+      <section id="roundtable-sec" className="relative max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 py-14 sm:py-24 border-t border-border z-10">
         <div className="text-center max-w-3xl mx-auto mb-16">
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-text-primary font-mono">
             Roundtable Deliberation Visualizer
@@ -1965,7 +1965,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
       </section>
 
       {/* Boardroom Specialists (detailed 3D Tilt Cards) */}
-      <section id="swarm-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-24 border-t border-border z-10">
+      <section id="swarm-sec" className="relative max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 py-14 sm:py-24 border-t border-border z-10">
         <div className="text-center max-w-2xl mx-auto mb-16">
           <span className="text-[10px] font-mono uppercase tracking-wider text-accent font-bold">Boardroom specialists</span>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-text-primary mt-1.5 font-mono">The 5 Swarm Partners</h2>
@@ -2120,7 +2120,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
       </section>
 
       {/* ═══ FUSION × BAND CONNECTIVITY COLLABORATION SECTION ═══ */}
-      <section id="fusion-band-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-14 border-t border-border z-10 overflow-hidden bg-bg-base/20">
+      <section id="fusion-band-sec" className="relative max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 py-10 sm:py-14 border-t border-border z-10 overflow-hidden bg-bg-base/20">
         <div className="absolute top-[20%] right-[-10%] pointer-events-none w-[500px] h-[500px] rounded-full bg-accent/5 blur-[120px] z-0" />
         <div className="absolute bottom-[10%] left-[-10%] pointer-events-none w-[500px] h-[500px] rounded-full bg-emerald-500/3 blur-[120px] z-0" />
 
@@ -2278,7 +2278,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
       </section>
 
       {/* Tech Spec Pillars Section */}
-      <section id="pillars-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-24 border-t border-border z-10">
+      <section id="pillars-sec" className="relative max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 py-14 sm:py-24 border-t border-border z-10">
         <div className="text-center max-w-2xl mx-auto mb-16">
           <span className="text-[10px] font-mono uppercase tracking-wider text-accent font-bold">Architecture & Integrations</span>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-text-primary mt-1.5 font-mono">Core Architectural Specs</h2>
@@ -2290,7 +2290,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 text-left">
           
           {/* Pillar 1: Calculations Engine */}
-          <div className="p-8 rounded-3xl border border-border bg-bg-card flex flex-col justify-between">
+          <div className="p-5 sm:p-8 rounded-3xl border border-border bg-bg-card flex flex-col justify-between">
             <div>
               <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-6 shadow-[0_0_15px_rgba(79,174,71,0.1)]">
                 <Cpu className="w-5 h-5" />
@@ -2308,7 +2308,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
           </div>
 
           {/* Pillar 2: Band AI Event Bus */}
-          <div className="p-8 rounded-3xl border border-border bg-bg-card flex flex-col justify-between">
+          <div className="p-5 sm:p-8 rounded-3xl border border-border bg-bg-card flex flex-col justify-between">
             <div>
               <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-6 shadow-[0_0_15px_rgba(79,174,71,0.1)]">
                 <Network className="w-5 h-5" />
@@ -2328,7 +2328,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
           </div>
 
           {/* Pillar 3: Model Context Protocol */}
-          <div className="p-8 rounded-3xl border border-border bg-bg-card flex flex-col justify-between">
+          <div className="p-5 sm:p-8 rounded-3xl border border-border bg-bg-card flex flex-col justify-between">
             <div>
               <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-6 shadow-[0_0_15px_rgba(79,174,71,0.1)]">
                 <Plug className="w-5 h-5" />
@@ -2351,7 +2351,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
       </section>
 
       {/* About Us Section */}
-      <section id="about-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-24 border-t border-border z-10 overflow-hidden bg-bg-base/40">
+      <section id="about-sec" className="relative max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 py-14 sm:py-24 border-t border-border z-10 overflow-hidden bg-bg-base/40">
         {/* Top-right corner decoration */}
         <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none select-none z-0">
           <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
@@ -2495,7 +2495,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
       </section>
 
       {/* GitHub Docs-Style Documentation Section */}
-      <section id="docs-sec" className="relative max-w-[1550px] mx-auto px-8 md:px-16 py-24 border-t border-border z-10">
+      <section id="docs-sec" className="relative max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 py-14 sm:py-24 border-t border-border z-10">
         <div className="text-center max-w-3xl mx-auto mb-16">
           <span className="text-[10px] font-mono uppercase tracking-wider text-accent font-bold">Documentation & References</span>
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-text-primary mt-1.5 font-mono">
@@ -2849,7 +2849,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
 
       {/* Global Footer */}
       <footer className="relative border-t border-border bg-bg-card py-10 text-[11px] text-text-muted transition-colors z-10">
-        <div className="max-w-[1550px] mx-auto px-8 md:px-16 grid grid-cols-1 md:grid-cols-4 gap-8 text-left">
+        <div className="max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 text-left">
           
           <div className="space-y-4">
              <div className="flex items-center gap-1">
@@ -2907,7 +2907,7 @@ function LandingPage({ onLogin }: LandingPageProps) {
           </div>
 
         </div>
-        <div className="max-w-[1550px] mx-auto px-8 md:px-16 border-t border-border mt-8 pt-6 text-center text-[9px] text-text-muted font-mono">
+        <div className="max-w-[1550px] mx-auto px-4 sm:px-8 md:px-16 border-t border-border mt-8 pt-6 text-center text-[9px] text-text-muted font-mono">
           &copy; 2026 FUSION Investment Swarm Boardroom. All rights reserved. Powered by Band AI event bus.
         </div>
       </footer>
