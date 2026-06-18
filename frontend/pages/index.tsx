@@ -19,6 +19,7 @@ import SettingsView from '@/components/SettingsView'
 import { IntegrationsView } from '@/components/IntegrationsView'
 import { PartnersView } from '@/components/PartnersView'
 import DocsView from '@/components/DocsView'
+import IssuesView from '@/components/IssuesView'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import DemoDeals from '@/components/DemoDeals'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -57,7 +58,7 @@ import {
   Menu,
 } from 'lucide-react'
 
-type Tab = 'overview' | 'history' | 'insights' | 'integrations' | 'partners' | 'settings' | 'docs'
+type Tab = 'overview' | 'history' | 'insights' | 'integrations' | 'partners' | 'settings' | 'docs' | 'issues'
 type OverviewTab = 'roundtable' | 'minutes' | 'binders'
 
 interface ChatTurn {
@@ -88,7 +89,10 @@ const NAV_GROUPS = [
   },
   {
     title: 'HELP',
-    items: [{ id: 'docs' as Tab, label: 'Documentation', Icon: BookOpen }],
+    items: [
+      { id: 'docs' as Tab, label: 'Documentation', Icon: BookOpen },
+      { id: 'issues' as Tab, label: 'Issues', Icon: AlertCircle },
+    ],
   },
 ]
 
@@ -1063,6 +1067,7 @@ export default function FUSION() {
               {tab === 'partners' && <PartnersView />}
               {tab === 'settings' && <SettingsView theme={theme} onToggleTheme={toggleTheme} />}
               {tab === 'docs' && <DocsView />}
+              {tab === 'issues' && <IssuesView />}
             </div>
             </ErrorBoundary>
           </main>

@@ -3392,3 +3392,18 @@ async def get_profile(request: Request):
     profile = get_user(uid) or {}
     # Strip server timestamps (not JSON-serialisable) — replace with None
     return {k: (v if not hasattr(v, '_type') else None) for k, v in profile.items()}
+
+
+class IssuePayload(BaseModel):
+    error_message: str
+
+
+@router.post("/issues")
+async def report_issue(payload: IssuePayload, request: Request):
+    """Save user reported issue/error to Firebase RTDB in review_message section."""
+    from core.auth import get_uid_optional
+    from core.rtdb import write_review_message
+    uid = await get_uid_optional(request) or "__public__"
+    success = write_review_message(uid, payload.error_message)
+    return {"status": "ok" if success else "disabled/failed"}
+

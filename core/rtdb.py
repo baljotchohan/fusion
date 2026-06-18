@@ -105,6 +105,22 @@ def write_chat(uid: str, session_id: str, message: str,
         return False
 
 
+def write_review_message(uid: str, message: str) -> bool:
+    """Append a user reported issue / error message to review_message section."""
+    ref = _ref(f"/users/{uid}/review_message")
+    if ref is None:
+        return False
+    try:
+        ref.push({
+            "message": message[:2000],
+            "timestamp": _now(),
+        })
+        return True
+    except Exception as exc:
+        logger.error("RTDB write_review_message %s: %s", uid, exc)
+        return False
+
+
 def write_session(uid: str, session_id: str, data: dict) -> bool:
     """Create or update a session record (deal lifecycle)."""
     ref = _ref(f"/users/{uid}/sessions/{session_id}")

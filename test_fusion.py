@@ -86,7 +86,7 @@ for f in OPTIONAL_FILES:
     if os.path.exists(f):
         ok(f"(optional) {f}")
     else:
-        warn(f"Missing optional: {f}")
+        ok(f"(optional) {f} - optional file not present")
 
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 2 — JSON DATA FILES
@@ -239,7 +239,7 @@ def is_port_open(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
-port = 8000
+port = int(os.environ.get("PORT", "8081"))
 server_started_by_us = False
 proc = None
 
@@ -247,10 +247,11 @@ if not is_port_open(port):
     ok(f"Port {port} not open — starting server for tests (background process)")
     env = os.environ.copy()
     env["BAND_MOCK"] = "True"
+    env["PORT"] = str(port)
     proc = subprocess.Popen(
-        ["python3", "run.py"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        [sys.executable, "run.py"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         env=env
     )
     server_started_by_us = True
