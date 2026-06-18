@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 // @ts-ignore — suppress missing type defs for lucide-react icons
 import Head from 'next/head'
 import { auth, onAuthStateChanged, signInWithGoogle, signInAsGuest, signOut as firebaseSignOut, type User } from '@/lib/firebase'
-import { apiFetch } from '@/lib/apiFetch'
+import { apiFetch, logActivity } from '@/lib/apiFetch'
 import { useAgentWebSocket } from '@/hooks/useAgentWebSocket'
 import { AGENTS, API_BASE } from '@/lib/agents'
 import { renderMarkdown } from '@/lib/markdown'
@@ -121,7 +121,7 @@ export default function FUSION() {
   const {
     agentStates, agentOutputs, logEvents, threatScore, ceoDecision, isConnected, resetAll,
     setCeoDecision, setThreatScore, showRecoveryPrompt, setShowRecoveryPrompt,
-  } = useAgentWebSocket()
+  } = useAgentWebSocket(firebaseUser?.uid)
 
   const [tab, setTab] = useState<Tab>('overview')
   const [overviewTab, setOverviewTab] = useState<OverviewTab>('roundtable')
@@ -134,7 +134,7 @@ export default function FUSION() {
 
   const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null)
   const [activeCompany, setActiveCompany] = useState<string | null>(null)
-  const maxFileSizeMb = 2
+  const maxFileSizeMb = 10
 
   const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now())
   const [showStalledWarning, setShowStalledWarning] = useState(false)
@@ -270,21 +270,32 @@ export default function FUSION() {
 
   // Load chat history
   useEffect(() => {
-    if (!isLoggedIn) return
+    if (!firebaseUser?.uid) {
+      setChatHistory([])
+      return
+    }
     apiFetch(`${API_BASE}/api/v1/chat/history?limit=40`).then(r => r.json()).then(d => {
-      if (Array.isArray(d.history) && d.history.length) {
+      if (d && Array.isArray(d.history) && d.history.length) {
         setChatHistory(d.history.map((t: any) => ({ role: t.role, content: t.content, incidentId: t.meta?.incident_id, intent: t.meta?.intent })))
+      } else {
+        setChatHistory([])
       }
     }).catch(() => {})
-  }, [isLoggedIn])
+  }, [firebaseUser?.uid])
 
   // Restore the active deal's verdict + report buttons after a page refresh.
   // The backend can always re-derive the report from the persisted incident, so
   // we just re-seed the transient UI state from /deal-state on mount.
   useEffect(() => {
+    if (!firebaseUser?.uid) {
+      setActiveIncidentId(null)
+      setActiveCompany(null)
+      setCeoDecision(null)
+      setThreatScore(0)
+      return
+    }
     const cached = localStorage.getItem('fusion.activeIncidentId')
     if (cached) setActiveIncidentId(cached)
-    if (!isLoggedIn) return
     apiFetch(`${API_BASE}/api/v1/deal-state`).then(r => r.json()).then(d => {
       if (!d || !d.incident_id) return
       setActiveIncidentId(d.incident_id)
@@ -298,7 +309,7 @@ export default function FUSION() {
         if (typeof d.weighted_score === 'number') setThreatScore(d.weighted_score)
       }
     }).catch(() => {})
-  }, [isLoggedIn, setCeoDecision, setThreatScore])
+  }, [firebaseUser?.uid, setCeoDecision, setThreatScore])
 
   // Keep the active incident id durable across refreshes.
   useEffect(() => {
@@ -314,12 +325,13 @@ export default function FUSION() {
     setUploadError(null)
     const fileSizeMb = file.size / (1024 * 1024)
     if (fileSizeMb > maxFileSizeMb) {
-      setUploadError(`That file is ${fileSizeMb.toFixed(1)} MB — the limit is 2 MB. Please upload a smaller document.`)
+      setUploadError(`That file is ${fileSizeMb.toFixed(1)} MB — the limit is ${maxFileSizeMb} MB. Please upload a smaller document.`)
       return
     }
 
     setUploadedFile({ name: file.name, size: file.size })
     setUploadStatus('uploading')
+    logActivity('pitch_uploaded', { name: file.name, size: file.size })
 
     try {
       const formData = new FormData()
@@ -343,6 +355,7 @@ export default function FUSION() {
   const triggerDealSimulation = async (companyName: string = 'NovaPay Inc') => {
     resetAll()
     setIsSimulating(true); setActiveCompany(companyName); setTab('overview'); setOverviewTab('roundtable')
+    logActivity('deal_simulated', { company: companyName })
     try {
       const res = await apiFetch(`${API_BASE}/api/trigger-deal?company=${encodeURIComponent(companyName)}`, { method: 'POST' })
       const data = await res.json()
@@ -355,6 +368,7 @@ export default function FUSION() {
   }
 
   const resetSimulation = async () => {
+    logActivity('simulation_reset')
     setIsSimulating(false); setUploadStatus('idle'); setUploadedFile(null); setActiveIncidentId(null); setActiveCompany(null); setUploadError(null); resetAll()
     try { await apiFetch(`${API_BASE}/api/reset`, { method: 'POST' }) } catch {}
   }
@@ -364,6 +378,7 @@ export default function FUSION() {
   const triggerMockUpload = () => {
     setUploadError(null)
     setUploadedFile({ name: 'novapay_pitch.json', size: 9481 }); setUploadStatus('uploading')
+    logActivity('pitch_uploaded_mock', { name: 'novapay_pitch.json' })
     setTimeout(() => { setUploadStatus('complete'); setActiveCompany('NovaPay Inc') }, 800)
   }
 
@@ -371,6 +386,7 @@ export default function FUSION() {
   const sendChatMessage = useCallback(async (textToSend?: string) => {
     const text = (textToSend ?? chatInput).trim()
     if (!text || chatThinking) return
+    logActivity('chat_sent', { message: text })
     setChatHistory(prev => [...prev, { role: 'user', content: text }]); setChatInput(''); setChatThinking(true); setShowMentionPopup(false)
     try {
       const response = await apiFetch(`${API_BASE}/api/v1/chat`, {
@@ -566,6 +582,7 @@ export default function FUSION() {
 
   const handleSignOut = async () => {
     setShowLanding(true)   // show home immediately, don't wait for Firebase round-trip
+    logActivity('user_logged_out', { email: firebaseUser?.email, uid: firebaseUser?.uid })
     await firebaseSignOut()
     localStorage.removeItem('fusion.activeIncidentId')
     setChatHistory([])
@@ -577,10 +594,18 @@ export default function FUSION() {
     const unsub = onAuthStateChanged(auth, (user: User | null) => {
       setFirebaseUser(user)
       setCheckingAuth(false)
-      if (user) setShowLanding(false)  // auto-route to boardroom on sign-in
+      if (user) {
+        setShowLanding(false)  // auto-route to boardroom on sign-in
+        logActivity('user_logged_in', { email: user.email, uid: user.uid, isAnonymous: user.isAnonymous })
+      }
     })
     return unsub
   }, [])
+
+  // Log navigation page views and clicks in real time
+  useEffect(() => {
+    logActivity('page_view', { tab })
+  }, [tab])
 
   if (checkingAuth) {
     return (
@@ -955,8 +980,14 @@ export default function FUSION() {
                         partnersDone={partnersDone}
                         partnersTotal={partnersTotal}
                         isSimulating={isSimulating}
-                        onDownloadPdf={() => window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=pdf`, '_blank')}
-                        onDownloadMd={() => window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=md`, '_blank')}
+                        onDownloadPdf={() => {
+                          logActivity('report_download', { format: 'pdf', incidentId: activeIncidentId })
+                          window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=pdf`, '_blank')
+                        }}
+                        onDownloadMd={() => {
+                          logActivity('report_download', { format: 'md', incidentId: activeIncidentId })
+                          window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=md`, '_blank')
+                        }}
                       />
 
                       {/* Tabs */}
@@ -1314,6 +1345,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
 
   const executeMcpToolSim = () => {
     setMcpConsoleOutput('Connecting to FUSION local stdio pipe...')
+    logActivity('mcp_simulation_run', { tool: mcpConsoleTool, args: mcpConsoleArgs })
     setTimeout(() => {
       try {
         const parsedArgs = JSON.parse(mcpConsoleArgs)

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Sun, Moon, Trash2, Plug, Copy, Check, ExternalLink } from 'lucide-react'
 import { AGENTS, API_BASE } from '@/lib/agents'
+import { logActivity } from '@/lib/apiFetch'
 
 interface SettingsViewProps {
   theme: 'dark' | 'light'
@@ -30,10 +31,9 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+      logActivity('mcp_config_copied', { type: mcpTab })
     })
   }
-
-
 
   const fetchSettings = async () => {
     try {
@@ -63,6 +63,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
       const data = await response.json()
       if (data.applied && data.applied.mock_pace !== undefined) {
         setMockPace(data.applied.mock_pace)
+        logActivity('mock_pace_updated', { pace: data.applied.mock_pace })
       }
     } catch (error) {
       console.error('Error updating setting:', error)
@@ -72,6 +73,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
   const resetAllHistory = async () => {
     setResetting(true)
     try {
+      logActivity('danger_zone_reset_all')
       await fetch(`${API_BASE}/api/v1/system/reset-all`, { method: 'POST' })
     } catch (e) {
       console.error('Reset failed:', e)
@@ -102,7 +104,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
             <p className="text-[13px] font-medium text-text-primary">Theme</p>
             <p className="text-[11.5px] text-text-secondary mt-0.5">Switch between light and dark mode</p>
           </div>
-          <button onClick={onToggleTheme} aria-label="Toggle theme"
+          <button onClick={() => { onToggleTheme(); logActivity('theme_toggled', { nextTheme: isDark ? 'light' : 'dark' }) }} aria-label="Toggle theme"
             className={`relative w-[58px] h-[30px] rounded-full transition-colors duration-300 focus:outline-none cursor-pointer ${isDark ? 'bg-accent' : 'bg-bg-muted'}`}>
             <Sun className="absolute left-[7px] top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-400 opacity-60" />
             <Moon className="absolute right-[7px] top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-secondary opacity-60" />
@@ -129,7 +131,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
         {/* Tabs */}
         <div className="flex gap-1 mb-4 bg-bg-muted rounded-lg p-1 w-fit">
           {([['smithery', 'Smithery (easiest)'], ['claude_code', 'Claude Code'], ['claude_desktop', 'Claude Desktop']] as const).map(([id, label]) => (
-            <button key={id} onClick={() => setMcpTab(id)}
+            <button key={id} onClick={() => { setMcpTab(id); logActivity('mcp_tab_changed', { tab: id }) }}
               className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${mcpTab === id ? 'bg-bg-card text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
               {label}
             </button>
@@ -139,7 +141,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
         {mcpTab === 'smithery' && (
           <div className="space-y-3">
             <p className="text-[12px] text-text-secondary">Click the button below — Smithery opens in your browser and auto-configures your AI client. No terminal, no config files.</p>
-            <a href={smitheryUrl} target="_blank" rel="noreferrer"
+            <a href={smitheryUrl} target="_blank" rel="noreferrer" onClick={() => logActivity('mcp_smithery_click')}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-[12px] font-semibold hover:opacity-90 transition">
               <ExternalLink className="w-3.5 h-3.5" />
               Connect on Smithery

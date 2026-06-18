@@ -8,12 +8,17 @@ import os
 import json
 import base64
 import logging
+from contextvars import ContextVar
 
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 from fastapi import Request, HTTPException
 
 logger = logging.getLogger("fusion.auth")
+
+# ContextVar to track the authenticated user uid for the current request (e.g. MCP tool calls)
+current_uid: ContextVar[str] = ContextVar("current_uid", default="__mcp_client__")
+
 
 # ── Initialize Firebase Admin SDK once ────────────────────────────────────────
 _initialized = False

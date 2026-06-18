@@ -5,7 +5,7 @@ import React, { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Lightbulb, ShieldAlert, Inbox, X, Download, FileText, Eye, ChevronRight } from 'lucide-react'
 import { API_BASE, AGENTS } from '../lib/agents'
-import { apiFetch } from '../lib/apiFetch'
+import { apiFetch, logActivity } from '../lib/apiFetch'
 
 type Tab = 'findings' | 'patterns'
 
@@ -104,7 +104,7 @@ export default function MemoryView({ defaultTab = 'findings' }: MemoryViewProps)
         ]).map(({ key, label, Icon }) => {
           const active = tab === key
           return (
-            <button key={key} onClick={() => setTab(key)}
+            <button key={key} onClick={() => { setTab(key); logActivity('memory_tab_switched', { tab: key }) }}
               className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[12px] font-semibold transition-all duration-200 border
                 ${active ? 'bg-accent text-white border-accent shadow-sm' : 'bg-bg-card text-text-secondary border-border hover:bg-bg-subtle'}`}>
               <Icon className="w-3.5 h-3.5" />{label}
@@ -124,7 +124,7 @@ export default function MemoryView({ defaultTab = 'findings' }: MemoryViewProps)
                   hint="Upload a pitch or trigger a deal. Every committee verdict is recorded here with its risk profile." />
               ) : incidents.map(inc => (
                 <motion.button key={inc.incident_id} variants={itemVariants}
-                  onClick={() => setSelectedId(inc.incident_id)}
+                  onClick={() => { setSelectedId(inc.incident_id); logActivity('memory_deal_clicked', { incidentId: inc.incident_id, company: inc.company }) }}
                   className="w-full text-left rounded-xl bg-bg-card border border-border shadow-sm p-5 flex flex-col gap-2 hover:shadow-md hover:border-accent/40 transition-all cursor-pointer group">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[14px] font-semibold text-text-primary leading-snug">{inc.company || 'Unknown Company'}</p>
@@ -233,22 +233,26 @@ function HistoryDetail({ incidentId, onClose }: { incidentId: string; onClose: (
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const meta = data?.metadata || {}
+  const rawCo = meta.company
+  const company = typeof rawCo === 'object' && rawCo ? (rawCo.value || rawCo.name || 'Unknown') : (rawCo || 'Unknown')
+  const verdict = parseVerdict(data?.final_decision || null)
+
   const reportUrl = (fmt: 'md' | 'pdf') => `${API_BASE}/api/v1/generate-report?incident_id=${incidentId}&format=${fmt}`
-  const download = (fmt: 'md' | 'pdf') => window.open(reportUrl(fmt), '_blank')
+  const download = (fmt: 'md' | 'pdf') => {
+    logActivity('memory_report_download_clicked', { incidentId, company, format: fmt })
+    window.open(reportUrl(fmt), '_blank')
+  }
   const loadPreview = async () => {
     if (preview) { setPreview(null); return }
     setPreviewLoading(true)
     try {
+      logActivity('memory_report_preview_clicked', { incidentId, company })
       const r = await apiFetch(reportUrl('md'))
       setPreview(await r.text())
     } catch { setPreview('Could not load the report preview.') }
     finally { setPreviewLoading(false) }
   }
-
-  const meta = data?.metadata || {}
-  const rawCo = meta.company
-  const company = typeof rawCo === 'object' && rawCo ? (rawCo.value || rawCo.name || 'Unknown') : (rawCo || 'Unknown')
-  const verdict = parseVerdict(data?.final_decision || null)
   const timeline = Array.isArray(data?.timeline) ? data!.timeline! : []
 
   // Group findings per partner for the "research" section.

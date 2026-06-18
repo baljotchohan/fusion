@@ -491,6 +491,22 @@ async def mcp_security(request: Request, call_next):
             headers={"Retry-After": str(wait)},
         )
     _mcp_rate[bucket].append(now)
+    # Intercept and decode token to get user id
+    uid = "__mcp_client__"
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if token:
+        if MCP_API_KEY and token == MCP_API_KEY:
+            uid = "global_mcp_user"
+        else:
+            try:
+                from firebase_admin import auth as fb_auth
+                decoded = fb_auth.verify_id_token(token)
+                uid = decoded["uid"]
+            except Exception:
+                pass
+
+    from core.auth import current_uid
+    current_uid.set(uid)
 
     return await call_next(request)
 

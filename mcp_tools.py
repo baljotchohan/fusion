@@ -95,6 +95,15 @@ async def dispatch(name: str, arguments: dict) -> dict:
     """
     arguments = arguments or {}
     try:
+        from core.auth import current_uid
+        uid = current_uid.get() or "__mcp_client__"
+        # Log MCP tool usage to RTDB
+        from core.rtdb import write_activity
+        write_activity(uid, f"mcp_tool_{name}", arguments)
+    except Exception:
+        pass
+
+    try:
         if name == "chat_with_managing_partner":
             return await _api("POST", "/api/v1/chat", {"user_message": arguments["message"]})
 
