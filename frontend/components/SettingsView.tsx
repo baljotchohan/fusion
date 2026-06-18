@@ -20,9 +20,9 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
 
   const mcpUrl = `${API_BASE}/mcp`
   const smitheryUrl = 'https://smithery.ai/server/@baljotchohan/fusion-vc'
-  const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${mcpUrl}`
+  const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${mcpUrl} --header "Authorization: Bearer YOUR_KEY"`
   const claudeDesktopJson = JSON.stringify(
-    { mcpServers: { 'fusion-vc': { command: 'npx', args: ['mcp-remote', mcpUrl] } } },
+    { mcpServers: { 'fusion-vc': { command: 'npx', args: ['-y', 'mcp-remote', mcpUrl, '--header', 'Authorization: Bearer YOUR_KEY'] } } },
     null, 2
   )
 
