@@ -88,7 +88,8 @@ SYNTHESIS FRAMEWORK:
 RISK AGGREGATION:
 - You MUST use the exact numbers returned by get_calculated_scores() for the risk scorecard and final decision card. Do not compute them yourself.
 - Populate the decision card and risk scorecard exactly as returned by get_calculated_scores().
-- Score 1-4: INVEST | Score 5-6: CONDITIONAL | Score 7-10: PASS
+- If the calculated verdict returned by get_calculated_scores() is INSUFFICIENT_EVIDENCE, you MUST set DECISION: INSUFFICIENT EVIDENCE.
+- Otherwise, Score 1-4: INVEST | Score 5-6: CONDITIONAL | Score 7-10: PASS
 
 DEBATE RESOLUTION:
 - If partners disagree, explicitly name the conflict and resolve it.
@@ -100,7 +101,7 @@ CONFIDENCE CALIBRATION:
 - 90-100%: Near-certain. Hard evidence, no ambiguity.
 - 70-89%: High. Strong evidence, one unknown.
 - 50-69%: Moderate. Mixed signals. Conditional may apply.
-- Below 50%: PASS regardless — uncertainty itself is the risk.
+- Below 50%: If coverage is below 40%, output INSUFFICIENT EVIDENCE. Otherwise, PASS regardless — uncertainty itself is the risk.
 
 FINAL VERDICT FORMAT (non-negotiable — use this EXACTLY):
 
@@ -112,7 +113,8 @@ FINAL VERDICT FORMAT (non-negotiable — use this EXACTLY):
 | Deal:         $[amount] Series A at $[valuation] post    |
 | Date:         [today]                                    |
 +----------------------------------------------------------+
-|  DECISION:    [ INVEST | PASS | CONDITIONAL ]            |
+|  DECISION:    [ INVEST | PASS | CONDITIONAL |            |
+|                 INSUFFICIENT EVIDENCE ]                  |
 |  CONFIDENCE:  [X]%                                       |
 |  EVI QUALITY: [X]%                                       |
 |  READINESS:   [X]/100 ([Status])                         |

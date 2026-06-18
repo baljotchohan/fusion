@@ -60,6 +60,27 @@ def _load_pitch_file(filename: str = None) -> dict:
     if filename in _PITCH_CACHE:
         return _PITCH_CACHE[filename]
 
+    # Try loading from MemoryGraph first if the filename points to an uploaded incident pitch
+    incident_id = None
+    if filename:
+        base = os.path.basename(filename)
+        if base.startswith("pitch_") and base.endswith(".json"):
+            incident_id = base[len("pitch_"):-len(".json")]
+
+    if incident_id:
+        try:
+            from core.memory_graph import MemoryGraph
+            m_graph = MemoryGraph()
+            inc = m_graph.get_incident(incident_id)
+            if inc:
+                pitch_data = inc.get("pitch_data") or inc.get("metadata", {}).get("pitch_data")
+                if pitch_data:
+                    _PITCH_CACHE[filename] = pitch_data
+                    logger.info(f"[PitchLoader] Loaded pitch data from memory graph incident {incident_id}")
+                    return pitch_data
+        except Exception as e:
+            logger.warning(f"[PitchLoader] Failed to check memory graph for incident {incident_id}: {e}")
+
     if os.path.isabs(filename):
         path = filename
     else:
@@ -101,17 +122,54 @@ def _company_name_of(data: dict) -> str:
 
 
 def resolve_uploaded_pitch(company_name: str = None) -> tuple:
-    """Find an uploaded pitch on disk (pitch_DEAL-*.json) so the binding between
-    'the document I uploaded' and 'the deal I trigger' survives a server restart
-    or a state reset — the file is durable even when in-memory sim_state is not.
+    """Find an uploaded pitch on disk (pitch_DEAL-*.json) or in the memory graph,
+    so the binding between 'the document I uploaded' and 'the deal I trigger'
+    survives a server restart or a state reset — the file is durable even when
+    in-memory sim_state is not.
 
     Returns (pitch_filename, incident_id):
       1. the most recent upload whose company name matches company_name, else
-      2. the most recent upload on disk, else
+      2. the most recent upload on disk / memory graph, else
       3. (None, None) so the caller can fall back to the default pitch.
     """
     import glob
     data_dir = os.path.join(os.path.dirname(__file__), "../data")
+
+    # 1. Search memory graph first (since it is the single source of truth for incidents)
+    try:
+        from core.memory_graph import MemoryGraph
+        m_graph = MemoryGraph()
+        incidents = m_graph.list_incidents()
+        
+        # Filter and sort incidents by created_at descending
+        matching_incidents = []
+        for inc_id, inc in incidents.items():
+            meta = inc.get("metadata") or {}
+            # We only care about uploads/submissions that have pitch_data
+            p_data = inc.get("pitch_data") or meta.get("pitch_data")
+            if p_data:
+                # Resolve company name
+                co = _company_name_of(p_data).lower()
+                created_at = inc.get("created_at", "")
+                matching_incidents.append((inc_id, co, created_at))
+                
+        # Sort by created_at desc
+        matching_incidents.sort(key=lambda x: x[2], reverse=True)
+        
+        if company_name:
+            key = str(company_name).strip().lower()
+            for inc_id, co, _ in matching_incidents:
+                if co and (key == co or key in co or co in key):
+                    return f"pitch_{inc_id}.json", inc_id
+        elif matching_incidents:
+            # Return the latest one
+            latest_inc_id = matching_incidents[0][0]
+            return f"pitch_{latest_inc_id}.json", latest_inc_id
+            
+    except Exception as e:
+        logger.warning(f"[PitchLoader] Failed to resolve from memory graph: {e}")
+
+    # 2. Fallback to scanning the disk
     files = sorted(
         glob.glob(os.path.join(data_dir, "pitch_DEAL-*.json")),
         key=os.path.getmtime,

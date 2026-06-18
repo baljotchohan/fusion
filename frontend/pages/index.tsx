@@ -102,6 +102,8 @@ function verdictTone(raw?: string): { label: string; cls: string; ring: string; 
     return { label: 'INVEST', cls: 'text-success', ring: 'border-success/30 bg-success-soft', Icon: ShieldCheck }
   if (v === 'CONDITIONAL')
     return { label: 'CONDITIONAL', cls: 'text-warning', ring: 'border-warning/30 bg-warning-soft', Icon: Scale }
+  if (v === 'INSUFFICIENT EVIDENCE' || v === 'INSUFFICIENT_EVIDENCE')
+    return { label: 'INSUFFICIENT EVIDENCE', cls: 'text-danger', ring: 'border-danger/30 bg-danger-soft', Icon: ShieldX }
   return { label: v || 'PASS', cls: 'text-danger', ring: 'border-danger/30 bg-danger-soft', Icon: ShieldX }
 }
 
@@ -1144,7 +1146,7 @@ function VerdictHero({
           </div>
           <div className="flex items-baseline gap-1">
             <span className={`text-3xl sm:text-4xl font-bold tabular-nums tracking-tight font-mono ${risk > 0 ? rTone.cls : 'text-text-muted'}`}>
-              {risk > 0 ? (risk % 1 === 0 ? risk.toFixed(0) : risk.toFixed(1)) : '—'}
+              {risk > 0 ? (risk % 1 === 0 ? risk.toFixed(0) : risk.toFixed(1)) : (decision?.verdict === 'INSUFFICIENT_EVIDENCE' || decision?.verdict === 'INSUFFICIENT EVIDENCE' ? 'N/A' : '—')}
             </span>
             {risk > 0 && <span className="text-sm text-text-muted font-mono">/10</span>}
           </div>
@@ -1152,7 +1154,9 @@ function VerdictHero({
             <div className={`h-full rounded-full transition-all duration-700 ${rTone.bar}`} style={{ width: risk > 0 ? `${Math.max(riskPct, 3)}%` : '0%' }} />
           </div>
           <p className="mt-3 sm:mt-4 text-[10px] sm:text-[11px] text-text-muted leading-relaxed">
-            Financial 30% · Legal 25% · Technical 25% · Market 20%
+            {decision?.verdict === 'INSUFFICIENT_EVIDENCE' || decision?.verdict === 'INSUFFICIENT EVIDENCE'
+              ? 'Insufficient data room documentation to compute risk weighting.'
+              : 'Financial 30% · Legal 25% · Technical 25% · Market 20%'}
           </p>
         </div>
       </div>
