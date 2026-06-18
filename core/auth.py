@@ -34,7 +34,9 @@ def _init_firebase():
         return
 
     try:
-        sa_dict = json.loads(base64.b64decode(b64).decode("utf-8"))
+        # HF Spaces strips trailing '=' from secrets — re-pad before decoding
+        b64_padded = b64.strip() + "=" * (-len(b64.strip()) % 4)
+        sa_dict = json.loads(base64.b64decode(b64_padded).decode("utf-8"))
         cred = credentials.Certificate(sa_dict)
         db_url = os.environ.get("FIREBASE_DATABASE_URL", "").strip()
         options = {"databaseURL": db_url} if db_url else {}
