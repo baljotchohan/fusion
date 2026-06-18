@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Lightbulb, ShieldAlert, Inbox, X, Download, FileText, Eye, ChevronRight } from 'lucide-react'
 import { API_BASE, AGENTS } from '../lib/agents'
 import { apiFetch, logActivity } from '../lib/apiFetch'
+import { getCurrentIdToken } from '../lib/firebase'
 
 type Tab = 'findings' | 'patterns'
 
@@ -15,6 +16,8 @@ const VERDICT_STYLE: Record<string, string> = {
   CONDITIONAL: 'bg-warning-soft text-warning',
   INVEST:      'bg-success-soft text-success',
   INSUFFICIENT_EVIDENCE: 'bg-bg-subtle text-text-secondary',
+  'INSUFFICIENT EVIDENCE': 'bg-bg-subtle text-text-secondary',
+  INSUFFICIENT: 'bg-bg-subtle text-text-secondary',
 }
 
 interface Incident {
@@ -199,8 +202,8 @@ function agentIcon(key: string) {
 }
 
 function parseVerdict(text: string | null): string | null {
-  const m = /decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-z_]+)/i.exec(text || '')
-  return m ? m[1].toUpperCase() : null
+  const m = /decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-z_\s-]+)/i.exec(text || '')
+  return m ? m[1].toUpperCase().trim() : null
 }
 
 interface IncidentDetail {
@@ -239,9 +242,11 @@ function HistoryDetail({ incidentId, onClose }: { incidentId: string; onClose: (
   const verdict = parseVerdict(data?.final_decision || null)
 
   const reportUrl = (fmt: 'md' | 'pdf') => `${API_BASE}/api/v1/generate-report?incident_id=${incidentId}&format=${fmt}`
-  const download = (fmt: 'md' | 'pdf') => {
+  const download = async (fmt: 'md' | 'pdf') => {
     logActivity('memory_report_download_clicked', { incidentId, company, format: fmt })
-    window.open(reportUrl(fmt), '_blank')
+    const token = await getCurrentIdToken().catch(() => null)
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
+    window.open(`${reportUrl(fmt)}${tokenParam}`, '_blank')
   }
   const loadPreview = async () => {
     if (preview) { setPreview(null); return }

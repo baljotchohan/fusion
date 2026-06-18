@@ -74,12 +74,14 @@ async def get_uid(request: Request) -> str:
         return request.headers.get("X-Dev-UID", "dev-user")
 
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header")
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header.removeprefix("Bearer ").strip()
+    else:
+        token = request.query_params.get("token", "").strip()
 
-    token = auth_header.removeprefix("Bearer ").strip()
     if not token:
-        raise HTTPException(status_code=401, detail="Empty token")
+        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header or token query parameter")
 
     try:
         decoded = firebase_auth.verify_id_token(token)

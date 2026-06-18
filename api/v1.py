@@ -2910,9 +2910,9 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
                 card_weighted_score = float(m_w.group(1))
             except ValueError:
                 pass
-        m_dec = re.search(r"decision\s*\*?\*?\s*:\s*\*?\*?\s*([A-Za-z]+)", fd, re.I)
+        m_dec = re.search(r"decision\s*\*?\*?\s*:\s*\*?\*?\s*([A-Za-z_\s-]+)", fd, re.I)
         if m_dec:
-            card_decision = m_dec.group(1).upper()
+            card_decision = m_dec.group(1).strip().upper()
             
     # ── VALIDATION GUARDS ──
     

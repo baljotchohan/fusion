@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 // @ts-ignore — suppress missing type defs for lucide-react icons
 import Head from 'next/head'
-import { auth, onAuthStateChanged, signInWithGoogle, signInAsGuest, signOut as firebaseSignOut, type User } from '@/lib/firebase'
+import { auth, onAuthStateChanged, signInWithGoogle, signInAsGuest, signOut as firebaseSignOut, type User, getCurrentIdToken } from '@/lib/firebase'
 import { apiFetch, logActivity } from '@/lib/apiFetch'
 import { useAgentWebSocket } from '@/hooks/useAgentWebSocket'
 import { AGENTS, API_BASE } from '@/lib/agents'
@@ -97,12 +97,12 @@ const CHAT_MAX = 600
 const CHAT_DEFAULT = 380
 
 function verdictTone(raw?: string): { label: string; cls: string; ring: string; Icon: typeof ShieldCheck } {
-  const v = String(raw || '').toUpperCase()
+  const v = String(raw || '').toUpperCase().trim()
   if (v === 'INVEST' || v === 'APPROVE' || v === 'YES')
     return { label: 'INVEST', cls: 'text-success', ring: 'border-success/30 bg-success-soft', Icon: ShieldCheck }
   if (v === 'CONDITIONAL')
     return { label: 'CONDITIONAL', cls: 'text-warning', ring: 'border-warning/30 bg-warning-soft', Icon: Scale }
-  if (v === 'INSUFFICIENT EVIDENCE' || v === 'INSUFFICIENT_EVIDENCE')
+  if (v === 'INSUFFICIENT EVIDENCE' || v === 'INSUFFICIENT_EVIDENCE' || v === 'INSUFFICIENT')
     return { label: 'INSUFFICIENT EVIDENCE', cls: 'text-danger', ring: 'border-danger/30 bg-danger-soft', Icon: ShieldX }
   return { label: v || 'PASS', cls: 'text-danger', ring: 'border-danger/30 bg-danger-soft', Icon: ShieldX }
 }
@@ -982,13 +982,17 @@ export default function FUSION() {
                         partnersDone={partnersDone}
                         partnersTotal={partnersTotal}
                         isSimulating={isSimulating}
-                        onDownloadPdf={() => {
+                        onDownloadPdf={async () => {
                           logActivity('report_download', { format: 'pdf', incidentId: activeIncidentId })
-                          window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=pdf`, '_blank')
+                          const token = await getCurrentIdToken().catch(() => null)
+                          const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
+                          window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=pdf${tokenParam}`, '_blank')
                         }}
-                        onDownloadMd={() => {
+                        onDownloadMd={async () => {
                           logActivity('report_download', { format: 'md', incidentId: activeIncidentId })
-                          window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=md`, '_blank')
+                          const token = await getCurrentIdToken().catch(() => null)
+                          const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
+                          window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=md${tokenParam}`, '_blank')
                         }}
                       />
 
@@ -1146,7 +1150,7 @@ function VerdictHero({
           </div>
           <div className="flex items-baseline gap-1">
             <span className={`text-3xl sm:text-4xl font-bold tabular-nums tracking-tight font-mono ${risk > 0 ? rTone.cls : 'text-text-muted'}`}>
-              {risk > 0 ? (risk % 1 === 0 ? risk.toFixed(0) : risk.toFixed(1)) : (decision?.verdict === 'INSUFFICIENT_EVIDENCE' || decision?.verdict === 'INSUFFICIENT EVIDENCE' ? 'N/A' : '—')}
+              {risk > 0 ? (risk % 1 === 0 ? risk.toFixed(0) : risk.toFixed(1)) : (decision?.verdict === 'INSUFFICIENT_EVIDENCE' || decision?.verdict === 'INSUFFICIENT EVIDENCE' || decision?.verdict === 'INSUFFICIENT' ? 'N/A' : '—')}
             </span>
             {risk > 0 && <span className="text-sm text-text-muted font-mono">/10</span>}
           </div>
@@ -1154,7 +1158,7 @@ function VerdictHero({
             <div className={`h-full rounded-full transition-all duration-700 ${rTone.bar}`} style={{ width: risk > 0 ? `${Math.max(riskPct, 3)}%` : '0%' }} />
           </div>
           <p className="mt-3 sm:mt-4 text-[10px] sm:text-[11px] text-text-muted leading-relaxed">
-            {decision?.verdict === 'INSUFFICIENT_EVIDENCE' || decision?.verdict === 'INSUFFICIENT EVIDENCE'
+            {decision?.verdict === 'INSUFFICIENT_EVIDENCE' || decision?.verdict === 'INSUFFICIENT EVIDENCE' || decision?.verdict === 'INSUFFICIENT'
               ? 'Insufficient data room documentation to compute risk weighting.'
               : 'Financial 30% · Legal 25% · Technical 25% · Market 20%'}
           </p>
