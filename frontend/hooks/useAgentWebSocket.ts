@@ -115,22 +115,30 @@ export function useAgentWebSocket(uid?: string | null) {
           }
 
           if (update.agent === 'managing_partner' && update.output) {
-            if (update.output.report) {
-              const riskMatch = update.output.report.match(/weighted\s*(?:risk\s*)?score\s*\*?\*?\s*:\s*\*?\*?\s*([\d\.]+)/i)
-              if (riskMatch) {
-                setThreatScore(Number(riskMatch[1]))
-              }
+            const out = update.output
+            const report: string = out.report || ''
+            // Prefer the authoritative STRUCTURED fields the backend attaches to the
+            // verdict broadcast — a real LLM does not format the report text reliably,
+            // so regex-scraping alone leaves the score blank. Fall back to regex.
+            const riskMatch = report.match(/weighted\s*(?:risk\s*)?score\s*\*?\*?\s*:\s*\*?\*?\s*([\d\.]+)/i)
+            const structuredRisk = typeof out.weighted_score === 'number' ? out.weighted_score : null
+            const riskVal = structuredRisk ?? (riskMatch ? Number(riskMatch[1]) : null)
+            if (riskVal !== null && !Number.isNaN(riskVal)) {
+              setThreatScore(riskVal)
+            }
 
-              const decisionMatch = update.output.report.match(/decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-z_\s-]+)/i)
-              const confidenceMatch = update.output.report.match(/confidence\s*\*?\*?\s*:\s*\*?\*?\s*(\d+)/i)
-              const justificationMatch = update.output.report.match(/PRIMARY REASONS:\s*([^\0]+)/i)
-              if (decisionMatch) {
-                setCeoDecision({
-                  verdict: decisionMatch[1].trim().toUpperCase(),
-                  confidence: confidenceMatch ? Number(confidenceMatch[1]) : 91,
-                  justification: justificationMatch ? justificationMatch[1].trim() : 'Committee review completed.',
-                })
-              }
+            const decisionMatch = report.match(/decision\s*\*?\*?\s*:\s*\*?\*?\s*([a-z_\s-]+)/i)
+            const confidenceMatch = report.match(/confidence\s*\*?\*?\s*:\s*\*?\*?\s*(\d+)/i)
+            const justificationMatch = report.match(/PRIMARY REASONS:\s*([^\0]+)/i)
+            const structuredVerdict = typeof out.verdict === 'string' ? out.verdict : null
+            const verdict = structuredVerdict || (decisionMatch ? decisionMatch[1].trim() : null)
+            if (verdict) {
+              const structuredConf = typeof out.confidence === 'number' ? out.confidence : null
+              setCeoDecision({
+                verdict: verdict.toUpperCase(),
+                confidence: structuredConf ?? (confidenceMatch ? Number(confidenceMatch[1]) : 91),
+                justification: justificationMatch ? justificationMatch[1].trim() : 'Committee review completed.',
+              })
             }
           }
         } catch (e) {

@@ -990,7 +990,9 @@ export default function FUSION() {
                           try {
                             const res = await fetch(url)
                             if (!res.ok) {
-                              const err = await res.json().catch(() => ({ detail: 'Download failed' }))
+                              const raw = await res.text().catch(() => '')
+                              let err: { detail?: string } = {}
+                              try { err = JSON.parse(raw) } catch { err = { detail: raw } }
                               alert(`⚠️ Could not download report:\n${err.detail || 'Unknown error'}\n\nTip: Make sure all 5 partners have completed their reports before downloading.`)
                               return
                             }
@@ -1012,7 +1014,9 @@ export default function FUSION() {
                           try {
                             const res = await fetch(url)
                             if (!res.ok) {
-                              const err = await res.json().catch(() => ({ detail: 'Download failed' }))
+                              const raw = await res.text().catch(() => '')
+                              let err: { detail?: string } = {}
+                              try { err = JSON.parse(raw) } catch { err = { detail: raw } }
                               alert(`⚠️ Could not download report:\n${err.detail || 'Unknown error'}\n\nTip: Make sure all 5 partners have completed their reports before downloading.`)
                               return
                             }
