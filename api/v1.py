@@ -1234,7 +1234,7 @@ def _provider_status() -> list:
             "note": note,
             "configured": not _placeholder(key),
             "in_chain": pid in available,
-            "masked_key": (key[:6] + "…" + key[-3:]) if key and not _placeholder(key) and len(key) > 12 else None,
+            "masked_key": "••••••" if key and not _placeholder(key) else None,
         })
     return out
 
