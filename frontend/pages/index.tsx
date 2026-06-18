@@ -986,13 +986,45 @@ export default function FUSION() {
                           logActivity('report_download', { format: 'pdf', incidentId: activeIncidentId })
                           const token = await getCurrentIdToken().catch(() => null)
                           const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
-                          window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=pdf${tokenParam}`, '_blank')
+                          const url = `${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=pdf${tokenParam}`
+                          try {
+                            const res = await fetch(url)
+                            if (!res.ok) {
+                              const err = await res.json().catch(() => ({ detail: 'Download failed' }))
+                              alert(`⚠️ Could not download report:\n${err.detail || 'Unknown error'}\n\nTip: Make sure all 5 partners have completed their reports before downloading.`)
+                              return
+                            }
+                            const blob = await res.blob()
+                            const a = document.createElement('a')
+                            a.href = URL.createObjectURL(blob)
+                            a.download = `FUSION_Report_${(activeCompany || 'Deal').replace(/\s+/g, '_')}.pdf`
+                            a.click()
+                            URL.revokeObjectURL(a.href)
+                          } catch {
+                            alert('⚠️ Network error — could not download the report. Please check your connection and try again.')
+                          }
                         }}
                         onDownloadMd={async () => {
                           logActivity('report_download', { format: 'md', incidentId: activeIncidentId })
                           const token = await getCurrentIdToken().catch(() => null)
                           const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
-                          window.open(`${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=md${tokenParam}`, '_blank')
+                          const url = `${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=md${tokenParam}`
+                          try {
+                            const res = await fetch(url)
+                            if (!res.ok) {
+                              const err = await res.json().catch(() => ({ detail: 'Download failed' }))
+                              alert(`⚠️ Could not download report:\n${err.detail || 'Unknown error'}\n\nTip: Make sure all 5 partners have completed their reports before downloading.`)
+                              return
+                            }
+                            const blob = await res.blob()
+                            const a = document.createElement('a')
+                            a.href = URL.createObjectURL(blob)
+                            a.download = `FUSION_Report_${(activeCompany || 'Deal').replace(/\s+/g, '_')}.md`
+                            a.click()
+                            URL.revokeObjectURL(a.href)
+                          } catch {
+                            alert('⚠️ Network error — could not download the report. Please check your connection and try again.')
+                          }
                         }}
                       />
 

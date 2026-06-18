@@ -1067,6 +1067,10 @@ async def deal_state(request: Request):
     if not incident_id:
         return empty
     inc = user_memory.get_incident(incident_id)
+    # Fallback: incident may have been created under __public__ (unauthenticated run)
+    if not inc and uid and uid != "__public__":
+        public_memory = memory_graph.__class__(uid="__public__")
+        inc = public_memory.get_incident(incident_id)
     if not inc:
         return empty
 
@@ -1082,12 +1086,44 @@ async def deal_state(request: Request):
     conf_m = re.search(r"confidence\s*\*?\*?\s*:\s*\*?\*?\s*(\d+)", decision_text, re.I)
     has_verdict = bool(verdict_m)
 
+    # Compute weighted score directly from pitch_data when regex can't find it in final_decision
+    weighted_score_val = float(score_m.group(1)) if score_m else None
+    if weighted_score_val is None:
+        try:
+            from core.diligence_engine import run_diligence_calculations
+            pitch_data = inc.get("metadata", {}).get("pitch_data")
+            if not pitch_data:
+                from core.pitch_loader import _load_pitch_file
+                from core.demo_registry import resolve_pitch_file
+                import os
+                data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
+                pf = f"pitch_{incident_id}.json"
+                if not os.path.exists(os.path.join(data_dir, pf)):
+                    pf = resolve_pitch_file(company) or None
+                if pf:
+                    pitch_data = _load_pitch_file(pf)
+            if pitch_data:
+                calc = run_diligence_calculations(pitch_data)
+                weighted_score_val = calc.get("weighted_score")
+        except Exception:
+            pass
+
+    # Infer verdict from pitch_data calc if regex also failed
+    verdict_val = verdict_m.group(1).strip().upper() if verdict_m else None
+    if not verdict_val and weighted_score_val is not None:
+        if weighted_score_val <= 4.0:
+            verdict_val = "INVEST"
+        elif weighted_score_val <= 6.5:
+            verdict_val = "CONDITIONAL"
+        else:
+            verdict_val = "PASS"
+
     return {
         "incident_id": incident_id,
         "company": company,
-        "verdict": verdict_m.group(1).strip().upper() if verdict_m else None,
+        "verdict": verdict_val,
         "confidence": int(conf_m.group(1)) if conf_m else (91 if has_verdict else None),
-        "weighted_score": float(score_m.group(1)) if score_m else None,
+        "weighted_score": weighted_score_val,
         "report_available": has_verdict,
     }
 
@@ -2829,8 +2865,14 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     if not incident_id:
         raise HTTPException(status_code=404, detail="No deal evaluations on record. Run an evaluation first.")
     inc = user_memory.get_incident(incident_id)
+    # Fallback: the incident may have been created under __public__ while user was unauthenticated
+    if not inc and uid and uid != "__public__":
+        public_memory = memory_graph.__class__(uid="__public__")
+        inc = public_memory.get_incident(incident_id)
+        if inc:
+            user_memory = public_memory  # use the store that actually has the data
     if not inc:
-        raise HTTPException(status_code=404, detail="Incident/deal record not found.")
+        raise HTTPException(status_code=400, detail="Deal record not found. The evaluation may have expired — please re-run the analysis.")
         
     raw_company = inc["metadata"].get("company", "NovaPay Inc")
     if isinstance(raw_company, dict):
