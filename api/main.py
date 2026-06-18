@@ -241,7 +241,23 @@ RISK SCORECARD:
     memory_graph.set_final_decision(incident_id, report_text)
     sim_state.final_verdict_card = report_text
     sim_state.completed_agents.add("managing_partner")
-    
+
+    # Persist verdict to Firebase RTDB (fire-and-forget, non-fatal)
+    try:
+        from core.rtdb import write_deal, write_session
+        _rtdb_uid = sim_state.active_uid or "__public__"
+        write_deal(_rtdb_uid, incident_id, {
+            "companyName": company,
+            "verdict": verdict_display,
+            "weightedScore": weighted_score,
+            "confidence": confidence,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "report": report_text[:4000],
+        })
+        write_session(_rtdb_uid, incident_id, {"status": "complete", "verdict": verdict_display})
+    except Exception:
+        pass
+
     # Broadcast 'done' event for managing_partner to Websockets so the frontend transitions
     await event_bus.broadcast("managing_partner", "done", {"report": report_text})
     logger.info("Watchdog: Partial verdict successfully broadcast and saved.")
@@ -538,6 +554,8 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
             from core.firestore_profile import upsert_user, increment_deal_count
             upsert_user(uid, sim_state.active_user_name, _decoded.get("email"), _decoded.get("picture"))
             increment_deal_count(uid)
+            from core.rtdb import upsert_profile
+            upsert_profile(uid, sim_state.active_user_name, _decoded.get("email"), _decoded.get("picture"))
         except Exception:
             pass
 
@@ -578,6 +596,19 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
         sim_state.active_incident_id = deal_id
         sim_state.dispatched_deals.clear()   # fresh run — nothing dispatched yet
         clear_pitch_cache()
+
+        # RTDB: log session start (fire-and-forget)
+        try:
+            from core.rtdb import write_session, write_activity
+            _rtdb_uid = uid or "__public__"
+            write_session(_rtdb_uid, deal_id, {
+                "companyName": company,
+                "status": "running",
+                "startedAt": datetime.now(timezone.utc).isoformat(),
+            })
+            write_activity(_rtdb_uid, "deal_triggered", {"dealId": deal_id, "company": company})
+        except Exception:
+            pass
 
         _submitter = f" Submitted by {sim_state.active_user_name}." if sim_state.active_user_name else ""
         brief = f"New deal submitted for committee review: {company} — Series A, {raise_amount} raise.{_submitter} Full pitch data is loaded in the deal brief. Please convene the investment committee and begin due diligence."
@@ -1574,7 +1605,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
     # Replay completed agent findings for THIS user's active deal
     try:
-        user_memory = memory_graph.__class__(uid=uid) if uid != "__public__" else memory_graph
+        user_memory = memory_graph.__class__(uid=uid)
         deal_id = sim_state.active_incident_id if sim_state.active_uid == uid else None
         deal_id = deal_id or user_memory.get_latest_incident_id()
         if deal_id:

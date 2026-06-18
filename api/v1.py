@@ -364,7 +364,7 @@ def _incident_headline(incident_id: Optional[str], uid: Optional[str] = None) ->
     so chat replies stay clean instead of dumping the whole raw timeline."""
     if not incident_id:
         return None
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     inc = user_memory.get_incident(incident_id)
     if not inc:
         return None
@@ -470,7 +470,7 @@ def _deterministic_reply(intent: str, user_message: str, incident_id: str,
             f"The committee uses shared memory to store prior diligence learnings and detect recurring risk patterns on subsequent reviews."
         )
     if intent in ("list_deals", "compare_deals"):
-        user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+        user_memory = memory_graph.__class__(uid=uid or "__public__")
         all_incidents = user_memory.list_incidents()
         if not all_incidents:
             return "📋 No deals have been evaluated yet. Say **\"evaluate NovaPay\"** to kick off the committee."
@@ -612,7 +612,7 @@ async def _commander_reply(intent: str, user_message: str, incident_id: str,
                            dispatched: bool, session_id: Optional[str] = None, uid: Optional[str] = None) -> str:
     """Synthesize the Managing Partner's reply. Real LLM when a key is live and healthy,
     otherwise an intent-aware deterministic reply from the shared memory graph."""
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     stats = user_memory.get_memory_stats()
     latest_id = user_memory.get_latest_incident_id()
     latest_summary = user_memory.get_team_summary(latest_id) if latest_id else "No deals on record yet."
@@ -819,7 +819,7 @@ def _build_thinking_steps(intent: str, dispatched: bool, incident_id: str) -> Li
 async def chat_with_commander(msg: ChatMessage, request: Request):
     """Chat with the FUSION Managing Partner or mentioned specialist partners."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     incident_id = msg.incident_id or sim_state.active_incident_id or _new_incident_id()
     
     # Check for agent mention
@@ -874,7 +874,17 @@ async def chat_with_commander(msg: ChatMessage, request: Request):
     user_memory.append_chat("assistant", commander_response,
                             {"intent": intent, "incident_id": incident_id, "dispatched": dispatched, "agent": mentioned_agent},
                             session_id=session_id)
-                             
+
+    # RTDB: persist chat exchange (fire-and-forget, non-fatal)
+    if uid:
+        try:
+            from core.rtdb import write_chat, write_activity
+            write_chat(uid, session_id or incident_id, msg.user_message, commander_response, intent)
+            if dispatched:
+                write_activity(uid, "deal_triggered_via_chat", {"incidentId": incident_id})
+        except Exception:
+            pass
+
     return ChatResponse(
         commander_response=commander_response,
         incident_id=incident_id,
@@ -891,7 +901,7 @@ async def chat_with_commander(msg: ChatMessage, request: Request):
 async def chat_history(request: Request, limit: int = 100, session_id: Optional[str] = None):
     """Return persisted Commander chat history for the Memory tab."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     return {"history": user_memory.get_chat_history(limit=limit, session_id=session_id)}
 
 
@@ -899,7 +909,7 @@ async def chat_history(request: Request, limit: int = 100, session_id: Optional[
 async def clear_chat_history(request: Request, session_id: Optional[str] = None):
     """Clear the persisted Commander chat history."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     user_memory.clear_chat_history(session_id=session_id)
     return {"status": "cleared"}
 
@@ -1014,7 +1024,7 @@ async def analyze_threat(request: ThreatRequest):
 async def list_incidents(request: Request):
     """List all deals in the shared team memory graph."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     incidents = user_memory.list_incidents()
 
     def _company(meta):
@@ -1050,7 +1060,7 @@ async def deal_state(request: Request):
     restore the verdict card + report download buttons after a page refresh.
     Returns null fields (not an error) when no deal has concluded yet."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     incident_id = sim_state.active_incident_id or user_memory.get_latest_incident_id()
     empty = {"incident_id": None, "company": None, "verdict": None,
              "confidence": None, "weighted_score": None, "report_available": False}
@@ -1086,7 +1096,7 @@ async def deal_state(request: Request):
 async def get_incident(incident_id: str, request: Request):
     """Retrieve past deal details and the team's response timeline."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     inc = user_memory.get_incident(incident_id)
     if not inc:
         raise HTTPException(status_code=404, detail="Deal not found")
@@ -1105,7 +1115,7 @@ async def get_incident(incident_id: str, request: Request):
 async def memory_stats(request: Request):
     """How much the team has learned across all evaluated deals."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     return user_memory.get_memory_stats()
 
 
@@ -1113,7 +1123,7 @@ async def memory_stats(request: Request):
 async def similar_deals(keyword: str, request: Request, limit: int = 5):
     """Query team memory for past deals matching a keyword."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     past = await user_memory.query_similar_incidents(keyword, limit=limit)
     return {"keyword": keyword, "similar_deals": past}
 
@@ -1321,7 +1331,7 @@ async def reset_all_history(request: Request):
     """Danger zone: wipe ALL deals, learned patterns, agent profiles, and chat history,
     then reset live simulation state. Powers the Settings 'Reset & Clear All History' button."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     user_memory.clear_all()
     sim_state.reset()
     # Clear any stuck agent busy flags so the next run starts clean
@@ -1344,7 +1354,7 @@ async def reset_all_history(request: Request):
 async def _agent_reply(agent_name: str, user_message: str, incident_id: str,
                        session_id: Optional[str] = None, uid: Optional[str] = None) -> str:
     """Generate a high-quality persona-specific response for a targeted agent."""
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     stats = user_memory.get_memory_stats()
     
     # Load all evaluated deals to resolve target and build index
@@ -2670,7 +2680,7 @@ async def upload_pitch_document(
 ):
     """Receives and parses real pitch documents/data room files (JSON, PDF, TXT, MD), structures them, and saves for active review."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     uploaded_files = []
     if file:
         uploaded_files.append(file)
@@ -2805,7 +2815,7 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     """Generates a downloadable Markdown or PDF VC due diligence report.
     Defaults to the active deal, then the latest deal on record."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     incident_id = incident_id or sim_state.active_incident_id or user_memory.get_latest_incident_id()
     if not incident_id:
         raise HTTPException(status_code=404, detail="No deal evaluations on record. Run an evaluation first.")
