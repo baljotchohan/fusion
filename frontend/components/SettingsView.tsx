@@ -91,8 +91,8 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
   const mcpUrl = 'https://baljot07-fusion.hf.space/mcp/'
   const smitheryUrl = 'https://smithery.ai/server/@baljotchohan/fusion-vc'
   const proxyDownloadUrl = 'https://raw.githubusercontent.com/baljotchohan/fusion/main/scripts/mcp_proxy.py'
-  // Downloads to a fixed, username-independent path so the config below always matches.
-  const proxyPwshCmd = `curl.exe -L ${proxyDownloadUrl} -o C:\\Users\\Public\\mcp_proxy.py`
+  // No file on disk: python fetches the bridge and runs it at startup; key passed as argv.
+  const winBootstrap = `import urllib.request; exec(urllib.request.urlopen('${proxyDownloadUrl}').read().decode())`
   const keyDisplay = mcpKey ?? 'fus_YOUR_KEY'
 
   const vsCodeJson = JSON.stringify({
@@ -118,12 +118,13 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
     },
   }, null, 2)
 
-  // Windows: Python proxy — npx resolves to "C:\Program Files\..." (space in path → cmd.exe error)
+  // Windows: no file to download — python -c fetches the bridge and runs it, avoiding the
+  // npx path-space bug and header-quote mangling entirely. Key is the trailing argv.
   const claudeDesktopWinJson = JSON.stringify({
     mcpServers: {
       'fusion-vc': {
         command: 'python',
-        args: ['C:\\Users\\Public\\mcp_proxy.py', keyDisplay],
+        args: ['-c', winBootstrap, keyDisplay],
       },
     },
   }, null, 2)
@@ -446,18 +447,14 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
                             {desktopOs === 'win' ? (
                               <div className="space-y-4">
                                 <div className="space-y-3">
-                                  <StepRow n={1} text="Open PowerShell and run this — it downloads the proxy to a fixed path (no admin needed):">
-                                    <StepCopy label="Copy command" onClick={() => copyItem('proxy_dl', proxyPwshCmd)} />
-                                  </StepRow>
-                                  <CodeBlock code={proxyPwshCmd} onCopy={() => copyItem('proxy_dl', proxyPwshCmd)} isCopied={copiedId === 'proxy_dl'} />
-                                  <StepRow n={2} text="Copy the config below — the path already matches the download above, nothing to edit:">
+                                  <StepRow n={1} text="Copy the config below — no file to download, no npx. Python (which you already have) fetches the bridge and runs it:">
                                     <StepCopy label="Copy Config" onClick={() => copyItem('claude_desktop', claudeDesktopWinJson)} />
                                   </StepRow>
                                   <CodeBlock code={claudeDesktopWinJson} onCopy={() => copyItem('claude_desktop', claudeDesktopWinJson)} isCopied={isCopied} />
-                                  <StepRow n={3} text="In Claude Desktop: File → Settings → Developer → Edit Config → paste → save. Then fully quit and reopen (check the system tray). Click Allow on the trust prompt." />
+                                  <StepRow n={2} text="In Claude Desktop: File → Settings → Developer → Edit Config → paste → save." />
+                                  <StepRow n={3} text="Fully quit Claude Desktop (right-click the system-tray icon → Quit), reopen it, and click Allow on the trust prompt." />
                                 </div>
                                 <p className="text-[10px] text-text-muted font-mono">Config file: %APPDATA%\Claude\claude_desktop_config.json</p>
-                                <p className="text-[10px] text-text-muted">No Node.js or npx needed — this uses Python, which you already have.</p>
                               </div>
                             ) : (
                               <div className="space-y-4">
