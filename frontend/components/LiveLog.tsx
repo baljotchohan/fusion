@@ -5,7 +5,7 @@ import React, { useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ScrollText } from 'lucide-react'
 import { AGENT_BY_NAME } from '../lib/agents'
-import type { AgentUpdate } from '../hooks/useAgentWebSocket'
+import type { AgentUpdate, EventStatus } from '../hooks/useAgentWebSocket'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -20,7 +20,7 @@ interface LiveLogProps {
 /* ------------------------------------------------------------------ */
 
 const BADGE_CONFIG: Record<
-  string,
+  EventStatus,
   { label: string; dot: string; text: string; bg: string }
 > = {
   working: {
@@ -46,6 +46,24 @@ const BADGE_CONFIG: Record<
     dot: 'bg-danger animate-pulse',
     text: 'text-danger',
     bg: 'bg-danger-soft border-danger/20',
+  },
+  debate: {
+    label: '⚔️ Debate',
+    dot: 'bg-violet-500 animate-pulse',
+    text: 'text-violet-600 dark:text-violet-400',
+    bg: 'bg-violet-50 dark:bg-violet-500/10 border-violet-200/60 dark:border-violet-500/20',
+  },
+  memory_match: {
+    label: '⚡ Memory',
+    dot: 'bg-blue-500',
+    text: 'text-blue-600 dark:text-blue-400',
+    bg: 'bg-blue-50 dark:bg-blue-500/10 border-blue-200/60 dark:border-blue-500/20',
+  },
+  confidence_update: {
+    label: 'Progress',
+    dot: 'bg-amber-500',
+    text: 'text-amber-600 dark:text-amber-400',
+    bg: 'bg-amber-50 dark:bg-amber-500/10 border-amber-200/60 dark:border-amber-500/20',
   },
 }
 

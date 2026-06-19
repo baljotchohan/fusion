@@ -142,6 +142,10 @@ class MemoryGraph:
         except Exception as e:
             logger.debug(f"Failed to delete incident from Firestore: {e}")
 
+    def get_all_incidents(self) -> dict:
+        """Return all incidents keyed by incident_id."""
+        return self._read_file(self.incidents_file)
+
     def get_incident(self, incident_id: str) -> Optional[dict]:
         data = self._read_file(self.incidents_file).get(incident_id)
         if data:

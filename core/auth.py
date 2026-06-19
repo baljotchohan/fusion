@@ -78,7 +78,6 @@ async def get_uid(request: Request) -> str:
     Raises HTTP 401 if missing or invalid.
     """
     if _AUTH_DISABLED:
-        # Dev shortcut: skip auth, return a fixed dev uid
         return request.headers.get("X-Dev-UID", "dev-user")
 
     auth_header = request.headers.get("Authorization", "")
@@ -90,6 +89,13 @@ async def get_uid(request: Request) -> str:
 
     if not token:
         raise HTTPException(status_code=401, detail="Missing or malformed Authorization header or token query parameter")
+
+    # Per-user MCP API key: "fus_<firebase_uid>" — issued from Settings, passed in MCP headers
+    if token.startswith("fus_"):
+        uid = token[4:].strip()
+        if uid:
+            return uid
+        raise HTTPException(status_code=401, detail="Invalid MCP key format")
 
     try:
         decoded = firebase_auth.verify_id_token(token)

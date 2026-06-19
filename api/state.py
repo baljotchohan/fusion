@@ -4,7 +4,21 @@ Request-aware isolated API state to prevent data leakage between different users
 Uses the current_uid ContextVar to partition state data per user dynamically.
 """
 import time
+from collections import defaultdict
 from typing import Dict, Optional, Set, Any
+
+# Committee session tracking — in-memory, resets on server restart (fine for hackathon)
+_week_sessions: dict = defaultdict(list)  # key → [epoch_float, ...]
+
+def count_sessions_this_week(key: str) -> int:
+    cutoff = time.time() - 7 * 86400
+    _week_sessions[key] = [t for t in _week_sessions[key] if t > cutoff]
+    return len(_week_sessions[key])
+
+def record_session(key: str) -> None:
+    cutoff = time.time() - 7 * 86400
+    _week_sessions[key] = [t for t in _week_sessions[key] if t > cutoff]
+    _week_sessions[key].append(time.time())
 
 
 class SimulationState:

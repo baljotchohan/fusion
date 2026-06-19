@@ -3,10 +3,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { getCurrentIdToken } from '@/lib/firebase'
 
 export type AgentStatus = 'idle' | 'working' | 'done' | 'alert'
+export type EventStatus = AgentStatus | 'debate' | 'memory_match' | 'confidence_update'
 
 export interface AgentUpdate {
   agent: string
-  status: AgentStatus
+  status: EventStatus
   output: Record<string, any>
   timestamp: string
 }
@@ -55,6 +56,8 @@ export function useAgentWebSocket(uid?: string | null) {
   const [threatScore, setThreatScore] = useState<number>(0)
   const [ceoDecision, setCeoDecision] = useState<Record<string, any> | null>(null)
   const [isConnected, setIsConnected] = useState<boolean>(false)
+  const [partialConfidence, setPartialConfidence] = useState<number>(0)
+  const [memoryMatch, setMemoryMatch] = useState<{ company: string; deal: string } | null>(null)
 
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
 
@@ -68,6 +71,8 @@ export function useAgentWebSocket(uid?: string | null) {
     setStoryFeed([])
     setAgentOutputs({})
     setShowRecoveryPrompt(false)
+    setPartialConfidence(0)
+    setMemoryMatch(null)
     setAgentStates({
       managing_partner: 'idle',
       financial_partner: 'idle',
@@ -106,7 +111,25 @@ export function useAgentWebSocket(uid?: string | null) {
         try {
           const update: AgentUpdate = JSON.parse(event.data)
 
-          setAgentStates(prev => ({ ...prev, [update.agent]: update.status }))
+          // Handle memory match — surface it but don't change agent status
+          if (update.status === 'memory_match') {
+            setMemoryMatch({ company: update.output?.matched_company || '', deal: update.output?.matched_deal || '' })
+            setLogEvents(prev => [...prev, update].slice(-80))
+            return
+          }
+
+          // Handle partial confidence updates embedded in specialist "done" events
+          if (typeof update.output?.partial_confidence === 'number') {
+            setPartialConfidence(update.output.partial_confidence)
+          }
+
+          // Debate events go into the log but don't change the agent card status
+          if (update.status === 'debate' || update.status === 'confidence_update') {
+            setLogEvents(prev => [...prev, update].slice(-80))
+            return
+          }
+
+          setAgentStates(prev => ({ ...prev, [update.agent]: update.status as AgentStatus }))
 
           if (update.output && Object.keys(update.output).length > 0) {
             setAgentOutputs(prev => ({ ...prev, [update.agent]: update.output }))
@@ -195,6 +218,8 @@ export function useAgentWebSocket(uid?: string | null) {
   return {
     agentStates, agentOutputs, logEvents, storyFeed, threatScore, ceoDecision, isConnected,
     setAgentStates, setAgentOutputs, setThreatScore, setCeoDecision, setLogEvents, resetAll,
-    showRecoveryPrompt, setShowRecoveryPrompt
+    showRecoveryPrompt, setShowRecoveryPrompt,
+    partialConfidence, setPartialConfidence,
+    memoryMatch, setMemoryMatch,
   }
 }

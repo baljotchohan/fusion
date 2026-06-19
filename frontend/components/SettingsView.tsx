@@ -1,31 +1,61 @@
 // components/SettingsView.tsx — preferences panel.
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Trash2, Plug, Copy, Check, ExternalLink } from 'lucide-react'
-import { AGENTS, API_BASE } from '@/lib/agents'
+import { Sun, Moon, Trash2, Plug, Copy, Check, ExternalLink, Lock, BarChart2, Key } from 'lucide-react'
+import { API_BASE } from '@/lib/agents'
 import { apiFetch, logActivity } from '@/lib/apiFetch'
 
 interface SettingsViewProps {
   theme: 'dark' | 'light'
   onToggleTheme: () => void
+  isLoggedIn?: boolean
 }
 
-export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps) {
+type McpTab = 'vscode' | 'cursor' | 'claude_code' | 'claude_desktop'
+
+export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false }: SettingsViewProps) {
   const [mockPace, setMockPace] = useState(0.6)
   const [, setLoading] = useState(true)
-
   const [confirmReset, setConfirmReset] = useState(false)
   const [resetting, setResetting] = useState(false)
-  const [mcpTab, setMcpTab] = useState<'smithery' | 'claude_code' | 'claude_desktop'>('smithery')
+  const [mcpTab, setMcpTab] = useState<McpTab>('vscode')
   const [copied, setCopied] = useState(false)
+  const [sessionUsage, setSessionUsage] = useState<{ used: number; limit: number; remaining: number } | null>(null)
+  const [mcpKey, setMcpKey] = useState<string | null>(null)
 
-  const mcpUrl = `${API_BASE}/mcp`
+  const mcpUrl = 'https://baljot07-fusion.hf.space/mcp/'
   const smitheryUrl = 'https://smithery.ai/server/@baljotchohan/fusion-vc'
-  const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${mcpUrl} --header "Authorization: Bearer YOUR_KEY"`
-  const claudeDesktopJson = JSON.stringify(
-    { mcpServers: { 'fusion-vc': { command: 'npx', args: ['-y', 'mcp-remote', mcpUrl, '--header', 'Authorization: Bearer YOUR_KEY'] } } },
-    null, 2
-  )
+  const keyDisplay = mcpKey ?? 'fus_YOUR_KEY'
+
+  const vsCodeJson = JSON.stringify({
+    servers: {
+      'fusion-vc': {
+        type: 'http',
+        url: mcpUrl,
+        headers: { Authorization: `Bearer ${keyDisplay}` },
+      },
+    },
+  }, null, 2)
+
+  const cursorJson = JSON.stringify({
+    mcpServers: {
+      'fusion-vc': {
+        url: mcpUrl,
+        headers: { Authorization: `Bearer ${keyDisplay}` },
+      },
+    },
+  }, null, 2)
+
+  const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${mcpUrl} --header "Authorization: Bearer ${keyDisplay}"`
+
+  const claudeDesktopJson = JSON.stringify({
+    mcpServers: {
+      'fusion-vc': {
+        command: 'npx',
+        args: ['-y', 'mcp-remote', mcpUrl, '--header', `Authorization: Bearer ${keyDisplay}`],
+      },
+    },
+  }, null, 2)
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -41,9 +71,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
       const response = await apiFetch(`${API_BASE}/api/v1/system/settings`)
       if (!response.ok) throw new Error('Failed to load settings')
       const data = await response.json()
-      if (data.simulation) {
-        setMockPace(data.simulation.mock_pace ?? 0.6)
-      }
+      if (data.simulation) setMockPace(data.simulation.mock_pace ?? 0.6)
     } catch (error) {
       console.error('Error fetching settings:', error)
     } finally {
@@ -51,7 +79,15 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
     }
   }
 
-  useEffect(() => { fetchSettings() }, [])
+  useEffect(() => {
+    fetchSettings()
+    apiFetch(`${API_BASE}/api/v1/session-usage`).then(r => r.json()).then(d => setSessionUsage(d)).catch(() => {})
+    if (isLoggedIn) {
+      apiFetch(`${API_BASE}/api/v1/mcp-key`).then(r => r.json()).then(d => {
+        if (d.key) setMcpKey(d.key)
+      }).catch(() => {})
+    }
+  }, [isLoggedIn])
 
   const updateSetting = async (patch: { mock_pace?: number }) => {
     try {
@@ -77,7 +113,6 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
       logActivity('danger_zone_reset_all')
       const res = await apiFetch(`${API_BASE}/api/v1/system/reset-all`, { method: 'POST' })
       if (!res.ok) throw new Error(`Server returned ${res.status}`)
-      // Full reload guarantees in-memory chat + live state start clean
       window.location.reload()
     } catch (e) {
       console.error('Reset failed:', e)
@@ -86,11 +121,16 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
     }
   }
 
-
   const isDark = theme === 'dark'
-
   const sectionCls = 'rounded-2xl bg-bg-card border border-border shadow-sm p-6'
   const labelCls = 'text-[10px] font-semibold uppercase tracking-wider text-text-muted'
+
+  const MCP_TABS: { id: McpTab; label: string }[] = [
+    { id: 'vscode', label: 'VS Code' },
+    { id: 'cursor', label: 'Cursor' },
+    { id: 'claude_code', label: 'Claude Code' },
+    { id: 'claude_desktop', label: 'Claude Desktop' },
+  ]
 
   return (
     <div className="h-full overflow-y-auto px-6 py-8 max-w-2xl mx-auto space-y-6">
@@ -98,6 +138,62 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
         <h1 className="text-[22px] font-bold text-text-primary tracking-tight">Settings</h1>
         <p className="text-[13px] text-text-secondary mt-1">Customize your FUSION VC Command Center experience</p>
       </div>
+
+      {/* Usage & Limits */}
+      <section className={sectionCls}>
+        <div className="flex items-center gap-2 mb-4">
+          <BarChart2 className="w-4 h-4 text-accent" />
+          <p className={labelCls}>Usage &amp; Limits</p>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-muted">
+            <div>
+              <p className="text-[12.5px] font-medium text-text-primary">Committee sessions</p>
+              <p className="text-[11px] text-text-secondary mt-0.5">
+                {isLoggedIn ? 'Unlimited — no cap' : '14 sessions / week — sign in for unlimited'}
+              </p>
+            </div>
+            <div className="text-right shrink-0 ml-4">
+              {isLoggedIn ? (
+                <span className="text-[22px] font-bold text-text-primary">∞</span>
+              ) : (
+                <>
+                  <span className="text-[18px] font-bold tabular-nums text-text-primary">
+                    {sessionUsage ? `${sessionUsage.used}/14` : '—'}
+                  </span>
+                  <p className="text-[9px] text-text-muted uppercase tracking-wider">used</p>
+                </>
+              )}
+            </div>
+          </div>
+          {!isLoggedIn && sessionUsage && (
+            <div className="h-1.5 rounded-full bg-bg-subtle overflow-hidden">
+              <div
+                className="h-full rounded-full bg-slate-400 dark:bg-slate-500 transition-all duration-500"
+                style={{ width: `${Math.min(100, (sessionUsage.used / 14) * 100)}%` }}
+              />
+            </div>
+          )}
+          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-muted">
+            <div>
+              <p className="text-[12.5px] font-medium text-text-primary">MCP access</p>
+              <p className="text-[11px] text-text-secondary mt-0.5">Connect AI tools to the committee</p>
+            </div>
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border border-border ${isLoggedIn ? 'bg-bg-subtle text-text-primary' : 'bg-bg-subtle text-text-muted'}`}>
+              {isLoggedIn ? 'Unlimited' : 'Sign in required'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-muted">
+            <div>
+              <p className="text-[12.5px] font-medium text-text-primary">Chat messages</p>
+              <p className="text-[11px] text-text-secondary mt-0.5">
+                {isLoggedIn ? 'Unlimited' : '100 messages / hour'}
+              </p>
+            </div>
+            <span className="text-[11px] font-semibold text-text-primary">{isLoggedIn ? '∞' : '100/hr'}</span>
+          </div>
+        </div>
+      </section>
 
       {/* Appearance */}
       <section className={sectionCls}>
@@ -117,10 +213,6 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
         </div>
       </section>
 
-
-
-
-
       {/* MCP Connect */}
       <section className={sectionCls}>
         <div className="flex items-center gap-2 mb-1">
@@ -128,57 +220,117 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
           <p className={labelCls}>Connect via MCP</p>
         </div>
         <p className="text-[11.5px] text-text-secondary mb-4">
-          Use FUSION&apos;s 5-agent VC committee directly from your AI tools — no browser needed.
+          Use FUSION&apos;s 5-agent VC committee from VS Code, Cursor, Claude Code, or Claude Desktop — with your own isolated deal history.
         </p>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-4 bg-bg-muted rounded-lg p-1 w-fit">
-          {([['smithery', 'Smithery (easiest)'], ['claude_code', 'Claude Code'], ['claude_desktop', 'Claude Desktop']] as const).map(([id, label]) => (
-            <button key={id} onClick={() => { setMcpTab(id); logActivity('mcp_tab_changed', { tab: id }) }}
-              className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${mcpTab === id ? 'bg-bg-card text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {mcpTab === 'smithery' && (
-          <div className="space-y-3">
-            <p className="text-[12px] text-text-secondary">Click the button below — Smithery opens in your browser and auto-configures your AI client. No terminal, no config files.</p>
-            <a href={smitheryUrl} target="_blank" rel="noreferrer" onClick={() => logActivity('mcp_smithery_click')}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-[12px] font-semibold hover:opacity-90 transition">
-              <ExternalLink className="w-3.5 h-3.5" />
-              Connect on Smithery
-            </a>
-          </div>
-        )}
-
-        {mcpTab === 'claude_code' && (
-          <div className="space-y-3">
-            <p className="text-[12px] text-text-secondary">Run this one command in your terminal:</p>
-            <div className="flex items-center gap-2 bg-bg-muted rounded-lg px-3 py-2.5 font-mono text-[11px] text-text-primary">
-              <span className="flex-1 truncate">{claudeCodeCmd}</span>
-              <button onClick={() => copyToClipboard(claudeCodeCmd)} className="shrink-0 text-text-muted hover:text-accent transition cursor-pointer">
-                {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
+        {!isLoggedIn ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-6 px-4 rounded-xl border border-border bg-bg-muted text-center">
+            <div className="w-10 h-10 rounded-full bg-bg-subtle border border-border flex items-center justify-center">
+              <Lock className="w-4 h-4 text-text-muted" />
+            </div>
+            <div>
+              <p className="text-[13px] font-semibold text-text-primary">Sign in to access MCP</p>
+              <p className="text-[11.5px] text-text-secondary mt-1 max-w-xs">MCP integration requires a personal API key tied to your account. Sign in to generate yours.</p>
             </div>
           </div>
-        )}
-
-        {mcpTab === 'claude_desktop' && (
-          <div className="space-y-3">
-            <p className="text-[12px] text-text-secondary">Add this to your <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">claude_desktop_config.json</code>:</p>
-            <div className="relative">
-              <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopJson}</pre>
-              <button onClick={() => copyToClipboard(claudeDesktopJson)}
-                className="absolute top-2 right-2 text-text-muted hover:text-accent transition cursor-pointer">
-                {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
+        ) : (
+          <>
+            {/* Personal API key */}
+            <div className="mb-4 p-3 rounded-xl border border-border bg-bg-muted">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Key className="w-3.5 h-3.5 text-accent" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Your Personal MCP Key</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-[11.5px] font-mono text-text-primary truncate">{mcpKey ?? 'Loading…'}</code>
+                {mcpKey && (
+                  <button onClick={() => copyToClipboard(mcpKey)} className="shrink-0 text-text-muted hover:text-accent transition cursor-pointer">
+                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
+              <p className="text-[10.5px] text-text-muted mt-1.5">This key isolates your committee history — do not share it.</p>
             </div>
-          </div>
+
+            {/* Client tabs */}
+            <div className="flex gap-1 mb-4 bg-bg-muted rounded-lg p-1 flex-wrap">
+              {MCP_TABS.map(({ id, label }) => (
+                <button key={id} onClick={() => { setMcpTab(id); logActivity('mcp_tab_changed', { tab: id }) }}
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${mcpTab === id ? 'bg-bg-card text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {mcpTab === 'vscode' && (
+              <div className="space-y-3">
+                <p className="text-[12px] text-text-secondary">
+                  Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">.vscode/mcp.json</code> in your project root (VS Code 1.99+ with Copilot or MCP extension):
+                </p>
+                <div className="relative">
+                  <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{vsCodeJson}</pre>
+                  <button onClick={() => copyToClipboard(vsCodeJson)}
+                    className="absolute top-2 right-2 text-text-muted hover:text-accent transition cursor-pointer">
+                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <p className="text-[10.5px] text-text-muted">Restart VS Code after saving the file. The key above is already filled in.</p>
+              </div>
+            )}
+
+            {mcpTab === 'cursor' && (
+              <div className="space-y-3">
+                <p className="text-[12px] text-text-secondary">
+                  Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">~/.cursor/mcp.json</code> (global) or <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">.cursor/mcp.json</code> (project):
+                </p>
+                <div className="relative">
+                  <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{cursorJson}</pre>
+                  <button onClick={() => copyToClipboard(cursorJson)}
+                    className="absolute top-2 right-2 text-text-muted hover:text-accent transition cursor-pointer">
+                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <p className="text-[10.5px] text-text-muted">Reload Cursor after saving. Open Settings → MCP to verify the server appears.</p>
+              </div>
+            )}
+
+            {mcpTab === 'claude_code' && (
+              <div className="space-y-3">
+                <p className="text-[12px] text-text-secondary">Run this one command in your terminal:</p>
+                <div className="flex items-center gap-2 bg-bg-muted rounded-lg px-3 py-2.5 font-mono text-[11px] text-text-primary">
+                  <span className="flex-1 truncate">{claudeCodeCmd}</span>
+                  <button onClick={() => copyToClipboard(claudeCodeCmd)} className="shrink-0 text-text-muted hover:text-accent transition cursor-pointer">
+                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {mcpTab === 'claude_desktop' && (
+              <div className="space-y-3">
+                <p className="text-[12px] text-text-secondary">Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">claude_desktop_config.json</code>:</p>
+                <div className="relative">
+                  <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopJson}</pre>
+                  <button onClick={() => copyToClipboard(claudeDesktopJson)}
+                    className="absolute top-2 right-2 text-text-muted hover:text-accent transition cursor-pointer">
+                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 pt-3 border-t border-border flex items-center gap-2">
+              <a href={smitheryUrl} target="_blank" rel="noreferrer" onClick={() => logActivity('mcp_smithery_click')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-secondary text-[11px] font-medium hover:text-accent hover:border-accent transition">
+                <ExternalLink className="w-3 h-3" />
+                Also on Smithery (easiest setup)
+              </a>
+            </div>
+          </>
         )}
       </section>
 
-      {/* Danger Zone — Reset & Clear All History */}
+      {/* Danger Zone */}
       <section className="rounded-2xl bg-bg-card border border-danger/30 shadow-sm p-6">
         <div className="flex items-center gap-2 mb-4">
           <Trash2 className="w-4 h-4 text-danger" />
@@ -188,7 +340,6 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
         <p className="text-[11.5px] text-text-secondary mb-4">
           Permanently delete every deal record, learned risk pattern, and chat message, and reset the live committee state. This cannot be undone.
         </p>
-
         {!confirmReset ? (
           <button onClick={() => setConfirmReset(true)}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-danger/40 text-danger text-[12px] font-semibold hover:bg-danger-soft transition cursor-pointer">

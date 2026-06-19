@@ -11,6 +11,8 @@ import json
 import logging
 import re
 import asyncio
+import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import List, Optional, Any, Dict
 from uuid import uuid4
@@ -44,6 +46,9 @@ AGENT_NAMES = [
     "managing_partner", "financial_partner", "legal_partner",
     "technical_partner", "market_partner",
 ]
+
+CHAT_RATE_LIMIT = int(os.getenv("CHAT_RATE_LIMIT", "1000"))  # messages per hour per user
+_chat_rate: dict[str, list[float]] = defaultdict(list)
 
 
 def _new_incident_id() -> str:
@@ -106,6 +111,7 @@ _SMALLTALK_WORDS = ("how are you", "how r u", "hru", "how are u", "how you doing
                     "kya haal hai", "kaise ho", "kaise hain", "kya chal", "kya chal raha", "sab theek",
                     "kya scene", "kya kar raha", "kya ho raha", "sab badhiya", "theek ho")
 _TRIGGER_KEYWORDS = ("evaluate", "run diligence", "run due diligence", "start simulation", "trigger simulation", "analyze startup", "run evaluation", "test startup", "assess startup")
+_CHALLENGE_WORDS = ("disagree", "i don't think", "but what about", "challenge", "are you sure", "reconsider", "wrong verdict", "wrong decision", "why reject", "why pass", "why invest", "explain your verdict", "defend your", "prove it", "that's wrong", "thats wrong", "not accurate", "incorrect")
 _LIST_DEALS_WORDS = ("list all deals", "list deals", "show all deals", "show deals", "all deals", "what deals", "our deals", "deals evaluated", "deals we have", "deals so far", "see all deals", "view all deals")
 _COMPARE_DEALS_WORDS = ("compare all", "compare deals", "best deal", "best one", "which deal", "find best", "rank deals", "top deal", "best startup", "strongest deal", "best investment", "compare startups", "which startup")
 
@@ -235,10 +241,14 @@ def _classify_intent(text: str) -> str:
     if any(k in t for k in _MEMORY_WORDS):
         return "memory"
         
-    # 6. Query specific deal details (if we mention deal keywords or query status/results)
+    # 6. Challenge/disagree with verdict
+    if any(k in t for k in _CHALLENGE_WORDS):
+        return "challenge_verdict"
+
+    # 7. Query specific deal details (if we mention deal keywords or query status/results)
     if any(k in t for k in DEAL_KEYWORDS) or any(k in t for k in _STATUS_WORDS) or t.endswith("?"):
         return "query_deal"
-        
+
     return "general"
 
 
@@ -254,6 +264,7 @@ def _suggestions_for(intent: str) -> List[str]:
         "thanks": ["Evaluate a deal", "What's our status?", "How does FUSION work?"],
         "smalltalk": ["Evaluate NovaPay", "How does FUSION work?", "What has the committee learned?"],
         "general": ["Evaluate NovaPay", "What's our status?", "What has the committee learned?"],
+        "challenge_verdict": ["Which finding is wrong?", "Show me the risk scorecard", "What evidence supports this?"],
     }
     return base.get(intent, base["general"])
 
@@ -785,37 +796,39 @@ async def _commander_reply(intent: str, user_message: str, incident_id: str,
                 f"use this summary: {target_summary}. Keep your answer clean and structured."
             )
 
-        prompt = f"""You are the FUSION Managing Partner — a calm, sharp, elite VC general partner.
-Talking to a user.
+        prompt = f"""You are the FUSION Managing Partner — a sharp, warm, elite VC general partner who genuinely enjoys breaking down deals with people. You think out loud, surface non-obvious insights, and always back up what you say with actual numbers from the data.
 
 All evaluated deals on record:
 {all_deals_index}
 
-Target deal resolved from conversation context:
-- Company Name: {target_deal['company_name'] if target_deal else 'N/A'}
+Target deal resolved from context:
+- Company: {target_deal['company_name'] if target_deal else 'N/A'}
 - Deal ID: {target_deal['incident_id'] if target_deal else 'N/A'}
 - Verdict: {target_deal['verdict'] if target_deal else 'N/A'}
 
-Target deal's final decision verdict card:
+Final decision card:
 {target_deal['final_decision'] if target_deal else 'N/A'}
 
-Target deal's detailed partner findings:
+Detailed partner findings:
 {target_summary}
 
-Instructions for this message:
+Your task for this message:
 {intent_instructions}
 
-Recent conversation history (you MUST maintain continuity and remember previous questions/context):
+Conversation so far:
 {chat_history_str}
 
-Formatting & Language instructions:
-1. Respond in clean, natural prose. Use short '- ' bullet points and **bold** for key terms where appropriate.
-2. NEVER use markdown headers (#, ##, ###) or hashtags like #Finance. No '---' dividers. No raw JSON.
-3. Use a few tasteful emojis where they genuinely help (📊 ⚖️ 🚩).
-4. Adopt a high-end, warm, elite VC partner tone. Keep it concise (2-4 sentences or a tight bullet list).
-5. Dynamic Adaptation: Detect and adapt to the user's language, tone, and formatting requests. If the user asks you to speak in Hindi, Hindi-English (Hinglish), or any other language, you MUST respond in that language. If the user requests a friendly, casual, or conversational tone, relax the professional tone and speak in a friendly, conversational manner.
+How to respond:
+- Be genuinely conversational and analytical — like a brilliant partner who's happy to think through problems with you, not a formal report generator.
+- Lead with the most interesting insight first. If there's a surprising number, tension, or red flag, surface it.
+- Use **bold** for company names, key metrics, and verdict terms. Bullet points only when listing 3+ items.
+- Add emojis where they sharpen meaning (📊 for data, 🚩 for red flags, ⚖️ for tradeoffs, ✅ for positives). Don't overdo it.
+- Never use markdown headers (#, ##). No dividers (---). No raw JSON. No walls of text.
+- Keep it tight: 2–5 sentences or a compact bullet list. If they ask for more detail, give it.
+- Adapt instantly to the user's tone and language. Hinglish, casual, technical — match their energy.
+- If the user challenges a verdict, defend it crisply with specific evidence from the findings, not generic statements.
 
-User message: "{user_message}"
+User: "{user_message}"
 """
         try:
             return await llm_router.call_llm(prompt, max_tokens=420)
@@ -867,6 +880,18 @@ def _build_thinking_steps(intent: str, dispatched: bool, incident_id: str) -> Li
 async def chat_with_commander(msg: ChatMessage, request: Request):
     """Chat with the FUSION Managing Partner or mentioned specialist partners."""
     uid = await get_uid_optional(request)
+
+    # Signed-in users: unlimited chat. Anonymous: 100 messages/hour.
+    if not uid:
+        _now = time.time()
+        _ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+        _bucket = f"ip:{_ip}"
+        _chat_rate[_bucket] = [t for t in _chat_rate[_bucket] if _now - t < 3600]
+        if len(_chat_rate[_bucket]) >= 100:
+            _wait = int(3600 - (_now - _chat_rate[_bucket][0]))
+            raise HTTPException(status_code=429, detail=f"Chat limit: 100 messages/hour for guests. Sign in for unlimited access.")
+        _chat_rate[_bucket].append(_now)
+
     user_memory = memory_graph.__class__(uid=uid or "__public__")
     incident_id = msg.incident_id or sim_state.active_incident_id or _new_incident_id()
     
@@ -914,6 +939,29 @@ async def chat_with_commander(msg: ChatMessage, request: Request):
         intent = "agent_mention"
         thinking_steps += [f"Mention detected → routing to **{_display(mentioned_agent)}**", "Loading agent persona and memory graph context"]
         commander_response = await _agent_reply(mentioned_agent, msg.user_message, incident_id, session_id=session_id, uid=uid)
+    elif intent == "challenge_verdict":
+        # Defend the committee's verdict with evidence when user pushes back
+        try:
+            from core.diligence_engine import run_diligence_calculations
+            from core.pitch_loader import _load_pitch_file
+            calc = run_diligence_calculations(_load_pitch_file())
+            company = calc.get("company_name", "the company")
+            verdict_raw = calc.get("verdict", "PASS")
+            verdict_display = "REJECT" if verdict_raw == "PASS" else verdict_raw
+            score = calc.get("weighted_score") or 0
+            reasons = calc.get("override_reasons", [])
+            reasons_text = "; ".join(str(r) for r in reasons[:2]) if reasons else "weighted risk score exceeded investment threshold"
+            commander_response = (
+                f"The committee's **{verdict_display}** verdict on {company} is evidence-based and stands. "
+                f"Weighted risk score: **{score:.1f}/10** — computed independently by Financial (30%), Legal (25%), Technical (25%), and Market (20%) partners. "
+                f"Primary drivers: {reasons_text}. "
+                f"To change this verdict, provide specific contradicting data. Which finding do you believe is incorrect?"
+            )
+        except Exception:
+            commander_response = (
+                "The committee's verdict is derived from a deterministic risk engine across four independent partner audits. "
+                "Without specific contradicting evidence, the assessment stands. Which finding do you want to challenge?"
+            )
     else:
         commander_response = await _commander_reply(intent, msg.user_message, incident_id, dispatched, session_id=session_id, uid=uid)
         
@@ -3555,4 +3603,27 @@ async def log_connection(payload: ConnectionLogPayload, request: Request):
     
     success = write_connection_log(uid or "__public__", payload.ip, details)
     return {"status": "ok" if success else "failed"}
+
+
+@router.get("/mcp-key")
+async def get_mcp_key(request: Request):
+    """Return the user's personal MCP API key (fus_<uid>) for VS Code / Cursor / Claude Desktop."""
+    uid = await get_uid_optional(request)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Sign in to get your personal MCP key.")
+    mcp_base = os.getenv("FUSION_MCP_URL", "https://baljot07-fusion.hf.space/mcp/")
+    return {"key": f"fus_{uid}", "mcp_url": mcp_base}
+
+
+@router.get("/session-usage")
+async def session_usage(request: Request):
+    """Return this user's weekly committee session usage."""
+    from api.state import count_sessions_this_week
+    uid = await get_uid_optional(request)
+    _ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    key = f"uid:{uid}" if uid else f"anon:{_ip}"
+    limit = 0 if uid else 14  # 0 = unlimited for signed-in; 14/week for anonymous
+    used = count_sessions_this_week(key)
+    resets_in = max(0, round((7 * 86400 - (time.time() % (7 * 86400))) / 3600))
+    return {"used": used, "limit": limit, "remaining": max(0, limit - used), "is_signed_in": uid is not None, "resets_in_hours": resets_in}
 

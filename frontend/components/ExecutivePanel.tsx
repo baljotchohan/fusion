@@ -14,6 +14,7 @@ interface ExecutivePanelProps {
   threatScore: number
   isSimulating: boolean
   onDownloadReport?: () => void
+  partialConfidence?: number
 }
 
 /* ------------------------------------------------------------------ */
@@ -56,11 +57,13 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
+
 export function ExecutivePanel({
   decision,
   threatScore,
   isSimulating,
   onDownloadReport,
+  partialConfidence = 0,
 }: ExecutivePanelProps) {
   const hasDecision = decision !== null && typeof decision?.verdict === 'string'
 
@@ -105,6 +108,21 @@ export function ExecutivePanel({
             <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center max-w-[220px] leading-relaxed">
               Partners are reviewing findings and building the investment recommendation.
             </p>
+            {partialConfidence > 0 && (
+              <div className="w-full mt-4 px-2">
+                <div className="flex justify-between mb-1">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Diligence coverage</span>
+                  <span className="text-[10px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">{partialConfidence}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800/60 overflow-hidden">
+                  <motion.div
+                    animate={{ width: `${partialConfidence}%` }}
+                    transition={{ duration: 0.6, ease: 'easeOut' }}
+                    className="h-full rounded-full bg-amber-400"
+                  />
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -231,7 +249,6 @@ export function ExecutivePanel({
                     </div>
                   )}
 
-                  {/* Download Report Button */}
                   {onDownloadReport && (
                     <button
                       onClick={onDownloadReport}

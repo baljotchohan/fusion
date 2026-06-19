@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "fusion-vc": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp/",
+      "headers": {
+        "Authorization": "Bearer fus_YOUR_UID_FROM_SETTINGS"
+      }
+    }
+  }
+}

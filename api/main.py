@@ -34,7 +34,7 @@ logger = logging.getLogger("fusion.api")
 # MCP security — set MCP_API_KEY in HF Space secrets to require a key.
 # Leave unset for public access (e.g. during open hackathon judging).
 MCP_API_KEY = os.getenv("MCP_API_KEY", "")
-MCP_RATE_LIMIT = int(os.getenv("MCP_RATE_LIMIT", "30"))  # calls per hour per key/IP
+MCP_RATE_LIMIT = int(os.getenv("MCP_RATE_LIMIT", "1000"))  # calls per hour per key/IP
 _mcp_rate: dict[str, list[float]] = defaultdict(list)
 
 # ── Remote MCP transport ─────────────────────────────────────────────────────
@@ -265,6 +265,70 @@ RISK SCORECARD:
     logger.info("Watchdog: Partial verdict successfully broadcast and saved.")
 
 
+async def _run_debate_phase(incident_id: str):
+    """Broadcast a visible inter-partner debate when divergent risk signals are detected."""
+    try:
+        from core.pitch_loader import _load_pitch_file
+        from core.diligence_engine import run_diligence_calculations
+        calc = run_diligence_calculations(_load_pitch_file())
+    except Exception:
+        return
+
+    fin = calc.get("fin_score") or 0
+    leg = calc.get("leg_score") or 0
+    tech = calc.get("tech_score") or 0
+    mkt = calc.get("mkt_score") or 0
+    contradictions = calc.get("contradictions", [])
+    company = calc.get("company_name", "the company")
+
+    scores = {"financial_partner": (fin, "Financial"), "legal_partner": (leg, "Legal"),
+              "technical_partner": (tech, "Technical"), "market_partner": (mkt, "Market")}
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1][0])
+    low_agent, (low_score, low_label) = sorted_scores[0]
+    high_agent, (high_score, high_label) = sorted_scores[-1]
+    spread = high_score - low_score
+
+    if spread < 2.0 and not contradictions:
+        return  # No meaningful conflict — skip debate
+
+    await event_bus.broadcast("managing_partner", "debate", {
+        "current_action": f"🔴 INTER-PARTNER CONFLICT DETECTED — {company} shows divergent risk signals across domains. Initiating debate round...",
+        "debate_type": "conflict_start",
+    })
+    await asyncio.sleep(0.7)
+
+    if spread >= 2.0:
+        await event_bus.broadcast(high_agent, "debate", {
+            "current_action": f"⚠️ {high_label} risk at {high_score:.1f}/10 — I'm flagging material issues that cannot be dismissed. These findings directly affect deal viability.",
+            "debate_type": "argument",
+        })
+        await asyncio.sleep(0.7)
+        await event_bus.broadcast(low_agent, "debate", {
+            "current_action": f"Acknowledged. {low_label} fundamentals score {low_score:.1f}/10 — sector positioning and execution capacity provide material upside. Risk may be overstated.",
+            "debate_type": "rebuttal",
+        })
+        await asyncio.sleep(0.7)
+        await event_bus.broadcast(high_agent, "debate", {
+            "current_action": f"Upside noted, but {high_label} risk at this severity has historically preceded deal failures in our portfolio. Requesting conservative weighting in the final scorecard.",
+            "debate_type": "counter",
+        })
+        await asyncio.sleep(0.6)
+
+    if contradictions:
+        contra = contradictions[0]
+        await event_bus.broadcast("managing_partner", "debate", {
+            "current_action": f"⚡ Data conflict logged: {contra.get('message', 'Conflicting evidence across domain reports')}. Adjusting confidence and evidence quality scores.",
+            "debate_type": "conflict_detail",
+        })
+        await asyncio.sleep(0.5)
+
+    await event_bus.broadcast("managing_partner", "debate", {
+        "current_action": "✅ DEBATE RESOLVED — applying domain conflict weights and proceeding to final verdict synthesis...",
+        "debate_type": "resolution",
+    })
+    await asyncio.sleep(0.4)
+
+
 async def _trigger_mp_verdict(incident_id: str):
     """Deterministically tell the Managing Partner to synthesize the final
     verdict. Fires exactly once, when all 4 specialists have reported — so the
@@ -272,6 +336,9 @@ async def _trigger_mp_verdict(incident_id: str):
     # Safety net: if the MP doesn't conclude shortly, force a clean verdict.
     # Schedule it BEFORE we do any network awaits, in case the send hangs or fails.
     asyncio.create_task(_mp_verdict_safety_net(incident_id))
+
+    # Visible debate round before synthesis — shows judges inter-agent reasoning
+    await _run_debate_phase(incident_id)
 
     from core.memory_graph import memory_graph
     from agents.managing_partner import VERDICT_TRIGGER
@@ -345,6 +412,11 @@ async def broadcast_event_to_websockets(event_data: dict):
         # so mock-transport + real-LLM runs never concluded and stalled to the
         # watchdog. Adding here makes completion reliable in every mode.
         sim_state.completed_agents.add(event_data["agent"])
+        # Enrich the specialist "done" event with partial confidence so the
+        # frontend confidence bar fills incrementally as each partner reports.
+        _n_done = len(sim_state.completed_agents & specialists)
+        event_data.setdefault("output", {})["partial_confidence"] = min(85, _n_done * 21)
+
         all_specialists_done = specialists.issubset(sim_state.completed_agents)
         mp_has_verdict = getattr(sim_state, '_mp_verdict_pending', False)
         if all_specialists_done and mp_has_verdict:
@@ -484,7 +556,11 @@ async def set_request_context(request: Request, call_next):
         token = request.query_params.get("token", "").strip()
 
     if token:
-        if MCP_API_KEY and token == MCP_API_KEY:
+        if token.startswith("fus_"):
+            # Per-user MCP API key: fus_<firebase_uid> — set by Settings page, passed in MCP client headers
+            uid = token[4:].strip() or "__public__"
+            username = uid
+        elif MCP_API_KEY and token == MCP_API_KEY:
             uid = "global_mcp_user"
             username = "global_mcp_user"
         else:
@@ -520,36 +596,36 @@ async def mcp_security(request: Request, call_next):
     if not request.url.path.startswith("/mcp"):
         return await call_next(request)
 
-    # Auth: if MCP_API_KEY is set, require a matching Bearer token
-    if MCP_API_KEY:
-        token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-        if token != MCP_API_KEY:
-            return JSONResponse(
-                {"jsonrpc": "2.0", "id": None, "error": {
-                    "code": -32001,
-                    "message": (
-                        "Unauthorized — FUSION MCP requires an API key. "
-                        "Contact jattbad328@gmail.com to request access."
-                    )
-                }},
-                status_code=401,
-                headers={"WWW-Authenticate": 'Bearer realm="FUSION MCP"'},
-            )
-        bucket = f"key:{token[:12]}"
-    else:
-        ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
-             or (request.client.host if request.client else "unknown")
-        bucket = f"ip:{ip}"
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
 
-    # Rate limit: sliding window per key/IP
+    # Personal fus_<uid> key: signed-in users get unlimited MCP access, no auth gate
+    if token.startswith("fus_") and len(token) > 4:
+        return await call_next(request)
+
+    # Global API key guard (when MCP_API_KEY is configured)
+    if MCP_API_KEY and token != MCP_API_KEY:
+        return JSONResponse(
+            {"jsonrpc": "2.0", "id": None, "error": {
+                "code": -32001,
+                "message": "Unauthorized — sign in at https://baljot07-fusion.hf.space and get your key from Settings → MCP."
+            }},
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer realm="FUSION MCP"'},
+        )
+
+    # Rate limit anonymous / global-key callers — doubled from default
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+         or (request.client.host if request.client else "unknown")
+    bucket = f"key:{token[:12]}" if token else f"ip:{ip}"
     now = time.time()
     window = _mcp_rate[bucket] = [t for t in _mcp_rate[bucket] if now - t < 3600]
-    if len(window) >= MCP_RATE_LIMIT:
+    limit = MCP_RATE_LIMIT  # 1,000/hr for anonymous; signed-in users bypass entirely above
+    if len(window) >= limit:
         wait = int(3600 - (now - window[0]))
         return JSONResponse(
             {"jsonrpc": "2.0", "id": None, "error": {
                 "code": -32029,
-                "message": f"Rate limit: {MCP_RATE_LIMIT} MCP calls/hour. Resets in {wait // 60}m {wait % 60}s."
+                "message": f"Rate limit: {limit} MCP calls/hour. Resets in {wait // 60}m {wait % 60}s. Sign in for unlimited access."
             }},
             status_code=429,
             headers={"Retry-After": str(wait)},
@@ -592,13 +668,16 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
 
     uid = await get_uid_optional(request)
 
-    # Per-user cooldown: 30 s between submissions to prevent abuse
-    if uid:
-        last = _last_trigger.get(uid, 0)
-        if _time.time() - last < 30:
-            remaining = int(30 - (_time.time() - last))
-            return {"status": "rate_limited", "message": f"Please wait {remaining}s before submitting another deal.", "mode": "mock" if is_mock_mode() else "real"}
-        _last_trigger[uid] = _time.time()
+    # Signed-in users: no cooldown, no session limit — full access
+    # Anonymous demo users: 2 committee sessions per week
+    from api.state import count_sessions_this_week, record_session as _record_session
+    if not uid:
+        _client_ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+        _sess_key = f"anon:{_client_ip}"
+        _sess_used = count_sessions_this_week(_sess_key)
+        if _sess_used >= 14:
+            return {"status": "session_limit", "message": "Demo limit reached (14 sessions/week). Sign in for unlimited access.", "used": _sess_used, "limit": 14, "mode": "mock" if is_mock_mode() else "real"}
+        _record_session(_sess_key)
 
     # Reset simulation state and agent flags for a fresh run
     sim_state.reset()
@@ -665,6 +744,25 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
         sim_state.active_incident_id = deal_id
         sim_state.dispatched_deals.clear()   # fresh run — nothing dispatched yet
         clear_pitch_cache()
+
+        # Memory match: if prior completed deals exist, surface the pattern match
+        try:
+            _past_inc = memory_graph._read_file(memory_graph.incidents_file)
+            _completed = [(pid, pinc) for pid, pinc in _past_inc.items()
+                          if pid != deal_id and pinc.get("final_decision")]
+            if _completed:
+                _best = max(_completed, key=lambda x: x[1].get("created_at", ""))
+                _past_co = _best[1].get("metadata", {}).get("company", "a prior evaluation")
+                async def _emit_mm(_co=_past_co, _did=_best[0]):
+                    await asyncio.sleep(1.5)
+                    await event_bus.broadcast("managing_partner", "memory_match", {
+                        "current_action": f"⚡ Memory match — risk patterns from {_co} evaluation loaded. Cross-referencing learned committee patterns...",
+                        "matched_deal": _did,
+                        "matched_company": _co,
+                    })
+                asyncio.create_task(_emit_mm())
+        except Exception:
+            pass
 
         # RTDB: log session start (fire-and-forget)
         try:

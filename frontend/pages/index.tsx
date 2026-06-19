@@ -127,6 +127,7 @@ export default function FUSION() {
   const {
     agentStates, agentOutputs, logEvents, threatScore, ceoDecision, isConnected, resetAll,
     setCeoDecision, setThreatScore, showRecoveryPrompt, setShowRecoveryPrompt,
+    partialConfidence, memoryMatch,
   } = useAgentWebSocket(firebaseUser?.uid)
 
   const [tab, setTab] = useState<Tab>('overview')
@@ -612,13 +613,13 @@ export default function FUSION() {
           {chatHistory.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {m.role === 'assistant' && (
-                <div className="w-7 h-7 rounded-lg bg-accent-soft flex items-center justify-center mr-2 shrink-0 self-start mt-0.5">
-                  <Logo className="w-4 h-4 text-accent" />
+                <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center mr-2 shrink-0 self-start mt-0.5">
+                  <Logo className="w-4 h-4 text-slate-500 dark:text-slate-300" />
                 </div>
               )}
               <div className={`${big ? 'max-w-[85%] text-[13.5px]' : 'max-w-[88%] text-[12.5px]'} rounded-2xl px-4 py-2.5 leading-relaxed ${
                 m.role === 'user'
-                  ? 'bg-accent text-white rounded-br-md'
+                  ? 'bg-[#1e293b] dark:bg-[#334155] text-white rounded-br-md'
                   : 'bg-bg-subtle border border-border text-text-primary rounded-bl-md'
               }`}>
                 {m.role === 'user'
@@ -629,13 +630,13 @@ export default function FUSION() {
           ))}
           {chatThinking && (
             <div className="flex justify-start">
-              <div className="w-7 h-7 rounded-lg bg-accent-soft flex items-center justify-center mr-2 shrink-0">
-                <Logo className="w-4 h-4 text-accent" />
+              <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center mr-2 shrink-0">
+                <Logo className="w-4 h-4 text-slate-500 dark:text-slate-300" />
               </div>
               <div className="bg-bg-subtle border border-border rounded-2xl rounded-bl-md px-3.5 py-3 flex gap-1.5 items-center">
-                <span className="w-1.5 h-1.5 bg-accent rounded-full animate-pulse" />
-                <span className="w-1.5 h-1.5 bg-accent rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                <span className="w-1.5 h-1.5 bg-accent rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                <span className="w-1.5 h-1.5 bg-slate-400 dark:bg-slate-500 rounded-full animate-pulse" />
+                <span className="w-1.5 h-1.5 bg-slate-400 dark:bg-slate-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 bg-slate-400 dark:bg-slate-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           )}
@@ -653,7 +654,7 @@ export default function FUSION() {
             <div className="px-3 py-1.5 border-b border-border text-[10px] font-semibold text-text-muted uppercase tracking-wider">Mention Partner</div>
             {filteredAgents.map((a, i) => (
               <button key={a.handle} onClick={() => insertMention(a.handle)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-[11px] transition ${i === mentionIndex ? 'bg-accent-soft text-accent font-semibold' : 'text-text-secondary hover:bg-bg-subtle'}`}>
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-[11px] transition ${i === mentionIndex ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold' : 'text-text-secondary hover:bg-bg-subtle'}`}>
                 <span className="text-[13px]">{a.icon}</span>
                 <div>
                   <div className="font-semibold text-[11px]">{a.handle}</div>
@@ -665,7 +666,7 @@ export default function FUSION() {
         )}
         <div className="flex items-center gap-2 bg-bg-subtle border border-border rounded-2xl px-3 py-2 focus-within:border-border-strong focus-within:ring-1 focus-within:ring-border-strong transition-all duration-200">
           <button onClick={() => fileInputRef.current?.click()}
-            className="w-8 h-8 rounded-lg text-text-muted hover:bg-bg-muted hover:text-accent flex items-center justify-center transition shrink-0" title="Upload document">
+            className="w-8 h-8 rounded-lg text-text-muted hover:bg-bg-muted hover:text-text-primary flex items-center justify-center transition shrink-0" title="Upload document">
             <Plus className="w-4 h-4" />
           </button>
           <textarea
@@ -679,7 +680,7 @@ export default function FUSION() {
             disabled={chatThinking}
           />
           <button onClick={() => sendChatMessage()} disabled={!chatInput.trim() || chatThinking}
-            className={`w-8 h-8 flex items-center justify-center rounded-lg transition shrink-0 ${chatInput.trim() && !chatThinking ? 'bg-accent text-white hover:bg-accent-hover' : 'bg-bg-muted text-text-muted cursor-not-allowed'}`}>
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition shrink-0 ${chatInput.trim() && !chatThinking ? 'bg-[#1e293b] dark:bg-slate-600 text-white hover:opacity-90' : 'bg-bg-muted text-text-muted cursor-not-allowed'}`}>
             <Send className="w-4 h-4" />
           </button>
         </div>
@@ -689,8 +690,8 @@ export default function FUSION() {
 
   const chatHeader = (big: boolean) => (
     <div className="flex items-center gap-3 p-4 border-b border-border">
-      <div className="w-8 h-8 rounded-lg bg-accent-soft flex items-center justify-center shrink-0">
-        <Logo className="w-5 h-5 text-accent" />
+      <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+        <Logo className="w-5 h-5 text-slate-500 dark:text-slate-300" />
       </div>
       <div className="flex-1 min-w-0">
         <h3 className="font-semibold text-text-primary text-[13px]">Managing Partner</h3>
@@ -1220,6 +1221,14 @@ export default function FUSION() {
                         </div>
                       )}
 
+                      {/* Memory match banner */}
+                      {memoryMatch?.company && (
+                        <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-blue-200/60 dark:border-blue-500/20 bg-blue-50 dark:bg-blue-500/10 text-[11px] text-blue-700 dark:text-blue-300">
+                          <span className="text-base">⚡</span>
+                          <span><strong>Memory match</strong> — risk patterns from <em>{memoryMatch.company}</em> evaluation loaded into committee context.</span>
+                        </div>
+                      )}
+
                       {/* Verdict hero */}
                       <VerdictHero
                         decision={ceoDecision}
@@ -1227,6 +1236,7 @@ export default function FUSION() {
                         partnersDone={partnersDone}
                         partnersTotal={partnersTotal}
                         isSimulating={isSimulating}
+                        partialConfidence={partialConfidence}
                         onDownloadPdf={async () => {
                           logActivity('report_download', { format: 'pdf', incidentId: activeIncidentId })
                           const token = await getCurrentIdToken().catch(() => null)
@@ -1306,7 +1316,7 @@ export default function FUSION() {
               {tab === 'insights' && <MemoryView defaultTab="patterns" />}
               {tab === 'integrations' && <IntegrationsView />}
               {tab === 'partners' && <PartnersView />}
-              {tab === 'settings' && <SettingsView theme={theme} onToggleTheme={toggleTheme} />}
+              {tab === 'settings' && <SettingsView theme={theme} onToggleTheme={toggleTheme} isLoggedIn={isLoggedIn} />}
               {tab === 'docs' && <DocsView />}
               {tab === 'issues' && <IssuesView />}
             </div>
@@ -1349,7 +1359,7 @@ export default function FUSION() {
 /*  Verdict hero — condenses the old ExecutivePanel + ThreatGauge   */
 /* ────────────────────────────────────────────────────────────── */
 function VerdictHero({
-  decision, risk, partnersDone, partnersTotal, isSimulating, onDownloadPdf, onDownloadMd,
+  decision, risk, partnersDone, partnersTotal, isSimulating, onDownloadPdf, onDownloadMd, partialConfidence = 0,
 }: {
   decision: Record<string, any> | null
   risk: number
@@ -1358,6 +1368,7 @@ function VerdictHero({
   isSimulating: boolean
   onDownloadPdf?: () => void
   onDownloadMd?: () => void
+  partialConfidence?: number
 }) {
   const has = decision && typeof decision.verdict === 'string'
   const tone = verdictTone(decision?.verdict)
@@ -1418,8 +1429,19 @@ function VerdictHero({
               <p className="text-[12.5px] text-text-secondary mt-1.5 max-w-sm leading-relaxed">
                 {isSimulating
                   ? 'Partners are auditing the deal and building the recommendation.'
-                  : 'Submit a deal to receive the committee’s verdict memo.'}
+                  : "Submit a deal to receive the committee's verdict memo."}
               </p>
+              {isSimulating && partialConfidence > 0 && (
+                <div className="mt-3 max-w-sm">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted">Diligence coverage</span>
+                    <span className="text-[10px] font-semibold tabular-nums text-accent">{partialConfidence}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-bg-muted overflow-hidden">
+                    <div className="h-full rounded-full bg-accent transition-all duration-700" style={{ width: `${partialConfidence}%` }} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
