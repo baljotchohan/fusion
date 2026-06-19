@@ -1,7 +1,7 @@
 // components/SettingsView.tsx — preferences panel.
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Trash2, Plug, Copy, Check, ExternalLink, Lock, BarChart2, Key, ChevronDown } from 'lucide-react'
+import { Sun, Moon, Trash2, Plug, Copy, Check, ExternalLink, Lock, BarChart2, Key, ChevronDown, Zap } from 'lucide-react'
 import { API_BASE } from '@/lib/agents'
 import { apiFetch, logActivity } from '@/lib/apiFetch'
 
@@ -82,7 +82,7 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
   const [confirmReset, setConfirmReset] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [expandedClient, setExpandedClient] = useState<ClientId | null>('claude_ai')
-  const [copiedId, setCopiedId] = useState<ClientId | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const [copiedKey, setCopiedKey] = useState(false)
   const [desktopOs, setDesktopOs] = useState<'mac' | 'win'>('mac')
   const [sessionUsage, setSessionUsage] = useState<{ used: number; limit: number; remaining: number } | null>(null)
@@ -102,6 +102,9 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
   }, null, 2)
 
   const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${mcpUrl} --header "Authorization: Bearer ${keyDisplay}"`
+
+  // One command configures every installed IDE at once (Claude Desktop, Cursor, VS Code, Windsurf, Zed).
+  const addMcpCmd = `npx add-mcp "${mcpUrl}" --header "Authorization: Bearer ${keyDisplay}" --name fusion-vc -g -y`
 
   // Mac/Linux: mcp-remote via npx (npx path is clean on these platforms)
   const claudeDesktopMacJson = JSON.stringify({
@@ -123,7 +126,7 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
     },
   }, null, 2)
 
-  const copyItem = async (id: ClientId, text: string) => {
+  const copyItem = async (id: string, text: string) => {
     try { if (navigator.clipboard) await navigator.clipboard.writeText(text) } catch { /* denied */ }
     setCopiedId(id)
     setTimeout(() => setCopiedId(null), 2000)
@@ -344,18 +347,45 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
           </div>
         ) : (
           <>
-            {/* Personal API key */}
-            <div className="mb-4 flex items-center gap-3 px-3 py-2.5 rounded-xl border border-border bg-bg-muted">
-              <Key className="w-3.5 h-3.5 text-text-muted shrink-0" />
-              <code className="flex-1 text-[11px] font-mono text-text-primary truncate">{mcpKey ?? 'Loading…'}</code>
-              {mcpKey && (
-                <button onClick={copyKey} className="shrink-0 text-text-muted hover:text-text-primary transition cursor-pointer">
-                  {copiedKey ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              )}
+            {/* Personal API key — your own private MCP server */}
+            <div className="mb-4">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Key className="w-3 h-3 text-text-muted" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">Your private key — only you can see your deals</span>
+              </div>
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-border bg-bg-muted">
+                <code className="flex-1 text-[11px] font-mono text-text-primary truncate">{mcpKey ?? 'Loading…'}</code>
+                {mcpKey && (
+                  <button onClick={copyKey} className="shrink-0 flex items-center gap-1 text-[10.5px] font-medium text-text-muted hover:text-text-primary transition cursor-pointer">
+                    {copiedKey ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedKey ? 'Copied' : 'Copy'}
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Accordion clients */}
+            {/* One-command install — developer hero */}
+            <div className="mb-5 rounded-xl border border-border bg-bg-muted overflow-hidden">
+              <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-border">
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                <span className="text-[12px] font-semibold text-text-primary">Fastest — one command sets up all your IDEs</span>
+              </div>
+              <div className="px-3.5 py-3">
+                <p className="text-[10.5px] text-text-muted mb-2.5">
+                  Configures Claude Desktop, Cursor, VS Code, Windsurf &amp; Zed at once. Requires Node.js — your key is already filled in.
+                </p>
+                <div className="relative">
+                  <pre className="bg-bg-subtle rounded-lg pl-3.5 pr-10 py-2.5 font-mono text-[10px] text-text-primary overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">{addMcpCmd}</pre>
+                  <button onClick={() => copyItem('add_mcp', addMcpCmd)}
+                    className="absolute top-2 right-2 p-1 rounded-md text-text-muted hover:text-text-primary transition cursor-pointer">
+                    {copiedId === 'add_mcp' ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Per-app setup */}
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2">Or set up one app at a time</p>
             <div className="space-y-2">
               {clients.map(client => {
                 const isOpen = expandedClient === client.id
