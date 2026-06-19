@@ -1,7 +1,7 @@
 // components/SettingsView.tsx — preferences panel.
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Trash2, Plug, Copy, Check, ExternalLink, Lock, BarChart2, Key } from 'lucide-react'
+import { Sun, Moon, Trash2, Plug, Copy, Check, ExternalLink, Lock, BarChart2, Key, ChevronDown } from 'lucide-react'
 import { API_BASE } from '@/lib/agents'
 import { apiFetch, logActivity } from '@/lib/apiFetch'
 
@@ -11,15 +11,46 @@ interface SettingsViewProps {
   isLoggedIn?: boolean
 }
 
-type McpTab = 'claude_ai' | 'vscode' | 'cursor' | 'claude_code' | 'claude_desktop'
+type ClientId = 'claude_ai' | 'vscode' | 'cursor' | 'claude_code' | 'claude_desktop'
+
+// ─── Brand logos ───────────────────────────────────────────────────────────────
+
+const AnthropicLogo = () => (
+  <svg viewBox="0 0 41 40" width="18" height="18" fill="#C2410C">
+    <path d="M23.55 0H17.45L0 40h6.55l4.16-10.48h19.58L34.45 40H41L23.55 0ZM12.82 23.61L20.5 4.27l7.68 19.34H12.82Z" />
+  </svg>
+)
+
+const VSCodeLogo = () => (
+  <svg viewBox="0 0 100 100" width="18" height="18">
+    <path fill="#007ACC" d="M74.5 3.2L30.1 43.7 13.4 30.7 3.2 37.1V62.9l10.2 6.4 16.7-13L74.5 96.8 96.8 88V12L74.5 3.2zM74.5 74.8L42.7 50 74.5 25.2V74.8z" />
+  </svg>
+)
+
+const CursorLogo = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+    <rect width="24" height="24" rx="5" fill="#000" />
+    <path d="M7 8l5 4-5 4M13 16h4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+const TerminalLogo = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+    <rect x="1" y="3" width="22" height="18" rx="3" fill="#4F46E5" />
+    <path d="M5 9.5l4 2.5-4 2.5" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M11 14.5h7" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" />
+  </svg>
+)
+
+// ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false }: SettingsViewProps) {
-  const [mockPace, setMockPace] = useState(0.6)
   const [, setLoading] = useState(true)
   const [confirmReset, setConfirmReset] = useState(false)
   const [resetting, setResetting] = useState(false)
-  const [mcpTab, setMcpTab] = useState<McpTab>('claude_ai')
-  const [copied, setCopied] = useState(false)
+  const [expandedClient, setExpandedClient] = useState<ClientId | null>('claude_ai')
+  const [copiedId, setCopiedId] = useState<ClientId | null>(null)
+  const [copiedKey, setCopiedKey] = useState(false)
   const [sessionUsage, setSessionUsage] = useState<{ used: number; limit: number; remaining: number } | null>(null)
   const [mcpKey, setMcpKey] = useState<string | null>(null)
 
@@ -28,93 +59,44 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
   const keyDisplay = mcpKey ?? 'fus_YOUR_KEY'
 
   const vsCodeJson = JSON.stringify({
-    servers: {
-      'fusion-vc': {
-        type: 'http',
-        url: mcpUrl,
-        headers: { Authorization: `Bearer ${keyDisplay}` },
-      },
-    },
+    servers: { 'fusion-vc': { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${keyDisplay}` } } },
   }, null, 2)
 
   const cursorJson = JSON.stringify({
-    mcpServers: {
-      'fusion-vc': {
-        url: mcpUrl,
-        headers: { Authorization: `Bearer ${keyDisplay}` },
-      },
-    },
+    mcpServers: { 'fusion-vc': { url: mcpUrl, headers: { Authorization: `Bearer ${keyDisplay}` } } },
   }, null, 2)
 
   const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${mcpUrl} --header "Authorization: Bearer ${keyDisplay}"`
 
-  // Native url field — works on Windows, Mac, Linux identically. No npx, no mcp-remote.
   const claudeDesktopJson = JSON.stringify({
-    mcpServers: {
-      'fusion-vc': {
-        url: mcpUrl,
-        headers: { Authorization: `Bearer ${keyDisplay}` },
-      },
-    },
+    mcpServers: { 'fusion-vc': { url: mcpUrl, headers: { Authorization: `Bearer ${keyDisplay}` } } },
   }, null, 2)
 
-  const claudeAiUrl = 'https://claude.ai/settings/integrations'
-
-  const openClaudeAi = async () => {
-    try { if (navigator.clipboard) await navigator.clipboard.writeText(mcpUrl) } catch { /* ok */ }
-    window.open(claudeAiUrl, '_blank', 'noopener')
-    logActivity('mcp_claude_ai_connect_click')
+  const copyItem = async (id: ClientId, text: string) => {
+    try { if (navigator.clipboard) await navigator.clipboard.writeText(text) } catch { /* denied */ }
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+    logActivity('mcp_config_copied', { type: id })
   }
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      if (navigator.clipboard) await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-      logActivity('mcp_config_copied', { type: mcpTab })
-    } catch { /* clipboard denied */ }
-  }
-
-  const fetchSettings = async () => {
-    try {
-      const response = await apiFetch(`${API_BASE}/api/v1/system/settings`)
-      if (!response.ok) throw new Error('Failed to load settings')
-      const data = await response.json()
-      if (data.simulation) setMockPace(data.simulation.mock_pace ?? 0.6)
-    } catch (error) {
-      console.error('Error fetching settings:', error)
-    } finally {
-      setLoading(false)
-    }
+  const copyKey = async () => {
+    if (!mcpKey) return
+    try { if (navigator.clipboard) await navigator.clipboard.writeText(mcpKey) } catch { /* denied */ }
+    setCopiedKey(true)
+    setTimeout(() => setCopiedKey(false), 2000)
   }
 
   useEffect(() => {
-    fetchSettings()
+    apiFetch(`${API_BASE}/api/v1/system/settings`)
+      .then(r => r.json())
+      .then(() => {})
+      .catch(() => {})
+      .finally(() => setLoading(false))
     apiFetch(`${API_BASE}/api/v1/session-usage`).then(r => r.json()).then(d => setSessionUsage(d)).catch(() => {})
     if (isLoggedIn) {
-      apiFetch(`${API_BASE}/api/v1/mcp-key`).then(r => r.json()).then(d => {
-        if (d.key) setMcpKey(d.key)
-      }).catch(() => {})
+      apiFetch(`${API_BASE}/api/v1/mcp-key`).then(r => r.json()).then(d => { if (d.key) setMcpKey(d.key) }).catch(() => {})
     }
   }, [isLoggedIn])
-
-  const updateSetting = async (patch: { mock_pace?: number }) => {
-    try {
-      const response = await apiFetch(`${API_BASE}/api/v1/system/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      })
-      if (!response.ok) throw new Error('Failed to update setting')
-      const data = await response.json()
-      if (data.applied && data.applied.mock_pace !== undefined) {
-        setMockPace(data.applied.mock_pace)
-        logActivity('mock_pace_updated', { pace: data.applied.mock_pace })
-      }
-    } catch (error) {
-      console.error('Error updating setting:', error)
-    }
-  }
 
   const resetAllHistory = async () => {
     setResetting(true)
@@ -123,8 +105,7 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
       const res = await apiFetch(`${API_BASE}/api/v1/system/reset-all`, { method: 'POST' })
       if (!res.ok) throw new Error(`Server returned ${res.status}`)
       window.location.reload()
-    } catch (e) {
-      console.error('Reset failed:', e)
+    } catch {
       setResetting(false)
       setConfirmReset(false)
     }
@@ -134,12 +115,97 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
   const sectionCls = 'rounded-2xl bg-bg-card border border-border shadow-sm p-6'
   const labelCls = 'text-[10px] font-semibold uppercase tracking-wider text-text-muted'
 
-  const MCP_TABS: { id: McpTab; label: string; badge?: string }[] = [
-    { id: 'claude_ai', label: 'Claude.ai', badge: '★ Best' },
-    { id: 'vscode', label: 'VS Code' },
-    { id: 'cursor', label: 'Cursor' },
-    { id: 'claude_code', label: 'Claude Code' },
-    { id: 'claude_desktop', label: 'Desktop App' },
+  // ─── MCP client definitions ────────────────────────────────────────────────
+  type Step = { text: string; cta?: { label: string; fn: () => void } }
+  const clients: {
+    id: ClientId
+    name: string
+    sub: string
+    badge?: string
+    logo: React.ReactNode
+    copyText: string
+    copyLabel: string
+    steps: Step[]
+    code?: string
+    paths?: string[]
+  }[] = [
+    {
+      id: 'claude_ai',
+      name: 'Claude.ai',
+      sub: 'Web · Desktop · Mobile — one setup, all devices',
+      badge: '★ Best',
+      logo: <AnthropicLogo />,
+      copyText: mcpUrl,
+      copyLabel: 'Copy URL',
+      steps: [
+        { text: 'Copy your FUSION server URL', cta: { label: 'Copy URL', fn: () => copyItem('claude_ai', mcpUrl) } },
+        {
+          text: 'Open Claude.ai → Settings → Integrations',
+          cta: { label: 'Open Claude.ai', fn: () => { window.open('https://claude.ai/settings/integrations', '_blank', 'noopener'); logActivity('mcp_claude_ai_connect_click') } },
+        },
+        { text: 'Click "Add custom connector", paste the URL, connect and sign in. Automatically syncs to Claude Desktop and mobile.' },
+      ],
+    },
+    {
+      id: 'vscode',
+      name: 'VS Code',
+      sub: 'Requires VS Code 1.99+ with GitHub Copilot',
+      logo: <VSCodeLogo />,
+      copyText: vsCodeJson,
+      copyLabel: 'Copy Config',
+      steps: [
+        { text: 'Copy the config below', cta: { label: 'Copy Config', fn: () => copyItem('vscode', vsCodeJson) } },
+        { text: 'Create .vscode/mcp.json in your project root and paste' },
+        { text: 'Restart VS Code — the server appears automatically' },
+      ],
+      code: vsCodeJson,
+    },
+    {
+      id: 'cursor',
+      name: 'Cursor',
+      sub: 'Global or per-project config',
+      logo: <CursorLogo />,
+      copyText: cursorJson,
+      copyLabel: 'Copy Config',
+      steps: [
+        { text: 'Copy the config below', cta: { label: 'Copy Config', fn: () => copyItem('cursor', cursorJson) } },
+        { text: 'Open ~/.cursor/mcp.json (global) or .cursor/mcp.json (project) and paste' },
+        { text: 'Reload Cursor — check Settings → MCP to confirm it appears' },
+      ],
+      code: cursorJson,
+    },
+    {
+      id: 'claude_code',
+      name: 'Claude Code',
+      sub: 'Terminal — one command, any OS',
+      logo: <TerminalLogo />,
+      copyText: claudeCodeCmd,
+      copyLabel: 'Copy Command',
+      steps: [
+        { text: 'Open a terminal' },
+        { text: 'Copy and run the command below', cta: { label: 'Copy Command', fn: () => copyItem('claude_code', claudeCodeCmd) } },
+      ],
+      code: claudeCodeCmd,
+    },
+    {
+      id: 'claude_desktop',
+      name: 'Claude Desktop',
+      sub: 'Windows · Mac · Linux — native URL format, no extras',
+      logo: <AnthropicLogo />,
+      copyText: claudeDesktopJson,
+      copyLabel: 'Copy Config',
+      steps: [
+        { text: 'Copy the config below', cta: { label: 'Copy Config', fn: () => copyItem('claude_desktop', claudeDesktopJson) } },
+        { text: 'Open Claude Desktop → File → Settings → Developer → Edit Config' },
+        { text: 'Paste, save, then fully quit and reopen Claude Desktop' },
+      ],
+      code: claudeDesktopJson,
+      paths: [
+        'Mac    ~/Library/Application Support/Claude/claude_desktop_config.json',
+        'Win    %APPDATA%\\Claude\\claude_desktop_config.json',
+        'Linux  ~/.config/Claude/claude_desktop_config.json',
+      ],
+    },
   ]
 
   return (
@@ -155,7 +221,7 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
           <BarChart2 className="w-4 h-4 text-accent" />
           <p className={labelCls}>Usage &amp; Limits</p>
         </div>
-        <div className="space-y-3">
+        <div className="space-y-2">
           <div className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-muted">
             <div>
               <p className="text-[12.5px] font-medium text-text-primary">Committee sessions</p>
@@ -213,12 +279,19 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
             <p className="text-[13px] font-medium text-text-primary">Theme</p>
             <p className="text-[11.5px] text-text-secondary mt-0.5">Switch between light and dark mode</p>
           </div>
-          <button onClick={() => { onToggleTheme(); logActivity('theme_toggled', { nextTheme: isDark ? 'light' : 'dark' }) }} aria-label="Toggle theme"
-            className={`relative w-[58px] h-[30px] rounded-full transition-colors duration-300 focus:outline-none cursor-pointer ${isDark ? 'bg-accent' : 'bg-bg-muted'}`}>
+          <button
+            onClick={() => { onToggleTheme(); logActivity('theme_toggled', { nextTheme: isDark ? 'light' : 'dark' }) }}
+            aria-label="Toggle theme"
+            className={`relative w-[58px] h-[30px] rounded-full transition-colors duration-300 focus:outline-none cursor-pointer ${isDark ? 'bg-accent' : 'bg-bg-muted'}`}
+          >
             <Sun className="absolute left-[7px] top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-400 opacity-60" />
             <Moon className="absolute right-[7px] top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-secondary opacity-60" />
-            <motion.span layout className="absolute top-[3px] w-[24px] h-[24px] rounded-full bg-white shadow-md"
-              animate={{ left: isDark ? 30 : 3 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }} />
+            <motion.span
+              layout
+              className="absolute top-[3px] w-[24px] h-[24px] rounded-full bg-white shadow-md"
+              animate={{ left: isDark ? 30 : 3 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+            />
           </button>
         </div>
       </section>
@@ -229,8 +302,8 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
           <Plug className="w-4 h-4 text-accent" />
           <p className={labelCls}>Connect via MCP</p>
         </div>
-        <p className="text-[11.5px] text-text-secondary mb-4">
-          Use FUSION&apos;s 5-agent VC committee from VS Code, Cursor, Claude Code, or Claude Desktop — with your own isolated deal history.
+        <p className="text-[11.5px] text-text-secondary mb-5">
+          Use FUSION&apos;s 5-agent VC committee from any AI tool — with your own isolated deal history.
         </p>
 
         {!isLoggedIn ? (
@@ -240,149 +313,135 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
             </div>
             <div>
               <p className="text-[13px] font-semibold text-text-primary">Sign in to access MCP</p>
-              <p className="text-[11.5px] text-text-secondary mt-1 max-w-xs">MCP integration requires a personal API key tied to your account. Sign in to generate yours.</p>
+              <p className="text-[11.5px] text-text-secondary mt-1 max-w-xs">
+                MCP integration requires a personal API key tied to your account. Sign in to generate yours.
+              </p>
             </div>
           </div>
         ) : (
           <>
             {/* Personal API key */}
-            <div className="mb-4 p-3 rounded-xl border border-border bg-bg-muted">
-              <div className="flex items-center gap-2 mb-1.5">
-                <Key className="w-3.5 h-3.5 text-accent" />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Your Personal MCP Key</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-[11.5px] font-mono text-text-primary truncate">{mcpKey ?? 'Loading…'}</code>
-                {mcpKey && (
-                  <button onClick={() => copyToClipboard(mcpKey)} className="shrink-0 text-text-muted hover:text-accent transition cursor-pointer">
-                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                )}
-              </div>
-              <p className="text-[10.5px] text-text-muted mt-1.5">This key isolates your committee history — do not share it.</p>
-            </div>
-
-            {/* Client tabs */}
-            <div className="flex gap-1 mb-4 bg-bg-muted rounded-lg p-1 flex-wrap">
-              {MCP_TABS.map(({ id, label, badge }) => (
-                <button key={id} onClick={() => { setMcpTab(id); logActivity('mcp_tab_changed', { tab: id }) }}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${mcpTab === id ? 'bg-bg-card text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
-                  {label}
-                  {badge && <span className="text-[9px] font-bold text-amber-500">{badge}</span>}
+            <div className="mb-4 flex items-center gap-3 px-3 py-2.5 rounded-xl border border-border bg-bg-muted">
+              <Key className="w-3.5 h-3.5 text-text-muted shrink-0" />
+              <code className="flex-1 text-[11px] font-mono text-text-primary truncate">{mcpKey ?? 'Loading…'}</code>
+              {mcpKey && (
+                <button onClick={copyKey} className="shrink-0 text-text-muted hover:text-text-primary transition cursor-pointer">
+                  {copiedKey ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
-              ))}
+              )}
             </div>
 
-            {mcpTab === 'claude_ai' && (
-              <div className="space-y-4">
-                <div className="rounded-xl bg-bg-subtle border border-border p-3.5">
-                  <p className="text-[12px] font-semibold text-text-primary mb-1">Works on every device — one connection</p>
-                  <p className="text-[11px] text-text-secondary">Connect via claude.ai and it automatically syncs to Claude Desktop (Mac/Win/Linux) and the Claude mobile app. No config files, no keys to paste.</p>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-start gap-3 py-2.5 px-3 rounded-xl bg-bg-muted">
-                    <span className="text-[11px] font-bold text-text-muted w-4 shrink-0 mt-0.5">1</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[11.5px] font-medium text-text-primary">Copy your server URL</p>
-                      <div className="flex items-center gap-2 mt-1.5 bg-bg-subtle rounded-lg px-2.5 py-1.5">
-                        <code className="text-[10.5px] font-mono text-text-secondary flex-1 truncate">{mcpUrl}</code>
-                        <button onClick={() => copyToClipboard(mcpUrl)} className="shrink-0 text-text-muted hover:text-text-primary transition cursor-pointer">
-                          {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+            {/* Accordion clients */}
+            <div className="space-y-2">
+              {clients.map(client => {
+                const isOpen = expandedClient === client.id
+                const isCopied = copiedId === client.id
+
+                return (
+                  <div key={client.id} className="rounded-xl border border-border overflow-hidden">
+
+                    {/* Header row */}
+                    <div className="flex items-center gap-3 px-3.5 py-2.5 bg-bg-card">
+                      <div className="w-9 h-9 rounded-lg bg-bg-subtle border border-border/60 flex items-center justify-center shrink-0">
+                        {client.logo}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[13px] font-semibold text-text-primary">{client.name}</span>
+                          {client.badge && (
+                            <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
+                              {client.badge}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10.5px] text-text-muted truncate">{client.sub}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => { setExpandedClient(isOpen ? null : client.id); logActivity('mcp_setup_toggled', { client: client.id }) }}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition cursor-pointer select-none ${isOpen ? 'border-border bg-bg-muted text-text-primary' : 'border-border text-text-secondary hover:text-text-primary hover:bg-bg-muted'}`}
+                        >
+                          Setup
+                          <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        <button
+                          onClick={() => copyItem(client.id, client.copyText)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border text-[11px] font-medium text-text-secondary hover:text-text-primary hover:bg-bg-muted transition cursor-pointer select-none"
+                        >
+                          {isCopied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
+                          <span>{isCopied ? 'Copied' : client.copyLabel}</span>
                         </button>
                       </div>
                     </div>
+
+                    {/* Expanded content */}
+                    {isOpen && (
+                      <div className="border-t border-border bg-bg-subtle px-4 py-4 space-y-4">
+
+                        {/* Numbered steps */}
+                        <div className="space-y-3">
+                          {client.steps.map((step, i) => (
+                            <div key={i} className="flex items-start gap-3">
+                              <span className="w-[22px] h-[22px] rounded-full bg-bg-muted border border-border flex items-center justify-center text-[10px] font-bold text-text-muted shrink-0 mt-0.5 tabular-nums">
+                                {i + 1}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[12px] text-text-secondary leading-relaxed">{step.text}</p>
+                                {step.cta && (
+                                  <button
+                                    onClick={step.cta.fn}
+                                    className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-bg-muted border border-border text-[11px] font-medium text-text-primary hover:bg-bg-card transition cursor-pointer"
+                                  >
+                                    {step.cta.label.startsWith('Open') ? <ExternalLink className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                    {step.cta.label}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Code block */}
+                        {client.code && (
+                          <div className="relative">
+                            <pre className="bg-bg-muted rounded-xl px-3.5 py-3 font-mono text-[10px] text-text-primary overflow-x-auto whitespace-pre leading-relaxed">
+                              {client.code}
+                            </pre>
+                            <button
+                              onClick={() => copyItem(client.id, client.copyText)}
+                              className="absolute top-2 right-2 p-1 rounded-md text-text-muted hover:text-text-primary transition cursor-pointer"
+                            >
+                              {isCopied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* File paths */}
+                        {client.paths && (
+                          <div className="space-y-0.5">
+                            {client.paths.map((p, i) => (
+                              <p key={i} className="text-[10px] text-text-muted font-mono">{p}</p>
+                            ))}
+                          </div>
+                        )}
+
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-start gap-3 py-2.5 px-3 rounded-xl bg-bg-muted">
-                    <span className="text-[11px] font-bold text-text-muted w-4 shrink-0 mt-0.5">2</span>
-                    <div className="flex-1">
-                      <p className="text-[11.5px] font-medium text-text-primary mb-1.5">Open Claude.ai Connectors</p>
-                      <button onClick={openClaudeAi}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-text-primary text-bg-card text-[11px] font-semibold hover:opacity-90 transition cursor-pointer">
-                        <ExternalLink className="w-3 h-3" />
-                        Open Claude.ai Connectors →
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 py-2.5 px-3 rounded-xl bg-bg-muted">
-                    <span className="text-[11px] font-bold text-text-muted w-4 shrink-0 mt-0.5">3</span>
-                    <p className="text-[11.5px] text-text-secondary">Click <strong className="text-text-primary">Add custom connector</strong>, paste the URL, click Connect, and sign in to your FUSION account.</p>
-                  </div>
-                </div>
-                <p className="text-[10.5px] text-text-muted">Also works in ChatGPT: Settings → Apps → paste the same URL.</p>
-              </div>
-            )}
+                )
+              })}
+            </div>
 
-            {mcpTab === 'vscode' && (
-              <div className="space-y-3">
-                <p className="text-[12px] text-text-secondary">
-                  Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">.vscode/mcp.json</code> in your project root (VS Code 1.99+ with Copilot or MCP extension):
-                </p>
-                <div className="relative">
-                  <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{vsCodeJson}</pre>
-                  <button onClick={() => copyToClipboard(vsCodeJson)}
-                    className="absolute top-2 right-2 text-text-muted hover:text-accent transition cursor-pointer">
-                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-                <p className="text-[10.5px] text-text-muted">Restart VS Code after saving the file. The key above is already filled in.</p>
-              </div>
-            )}
-
-            {mcpTab === 'cursor' && (
-              <div className="space-y-3">
-                <p className="text-[12px] text-text-secondary">
-                  Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">~/.cursor/mcp.json</code> (global) or <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">.cursor/mcp.json</code> (project):
-                </p>
-                <div className="relative">
-                  <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{cursorJson}</pre>
-                  <button onClick={() => copyToClipboard(cursorJson)}
-                    className="absolute top-2 right-2 text-text-muted hover:text-accent transition cursor-pointer">
-                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-                <p className="text-[10.5px] text-text-muted">Reload Cursor after saving. Open Settings → MCP to verify the server appears.</p>
-              </div>
-            )}
-
-            {mcpTab === 'claude_code' && (
-              <div className="space-y-3">
-                <p className="text-[12px] text-text-secondary">Run this one command in your terminal:</p>
-                <div className="flex items-center gap-2 bg-bg-muted rounded-lg px-3 py-2.5 font-mono text-[11px] text-text-primary">
-                  <span className="flex-1 truncate">{claudeCodeCmd}</span>
-                  <button onClick={() => copyToClipboard(claudeCodeCmd)} className="shrink-0 text-text-muted hover:text-accent transition cursor-pointer">
-                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {mcpTab === 'claude_desktop' && (
-              <div className="space-y-3">
-                <p className="text-[12px] text-text-secondary">
-                  Works on <strong className="text-text-primary">Windows, Mac, and Linux</strong> — same config, no mcp-remote needed.
-                  Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">claude_desktop_config.json</code> (File → Settings → Developer):
-                </p>
-                <div className="relative">
-                  <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopJson}</pre>
-                  <button onClick={() => copyToClipboard(claudeDesktopJson)}
-                    className="absolute top-2 right-2 text-text-muted hover:text-text-primary transition cursor-pointer">
-                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-                <div className="text-[10.5px] text-text-muted space-y-0.5">
-                  <p>Mac: <code className="bg-bg-subtle px-1 rounded">~/Library/Application Support/Claude/claude_desktop_config.json</code></p>
-                  <p>Windows: <code className="bg-bg-subtle px-1 rounded">%APPDATA%\Claude\claude_desktop_config.json</code></p>
-                  <p>Linux: <code className="bg-bg-subtle px-1 rounded">~/.config/Claude/claude_desktop_config.json</code></p>
-                </div>
-                <p className="text-[10.5px] text-text-muted">Fully quit and reopen Claude Desktop after saving.</p>
-              </div>
-            )}
-
-            <div className="mt-4 pt-3 border-t border-border flex items-center gap-2">
-              <a href={smitheryUrl} target="_blank" rel="noreferrer" onClick={() => logActivity('mcp_smithery_click')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-secondary text-[11px] font-medium hover:text-accent hover:border-accent transition">
+            <div className="mt-4 pt-3 border-t border-border">
+              <a
+                href={smitheryUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => logActivity('mcp_smithery_click')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-secondary text-[11px] font-medium hover:text-text-primary transition"
+              >
                 <ExternalLink className="w-3 h-3" />
-                Also on Smithery (easiest setup)
+                Also on Smithery
               </a>
             </div>
           </>
@@ -400,8 +459,10 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
           Permanently delete every deal record, learned risk pattern, and chat message, and reset the live committee state. This cannot be undone.
         </p>
         {!confirmReset ? (
-          <button onClick={() => setConfirmReset(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-danger/40 text-danger text-[12px] font-semibold hover:bg-danger-soft transition cursor-pointer">
+          <button
+            onClick={() => setConfirmReset(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-danger/40 text-danger text-[12px] font-semibold hover:bg-danger-soft transition cursor-pointer"
+          >
             <Trash2 className="w-4 h-4" />
             Reset &amp; Clear All History
           </button>
@@ -409,12 +470,18 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
           <div className="rounded-xl bg-danger-soft border border-danger/25 p-4">
             <p className="text-[12px] font-semibold text-danger mb-3">This will wipe all deals, patterns, and chat. Are you sure?</p>
             <div className="flex items-center gap-2">
-              <button onClick={resetAllHistory} disabled={resetting}
-                className="px-3.5 py-2 rounded-lg bg-danger text-white text-[12px] font-semibold hover:opacity-90 transition cursor-pointer disabled:opacity-60">
+              <button
+                onClick={resetAllHistory}
+                disabled={resetting}
+                className="px-3.5 py-2 rounded-lg bg-danger text-white text-[12px] font-semibold hover:opacity-90 transition cursor-pointer disabled:opacity-60"
+              >
                 {resetting ? 'Wiping…' : 'Yes, wipe everything'}
               </button>
-              <button onClick={() => setConfirmReset(false)} disabled={resetting}
-                className="px-3.5 py-2 rounded-lg border border-border text-text-secondary text-[12px] font-semibold hover:bg-bg-muted transition cursor-pointer">
+              <button
+                onClick={() => setConfirmReset(false)}
+                disabled={resetting}
+                className="px-3.5 py-2 rounded-lg border border-border text-text-secondary text-[12px] font-semibold hover:bg-bg-muted transition cursor-pointer"
+              >
                 Cancel
               </button>
             </div>
