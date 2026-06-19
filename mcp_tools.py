@@ -79,11 +79,19 @@ TOOL_NAMES = [t.name for t in TOOLS]
 
 
 async def _api(method: str, path: str, payload: dict = None) -> dict:
+    headers = {}
+    try:
+        from core.auth import current_token
+        tok = current_token.get()
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+    except Exception:
+        pass
     async with httpx.AsyncClient(timeout=120.0) as client:
         if method == "GET":
-            resp = await client.get(f"{FUSION_API_URL}{path}")
+            resp = await client.get(f"{FUSION_API_URL}{path}", headers=headers)
         else:
-            resp = await client.post(f"{FUSION_API_URL}{path}", json=payload)
+            resp = await client.post(f"{FUSION_API_URL}{path}", json=payload, headers=headers)
         resp.raise_for_status()
         return resp.json()
 
@@ -97,9 +105,9 @@ async def dispatch(name: str, arguments: dict) -> dict:
     try:
         from core.auth import current_uid
         uid = current_uid.get() or "__mcp_client__"
-        # Log MCP tool usage to RTDB
-        from core.rtdb import write_activity
-        write_activity(uid, f"mcp_tool_{name}", arguments)
+        # Log MCP tool usage to RTDB mcp_usage section
+        from core.rtdb import write_mcp_usage
+        write_mcp_usage(uid, name, arguments)
     except Exception:
         pass
 
@@ -123,14 +131,15 @@ async def dispatch(name: str, arguments: dict) -> dict:
             return await _api("GET", f"/api/v1/memory/similar/{arguments['keyword']}?limit={limit}")
 
         if name == "learn_risk_pattern":
-            from core.memory_graph import memory_graph
-            await memory_graph.record_attack_pattern(
-                arguments["keyword"],
-                "observation",
-                arguments["checklist"],
-                arguments.get("success_rate", 0.8),
+            return await _api(
+                "POST",
+                "/api/v1/memory/pattern",
+                {
+                    "keyword": arguments["keyword"],
+                    "checklist": arguments["checklist"],
+                    "success_rate": arguments.get("success_rate", 0.8),
+                },
             )
-            return {"status": "learned", "keyword": arguments["keyword"]}
 
         return {"error": f"Unknown tool: {name}"}
 
@@ -143,3 +152,4 @@ async def dispatch(name: str, arguments: dict) -> dict:
         return {"error": f"Missing required argument: {e}"}
     except Exception as e:
         return {"error": str(e)}
+

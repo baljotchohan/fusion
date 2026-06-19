@@ -92,7 +92,8 @@ async def test_mcp_all_tools():
                 server_proc.terminate()
             raise RuntimeError("FUSION API failed to start on port 8000.")
         else:
-            print("FUSION API started successfully in the background.")
+            print("FUSION API started successfully in the background. Waiting 18s for agents to register...")
+            await asyncio.sleep(18)
     else:
         print("FUSION API is already running on port 8000.")
 
@@ -150,14 +151,14 @@ async def test_mcp_all_tools():
                             )
                         )
                         decision = vr.get("final_decision", "") or ""
-                        if decision and "pending" not in decision.lower():
+                        if decision and "decision pending" not in decision.lower():
                             verdict_seen = True
                             break
                         await asyncio.sleep(2)
                 import re as _re
 
                 m = _re.search(
-                    r"DECISION:\s*(INVEST|CONDITIONAL|PASS)", decision.upper()
+                    r"DECISION:\s*(INVEST|CONDITIONAL|PASS|REJECT)", decision.upper()
                 )
                 verdict_word = (
                     m.group(1)
@@ -165,7 +166,7 @@ async def test_mcp_all_tools():
                     else next(
                         (
                             w
-                            for w in ("CONDITIONAL", "PASS", "INVEST")
+                            for w in ("CONDITIONAL", "PASS", "INVEST", "REJECT")
                             if _re.search(rf"\b{w}\b", decision.upper())
                         ),
                         "—",

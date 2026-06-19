@@ -464,8 +464,49 @@ app.add_middleware(
 
 
 @app.middleware("http")
+async def set_request_context(request: Request, call_next):
+    """Set the thread-local request context ContextVars for auth and data-isolation."""
+    uid = "__public__"
+    username = "guest"
+    
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if not token:
+        token = request.query_params.get("token", "").strip()
+
+    if token:
+        if MCP_API_KEY and token == MCP_API_KEY:
+            uid = "global_mcp_user"
+            username = "global_mcp_user"
+        else:
+            try:
+                from firebase_admin import auth as fb_auth
+                decoded = fb_auth.verify_id_token(token)
+                uid = decoded["uid"]
+                email = decoded.get("email")
+                username = decoded.get("name") or (email.split("@")[0] if email else None) or uid
+            except Exception:
+                pass
+        from core.auth import current_token
+        current_token.set(token)
+    else:
+        from core.auth import _AUTH_DISABLED
+        if _AUTH_DISABLED:
+            uid = request.headers.get("X-Dev-UID", "dev-user")
+            username = uid
+        else:
+            uid = request.headers.get("X-Dev-UID") or "__public__"
+            username = uid
+
+    from core.auth import current_uid, current_username
+    current_uid.set(uid)
+    current_username.set(username)
+
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def mcp_security(request: Request, call_next):
-    """Auth + rate-limit every request that touches /mcp or /mcp/."""
+    """Auth check and rate-limit for every request touching /mcp or /mcp/."""
     if not request.url.path.startswith("/mcp"):
         return await call_next(request)
 
@@ -504,24 +545,9 @@ async def mcp_security(request: Request, call_next):
             headers={"Retry-After": str(wait)},
         )
     _mcp_rate[bucket].append(now)
-    # Intercept and decode token to get user id
-    uid = "__mcp_client__"
-    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-    if token:
-        if MCP_API_KEY and token == MCP_API_KEY:
-            uid = "global_mcp_user"
-        else:
-            try:
-                from firebase_admin import auth as fb_auth
-                decoded = fb_auth.verify_id_token(token)
-                uid = decoded["uid"]
-            except Exception:
-                pass
-
-    from core.auth import current_uid
-    current_uid.set(uid)
 
     return await call_next(request)
+
 
 
 # ─── REST ENDPOINTS ───────────────────────────────────────────
@@ -1619,13 +1645,23 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     and only receive events from unauthenticated deal triggers.
     """
     uid = "__public__"
+    username = "guest"
     if token:
         try:
             from firebase_admin import auth as fb_auth
             decoded = fb_auth.verify_id_token(token)
             uid = decoded["uid"]
+            email = decoded.get("email")
+            username = decoded.get("name") or (email.split("@")[0] if email else None) or uid
+            
+            from core.auth import current_token
+            current_token.set(token)
         except Exception:
             pass  # invalid/expired token → public bucket
+
+    from core.auth import current_uid, current_username
+    current_uid.set(uid)
+    current_username.set(username)
 
     await websocket.accept()
     active_websockets[uid].add(websocket)
@@ -1635,15 +1671,17 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     # RTDB: record live presence so Firebase Console shows who's connected
     if uid != "__public__":
         try:
+            ip = websocket.headers.get("x-forwarded-for", "").split(",")[0].strip() or (websocket.client.host if websocket.client else "unknown")
+            user_agent = websocket.headers.get("user-agent", "unknown")
             from core.rtdb import write_activity, upsert_profile
             if token:
                 try:
                     from firebase_admin import auth as _fba
                     _dec = _fba.verify_id_token(token)
-                    upsert_profile(uid, _dec.get("name"), _dec.get("email"), _dec.get("picture"))
+                    upsert_profile(uid, _dec.get("name"), _dec.get("email"), _dec.get("picture"), ip=ip, user_agent=user_agent)
                 except Exception:
                     pass
-            write_activity(uid, "session_connected", {"totalConnections": total})
+            write_activity(uid, "session_connected", {"totalConnections": total, "ip": ip, "userAgent": user_agent})
         except Exception:
             pass
 

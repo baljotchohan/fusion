@@ -96,3 +96,13 @@ def fs_get_latest_incident_id(uid: Optional[str]) -> Optional[str]:
     if not incidents:
         return None
     return max(incidents, key=lambda k: incidents[k].get("created_at", ""))
+
+
+def fs_delete_incident(uid: Optional[str], incident_id: str) -> None:
+    """Delete one incident from Firestore (best-effort)."""
+    try:
+        _collection(uid).document(incident_id).delete()
+        logger.debug(f"[FS] deleted incident {incident_id} for uid={_uid_key(uid)}")
+    except Exception as e:
+        logger.debug(f"[FS] delete_incident skipped: {e}")
+

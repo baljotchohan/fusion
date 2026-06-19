@@ -18,6 +18,9 @@ logger = logging.getLogger("fusion.auth")
 
 # ContextVar to track the authenticated user uid for the current request (e.g. MCP tool calls)
 current_uid: ContextVar[str] = ContextVar("current_uid", default="__mcp_client__")
+current_token: ContextVar[str] = ContextVar("current_token", default="")
+current_username: ContextVar[str] = ContextVar("current_username", default="guest")
+
 
 
 # ── Initialize Firebase Admin SDK once ────────────────────────────────────────

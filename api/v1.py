@@ -352,12 +352,59 @@ async def _dispatch_incident(incident_id: str, user_message: str):
         f"User message: {user_message}. Please convene the investment committee and begin due diligence."
     )
     if is_mock_mode():
-        await mock_bus.send_message("Advisor-Chat", "managing-partner-room", brief)
+        # Deterministic fan-out: dispatch the brief DIRECTLY to all 4 specialists
+        # in parallel. The MP is gated and only synthesizes once all 4 report.
+        import time
+        sim_state.started_at = time.time()
+        await event_bus.broadcast("managing_partner", "working", {
+            "current_action": f"Convening committee on {company} — briefing all 4 partners"
+        })
+        specialist_rooms = {
+            "Financial": "finance-partner-room",
+            "Legal": "legal-partner-room",
+            "Technical": "tech-partner-room",
+            "Market": "market-partner-room",
+        }
+        for domain, room in specialist_rooms.items():
+            partner_brief = (
+                f"New deal in committee: {company} — Series A raise. "
+                f"Full pitch data is loaded in the deal brief. Run your {domain} due "
+                f"diligence now (use load_deal_brief and get_red_flags), then post "
+                f"'{domain.upper()} ANALYSIS COMPLETE' with your risk score and top red flags."
+            )
+            await mock_bus.send_message(
+                sender="Managing-Partner",
+                target_room=room,
+                message=partner_brief,
+            )
     else:
         success = await dispatch_real_band_message(brief, "managing-partner", sender_agent_name="financial_partner")
         if not success:
             logger.warning("Real Band dispatch failed, falling back to local bus")
-            await mock_bus.send_message("Advisor-Chat", "managing-partner-room", brief)
+            import time
+            sim_state.started_at = time.time()
+            await event_bus.broadcast("managing_partner", "working", {
+                "current_action": f"Convening committee on {company} — briefing all 4 partners"
+            })
+            specialist_rooms = {
+                "Financial": "finance-partner-room",
+                "Legal": "legal-partner-room",
+                "Technical": "tech-partner-room",
+                "Market": "market-partner-room",
+            }
+            for domain, room in specialist_rooms.items():
+                partner_brief = (
+                    f"New deal in committee: {company} — Series A raise. "
+                    f"Full pitch data is loaded in the deal brief. Run your {domain} due "
+                    f"diligence now (use load_deal_brief and get_red_flags), then post "
+                    f"'{domain.upper()} ANALYSIS COMPLETE' with your risk score and top red flags."
+                )
+                await mock_bus.send_message(
+                    sender="Managing-Partner",
+                    target_room=room,
+                    message=partner_brief,
+                )
+
 
 
 def _incident_headline(incident_id: Optional[str], uid: Optional[str] = None) -> Optional[dict]:
@@ -1144,12 +1191,12 @@ def compute_deal_snapshot(uid: Optional[str], incident_id: Optional[str] = None)
 
 
 @router.get("/deal-state")
-async def deal_state(request: Request):
+async def deal_state(request: Request, incident_id: Optional[str] = None):
     """Lightweight snapshot of the active/latest concluded deal so the dashboard can
     restore the verdict card + report download buttons after a page refresh.
     Returns null fields (not an error) when no deal has concluded yet."""
     uid = await get_uid_optional(request)
-    return compute_deal_snapshot(uid)
+    return compute_deal_snapshot(uid, incident_id=incident_id)
 
 
 @router.get("/incident/{incident_id}")
@@ -1186,6 +1233,93 @@ async def similar_deals(keyword: str, request: Request, limit: int = 5):
     user_memory = memory_graph.__class__(uid=uid or "__public__")
     past = await user_memory.query_similar_incidents(keyword, limit=limit)
     return {"keyword": keyword, "similar_deals": past}
+
+
+@router.delete("/incident/{incident_id}")
+async def delete_incident_endpoint(incident_id: str, request: Request):
+    """Delete a past deal from local memory files and Firestore."""
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid)
+    user_memory.delete_incident(incident_id)
+    # Also clean up from RTDB
+    try:
+        from core.rtdb import _ref, get_user_folder
+        username = get_user_folder(uid or "__public__")
+        ref_deal = _ref(f"/users/{username}/deals/{incident_id}")
+        if ref_deal:
+            ref_deal.delete()
+        ref_sess = _ref(f"/users/{username}/sessions/{incident_id}")
+        if ref_sess:
+            ref_sess.delete()
+    except Exception as e:
+        logger.debug(f"Failed to delete deal from RTDB: {e}")
+    return {"status": "ok", "message": f"Incident {incident_id} deleted."}
+
+
+@router.get("/chat/sessions")
+async def list_chat_sessions(request: Request):
+    """List all chat sessions for the authenticated user by reading files matching chat_history_*.json."""
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid)
+    base_path = user_memory.base_path
+    
+    sessions = []
+    # Find all files matching chat_history_*.json
+    for p in base_path.glob("chat_history_*.json"):
+        session_id = p.stem.removeprefix("chat_history_")
+        if not session_id:
+            continue
+        try:
+            with open(p, "r") as f:
+                history = json.load(f)
+            if history and isinstance(history, list):
+                # Title can be the user's first message or a default string
+                first_msg = next((m for m in history if m.get("role") == "user"), None)
+                title = first_msg.get("content")[:50] if first_msg else "New Chat Session"
+                
+                # Timestamp can be from the last message or the file's modification time
+                timestamp = history[-1].get("timestamp") if history else datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
+                
+                # Let's check if there's any associated incident_id
+                incident_id = None
+                for m in history:
+                    meta = m.get("meta") or {}
+                    if meta.get("incident_id"):
+                        incident_id = meta.get("incident_id")
+                        break
+                
+                sessions.append({
+                    "session_id": session_id,
+                    "title": title,
+                    "timestamp": timestamp,
+                    "incident_id": incident_id
+                })
+        except Exception as e:
+            logger.warning(f"Error reading session file {p}: {e}")
+            
+    # Sort by timestamp descending
+    sessions.sort(key=lambda s: s["timestamp"], reverse=True)
+    return sessions
+
+
+class PatternPayload(BaseModel):
+    keyword: str
+    checklist: str
+    success_rate: Optional[float] = 0.8
+
+
+@router.post("/memory/pattern")
+async def learn_pattern(payload: PatternPayload, request: Request):
+    """Teach the committee a due-diligence checklist or risk pattern."""
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid)
+    await user_memory.record_attack_pattern(
+        payload.keyword,
+        "observation",
+        payload.checklist,
+        payload.success_rate or 0.8,
+    )
+    return {"status": "learned", "keyword": payload.keyword}
 
 
 # ─── DEMO DEALS (preset companies shown on the dashboard) ─────
@@ -3379,4 +3513,43 @@ async def report_issue(payload: IssuePayload, request: Request):
     uid = await get_uid_optional(request) or "__public__"
     success = write_review_message(uid, payload.error_message)
     return {"status": "ok" if success else "disabled/failed"}
+
+
+class ConnectionLogPayload(BaseModel):
+    ip: str
+    city: Optional[str] = None
+    region: Optional[str] = None
+    country: Optional[str] = None
+    org: Optional[str] = None
+    userAgent: Optional[str] = None
+    device: Optional[str] = None
+
+
+@router.post("/connection-log")
+async def log_connection(payload: ConnectionLogPayload, request: Request):
+    """Log client-side connection telemetry (IP, location, device details)."""
+    uid = await get_uid_optional(request)
+    from core.rtdb import write_connection_log, upsert_profile
+    
+    # Store IP and device info in user profile RTDB node too
+    if uid and uid != "__public__":
+        try:
+            upsert_profile(uid, name=None, email=None, ip=payload.ip, user_agent=payload.userAgent or payload.device)
+        except Exception as e:
+            logger.debug(f"Failed to update profile telemetry: {e}")
+            
+    # Write to connections/
+    details = {
+        "city": payload.city,
+        "region": payload.region,
+        "country": payload.country,
+        "org": payload.org,
+        "userAgent": payload.userAgent or payload.device,
+        "device": payload.device
+    }
+    # Filter out None values
+    details = {k: v for k, v in details.items() if v is not None}
+    
+    success = write_connection_log(uid or "__public__", payload.ip, details)
+    return {"status": "ok" if success else "failed"}
 

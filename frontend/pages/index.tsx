@@ -56,6 +56,7 @@ import {
   Users2,
   FileText,
   Menu,
+  Trash2,
 } from 'lucide-react'
 
 type Tab = 'overview' | 'history' | 'insights' | 'integrations' | 'partners' | 'settings' | 'docs' | 'issues'
@@ -268,30 +269,131 @@ export default function FUSION() {
     theme === 'dark' ? root.classList.add('dark') : root.classList.remove('dark')
   }, [theme])
 
+  const [chatSessions, setChatSessions] = useState<{session_id: string; title: string; timestamp: string; incident_id?: string}[]>([])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+
   useEffect(() => {
     if (ceoDecision) { setIsSimulating(false); setUploadStatus('idle') }
   }, [ceoDecision])
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [chatHistory, chatThinking])
 
-  // Load chat history
+  // Load chat sessions list
+  const loadChatSessions = useCallback(async () => {
+    if (!firebaseUser?.uid) {
+      setChatSessions([])
+      return
+    }
+    try {
+      const res = await apiFetch(`${API_BASE}/api/v1/chat/sessions`)
+      if (res.ok) {
+        const data = await res.json()
+        setChatSessions(data || [])
+      }
+    } catch (err) {
+      console.error('Failed to load chat sessions:', err)
+    }
+  }, [firebaseUser?.uid])
+
+  // Load chat history for current active session
   useEffect(() => {
     if (!firebaseUser?.uid) {
       setChatHistory([])
       return
     }
-    apiFetch(`${API_BASE}/api/v1/chat/history?limit=40`).then(r => r.json()).then(d => {
+    const sessionParam = activeSessionId ? `&session_id=${encodeURIComponent(activeSessionId)}` : ''
+    apiFetch(`${API_BASE}/api/v1/chat/history?limit=40${sessionParam}`).then(r => r.json()).then(d => {
       if (d && Array.isArray(d.history) && d.history.length) {
         setChatHistory(d.history.map((t: any) => ({ role: t.role, content: t.content, incidentId: t.meta?.incident_id, intent: t.meta?.intent })))
       } else {
         setChatHistory([])
       }
-    }).catch(() => {})
-  }, [firebaseUser?.uid])
+    }).catch(() => {
+      setChatHistory([])
+    })
+  }, [firebaseUser?.uid, activeSessionId])
+
+  useEffect(() => {
+    loadChatSessions()
+  }, [firebaseUser?.uid, loadChatSessions])
+
+  const restoreDealState = useCallback(async (incidentId?: string | null) => {
+    if (!firebaseUser?.uid) return
+    const idParam = incidentId ? `?incident_id=${encodeURIComponent(incidentId)}` : ''
+    try {
+      const res = await apiFetch(`${API_BASE}/api/v1/deal-state${idParam}`)
+      const d = await res.json()
+      if (d && d.incident_id) {
+        setActiveIncidentId(d.incident_id)
+        if (d.company) setActiveCompany(d.company)
+        if (d.report_available && d.verdict) {
+          setCeoDecision({
+            verdict: String(d.verdict).toUpperCase(),
+            confidence: typeof d.confidence === 'number' ? d.confidence : 91,
+            justification: 'Committee review completed.',
+          })
+          if (typeof d.weighted_score === 'number') setThreatScore(d.weighted_score)
+        } else {
+          setCeoDecision(null)
+          setThreatScore(0)
+        }
+      } else {
+        setActiveIncidentId(null)
+        setActiveCompany(null)
+        setCeoDecision(null)
+        setThreatScore(0)
+        resetAll()
+      }
+    } catch (err) {
+      console.error('Failed to restore deal state:', err)
+    }
+  }, [firebaseUser?.uid, setCeoDecision, setThreatScore, resetAll])
+
+  const selectSession = async (s: { session_id: string; incident_id?: string }) => {
+    setActiveSessionId(s.session_id)
+    if (s.incident_id) {
+      await restoreDealState(s.incident_id)
+    } else {
+      setActiveIncidentId(null)
+      setActiveCompany(null)
+      setCeoDecision(null)
+      setThreatScore(0)
+      resetAll()
+    }
+    logActivity('chat_session_selected', { sessionId: s.session_id, incidentId: s.incident_id })
+  }
+
+  const startNewChat = () => {
+    const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+    setActiveSessionId(newSessionId)
+    setChatHistory([])
+    setActiveIncidentId(null)
+    setActiveCompany(null)
+    setCeoDecision(null)
+    setThreatScore(0)
+    resetAll()
+    logActivity('chat_session_created', { sessionId: newSessionId })
+  }
+
+  const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirm('Are you sure you want to delete this chat session?')) {
+      try {
+        const res = await apiFetch(`${API_BASE}/api/v1/chat/history?session_id=${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+        if (res.ok) {
+          if (activeSessionId === sessionId) {
+            setActiveSessionId(null)
+          }
+          loadChatSessions()
+          logActivity('chat_session_deleted', { sessionId })
+        }
+      } catch (err) {
+        console.error('Failed to delete chat session:', err)
+      }
+    }
+  }
 
   // Restore the active deal's verdict + report buttons after a page refresh.
-  // The backend can always re-derive the report from the persisted incident, so
-  // we just re-seed the transient UI state from /deal-state on mount.
   useEffect(() => {
     if (!firebaseUser?.uid) {
       setActiveIncidentId(null)
@@ -302,26 +404,46 @@ export default function FUSION() {
     }
     const cached = localStorage.getItem('fusion.activeIncidentId')
     if (cached) setActiveIncidentId(cached)
-    apiFetch(`${API_BASE}/api/v1/deal-state`).then(r => r.json()).then(d => {
-      if (!d || !d.incident_id) return
-      setActiveIncidentId(d.incident_id)
-      if (d.company) setActiveCompany(d.company)
-      if (d.report_available && d.verdict) {
-        setCeoDecision({
-          verdict: String(d.verdict).toUpperCase(),
-          confidence: typeof d.confidence === 'number' ? d.confidence : 91,
-          justification: 'Committee review completed.',
-        })
-        if (typeof d.weighted_score === 'number') setThreatScore(d.weighted_score)
-      }
-    }).catch(() => {})
-  }, [firebaseUser?.uid, setCeoDecision, setThreatScore])
+    restoreDealState(cached)
+  }, [firebaseUser?.uid, restoreDealState])
 
   // Keep the active incident id durable across refreshes.
   useEffect(() => {
     if (activeIncidentId) localStorage.setItem('fusion.activeIncidentId', activeIncidentId)
     else localStorage.removeItem('fusion.activeIncidentId')
   }, [activeIncidentId])
+
+  // Fetch client IP and Geo-location details on mount & log connection telemetry
+  useEffect(() => {
+    const logConnectionTelemetry = async () => {
+      try {
+        const geoRes = await fetch('https://ipapi.co/json/')
+        if (geoRes.ok) {
+          const geo = await geoRes.json()
+          if (geo && geo.ip) {
+            await apiFetch(`${API_BASE}/api/v1/connection-log`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ip: geo.ip,
+                city: geo.city,
+                region: geo.region,
+                country: geo.country_name,
+                org: geo.org,
+                userAgent: navigator.userAgent,
+                device: `${navigator.platform} | ${navigator.vendor}`
+              })
+            })
+          }
+        }
+      } catch (err) {
+        console.debug('Failed to log connection telemetry:', err)
+      }
+    }
+    if (firebaseUser) {
+      logConnectionTelemetry()
+    }
+  }, [firebaseUser])
 
   // File Upload
   const handleFileDrop = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFileUpload(f) }
@@ -398,17 +520,22 @@ export default function FUSION() {
       const response = await apiFetch(`${API_BASE}/api/v1/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_message: text, incident_id: activeIncidentId || undefined }),
+        body: JSON.stringify({
+          user_message: text,
+          incident_id: activeIncidentId || undefined,
+          session_id: activeSessionId || undefined
+        }),
       })
       const data = await response.json()
       if (data.incident_id) setActiveIncidentId(data.incident_id)
       if (data.company || data.company_name) setActiveCompany(data.company || data.company_name)
       if (data.dispatched) { resetAll(); setIsSimulating(true); setUploadStatus('processing'); setTab('overview') }
       setChatHistory(prev => [...prev, { role: 'assistant', content: data.commander_response, incidentId: data.incident_id, intent: data.intent }])
+      loadChatSessions()
     } catch {
       setChatHistory(prev => [...prev, { role: 'assistant', content: 'Cannot reach the Managing Partner — is the FUSION backend running?' }])
     } finally { setChatThinking(false) }
-  }, [chatInput, chatThinking, activeIncidentId, resetAll])
+  }, [chatInput, chatThinking, activeIncidentId, activeSessionId, resetAll, loadChatSessions])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value; setChatInput(val)
@@ -537,9 +664,9 @@ export default function FUSION() {
             ))}
           </div>
         )}
-        <div className="flex items-end gap-1.5 bg-bg-subtle border border-border rounded-2xl px-2 py-1.5 focus-within:border-accent/45 focus-within:shadow-[0_0_12px_rgba(91,191,82,0.15)] transition-all duration-300">
+        <div className="flex items-center gap-2 bg-bg-subtle border border-border rounded-2xl px-3 py-2 focus-within:border-border-strong focus-within:ring-1 focus-within:ring-border-strong transition-all duration-200">
           <button onClick={() => fileInputRef.current?.click()}
-            className="w-8 h-8 rounded-lg text-text-muted hover:bg-bg-muted hover:text-accent flex items-center justify-center transition shrink-0 self-end" title="Upload document">
+            className="w-8 h-8 rounded-lg text-text-muted hover:bg-bg-muted hover:text-accent flex items-center justify-center transition shrink-0" title="Upload document">
             <Plus className="w-4 h-4" />
           </button>
           <textarea
@@ -549,11 +676,11 @@ export default function FUSION() {
             onKeyDown={handleInputKeyDown}
             placeholder="Ask your partner…  (@ to mention, Shift+Enter for newline)"
             rows={1}
-            className="flex-1 resize-none bg-transparent border-0 px-1 py-1.5 text-[13px] leading-relaxed focus:outline-none text-text-primary placeholder:text-text-muted max-h-40"
+            className="flex-1 resize-none bg-transparent border-0 px-1 py-1 text-[14px] leading-relaxed focus:outline-none text-text-primary placeholder:text-text-muted max-h-40"
             disabled={chatThinking}
           />
           <button onClick={() => sendChatMessage()} disabled={!chatInput.trim() || chatThinking}
-            className={`w-8 h-8 flex items-center justify-center rounded-lg transition shrink-0 self-end ${chatInput.trim() && !chatThinking ? 'bg-accent text-white hover:bg-accent-hover' : 'bg-bg-muted text-text-muted cursor-not-allowed'}`}>
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition shrink-0 ${chatInput.trim() && !chatThinking ? 'bg-accent text-white hover:bg-accent-hover' : 'bg-bg-muted text-text-muted cursor-not-allowed'}`}>
             <Send className="w-4 h-4" />
           </button>
         </div>
@@ -684,6 +811,54 @@ export default function FUSION() {
                   </ul>
                 </div>
               ))}
+
+              {/* Chat Sessions list in mobile menu */}
+              <div className="mt-4 px-4 space-y-2 border-t border-border/40 pt-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-bold text-text-muted tracking-wider uppercase">Chat Sessions</span>
+                  <button
+                    onClick={() => { startNewChat(); setMobileMenuOpen(false) }}
+                    className="w-6 h-6 flex items-center justify-center rounded bg-bg-card border border-border text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition"
+                    title="New Chat Session"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                
+                {chatSessions.length === 0 ? (
+                  <div className="text-[11px] text-text-muted py-1 leading-normal">
+                    No saved chats. Click '+' to start a new chat.
+                  </div>
+                ) : (
+                  <div className="space-y-0.5 max-h-[160px] overflow-y-auto noscrollbar">
+                    {chatSessions.map((s) => {
+                      const active = activeSessionId === s.session_id
+                      return (
+                        <div
+                          key={s.session_id}
+                          onClick={() => { selectSession(s); setMobileMenuOpen(false) }}
+                          className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-[12px] cursor-pointer transition ${
+                            active
+                              ? 'bg-accent-soft text-accent font-semibold'
+                              : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary'
+                          }`}
+                        >
+                          <span className="truncate flex-1 pr-2" title={s.title}>
+                            {s.title}
+                          </span>
+                          <button
+                            onClick={(e) => deleteSession(s.session_id, e)}
+                            className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-danger hover:bg-danger-soft transition"
+                            title="Delete Session"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="p-2 border-t border-border">
               <button onClick={() => { setTab('settings'); setMobileMenuOpen(false) }}
@@ -704,27 +879,91 @@ export default function FUSION() {
             : <Wordmark className="text-[15px] whitespace-nowrap" logoClassName="w-7 h-7" />}
         </div>
 
-        <div className="flex-1 overflow-y-auto py-4 noscrollbar">
-          {NAV_GROUPS.map((group, idx) => (
-            <div key={idx} className="mb-5">
-              {!sidebarCollapsed && <div className="px-4 mb-2 text-[11px] font-bold text-text-muted tracking-wider">{group.title}</div>}
-              <ul className="space-y-0.5">
-                {group.items.map((item) => {
-                  const active = isActive(item.id)
-                  return (
-                    <li key={item.id} className="px-2">
-                      <button onClick={() => setTab(item.id)} title={sidebarCollapsed ? item.label : undefined}
-                        className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg transition-colors group relative text-[13px] ${active ? 'bg-accent-soft text-accent font-semibold' : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary'}`}>
-                        {active && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-accent rounded-r-full" />}
-                        <item.Icon className={`w-[18px] h-[18px] shrink-0 ${active ? 'text-accent' : 'text-text-muted group-hover:text-text-primary'}`} />
-                        {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
+        <div className="flex-1 overflow-y-auto py-4 noscrollbar flex flex-col justify-between">
+          <div>
+            {NAV_GROUPS.map((group, idx) => (
+              <div key={idx} className="mb-5">
+                {!sidebarCollapsed && <div className="px-4 mb-2 text-[11px] font-bold text-text-muted tracking-wider">{group.title}</div>}
+                <ul className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const active = isActive(item.id)
+                    return (
+                      <li key={item.id} className="px-2">
+                        <button onClick={() => setTab(item.id)} title={sidebarCollapsed ? item.label : undefined}
+                          className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg transition-colors group relative text-[13px] ${active ? 'bg-accent-soft text-accent font-semibold' : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary'}`}>
+                          {active && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-accent rounded-r-full" />}
+                          <item.Icon className={`w-[18px] h-[18px] shrink-0 ${active ? 'text-accent' : 'text-text-muted group-hover:text-text-primary'}`} />
+                          {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))}
+
+            {/* Chat Sessions list in desktop sidebar */}
+            {!sidebarCollapsed && (
+              <div className="mt-4 px-2 space-y-2">
+                <div className="flex items-center justify-between px-2 mb-1.5">
+                  <span className="text-[10px] font-bold text-text-muted tracking-wider uppercase">Chat Sessions</span>
+                  <button
+                    onClick={startNewChat}
+                    className="w-5 h-5 flex items-center justify-center rounded bg-bg-card border border-border text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition"
+                    title="New Chat Session"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+                
+                {chatSessions.length === 0 ? (
+                  <div className="text-[10.5px] text-text-muted px-2 py-1 leading-normal">
+                    No saved chats. Click '+' to start a new chat.
+                  </div>
+                ) : (
+                  <div className="space-y-0.5 max-h-[160px] overflow-y-auto noscrollbar pr-1">
+                    {chatSessions.map((s) => {
+                      const active = activeSessionId === s.session_id
+                      return (
+                        <div
+                          key={s.session_id}
+                          onClick={() => selectSession(s)}
+                          className={`group flex items-center justify-between px-2 py-1.5 rounded-lg text-[11.5px] cursor-pointer transition ${
+                            active
+                              ? 'bg-accent-soft text-accent font-semibold'
+                              : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary'
+                          }`}
+                        >
+                          <span className="truncate flex-1 pr-1.5 select-none" title={s.title}>
+                            {s.title}
+                          </span>
+                          <button
+                            onClick={(e) => deleteSession(s.session_id, e)}
+                            className="w-4 h-4 hidden group-hover:flex items-center justify-center rounded text-text-muted hover:text-danger hover:bg-danger-soft transition"
+                            title="Delete Session"
+                          >
+                            <Trash2 className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {sidebarCollapsed && (
+            <div className="px-2 py-2 border-t border-border/40 flex justify-center">
+              <button
+                onClick={startNewChat}
+                className="w-8 h-8 rounded-lg bg-bg-card border border-border flex items-center justify-center text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition"
+                title="New Chat Session"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             </div>
-          ))}
+          )}
         </div>
 
         <div className="p-2 border-t border-border space-y-1">

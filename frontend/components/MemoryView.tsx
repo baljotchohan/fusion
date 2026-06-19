@@ -3,10 +3,10 @@
 // if the team has not evaluated any deals yet, the view shows an empty state.
 import React, { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Lightbulb, ShieldAlert, Inbox, X, Download, FileText, Eye, ChevronRight } from 'lucide-react'
+import { Lightbulb, ShieldAlert, Inbox, X, Download, FileText, Eye, ChevronRight, Trash2 } from 'lucide-react'
 import { API_BASE, AGENTS } from '../lib/agents'
 import { apiFetch, logActivity } from '../lib/apiFetch'
-import { getCurrentIdToken } from '../lib/firebase'
+import { getCurrentIdToken, auth, onAuthStateChanged, User } from '../lib/firebase'
 
 type Tab = 'findings' | 'patterns'
 
@@ -70,26 +70,31 @@ export default function MemoryView({ defaultTab = 'findings' }: MemoryViewProps)
   const [patterns, setPatterns] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
 
   useEffect(() => {
-    let alive = true
-    async function load() {
-      setLoading(true)
-      try {
-        const [incRes, statRes] = await Promise.all([
-          apiFetch(`${API_BASE}/api/v1/incidents`).then(r => r.json()).catch(() => null),
-          apiFetch(`${API_BASE}/api/v1/memory/stats`).then(r => r.json()).catch(() => null),
-        ])
-        if (!alive) return
-        if (incRes && Array.isArray(incRes.incidents)) setIncidents(incRes.incidents)
-        if (statRes && statRes.learned_patterns) setPatterns(statRes.learned_patterns)
-      } finally {
-        if (alive) setLoading(false)
-      }
-    }
-    load()
-    return () => { alive = false }
+    return onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user)
+    })
   }, [])
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const [incRes, statRes] = await Promise.all([
+        apiFetch(`${API_BASE}/api/v1/incidents`).then(r => r.json()).catch(() => null),
+        apiFetch(`${API_BASE}/api/v1/memory/stats`).then(r => r.json()).catch(() => null),
+      ])
+      if (incRes && Array.isArray(incRes.incidents)) setIncidents(incRes.incidents)
+      if (statRes && statRes.learned_patterns) setPatterns(statRes.learned_patterns)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+  }, [currentUser?.uid])
 
   const patternEntries = Object.entries(patterns).filter(([, n]) => (n as number) > 0)
 
@@ -100,20 +105,46 @@ export default function MemoryView({ defaultTab = 'findings' }: MemoryViewProps)
         <p className="text-[13px] text-text-secondary mt-1">Accumulated from deals this committee has actually evaluated</p>
       </motion.div>
 
-      <div className="flex gap-2">
-        {([
-          { key: 'findings' as Tab, label: 'Deal History',   Icon: Lightbulb },
-          { key: 'patterns' as Tab, label: 'Risk Patterns',  Icon: ShieldAlert },
-        ]).map(({ key, label, Icon }) => {
-          const active = tab === key
-          return (
-            <button key={key} onClick={() => { setTab(key); logActivity('memory_tab_switched', { tab: key }) }}
-              className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[12px] font-semibold transition-all duration-200 border
-                ${active ? 'bg-accent text-white border-accent shadow-sm' : 'bg-bg-card text-text-secondary border-border hover:bg-bg-subtle'}`}>
-              <Icon className="w-3.5 h-3.5" />{label}
-            </button>
-          )
-        })}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex gap-2">
+          {([
+            { key: 'findings' as Tab, label: 'Deal History',   Icon: Lightbulb },
+            { key: 'patterns' as Tab, label: 'Risk Patterns',  Icon: ShieldAlert },
+          ]).map(({ key, label, Icon }) => {
+            const active = tab === key
+            return (
+              <button key={key} onClick={() => { setTab(key); logActivity('memory_tab_switched', { tab: key }) }}
+                className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[12px] font-semibold transition-all duration-200 border
+                  ${active ? 'bg-accent text-white border-accent shadow-sm' : 'bg-bg-card text-text-secondary border-border hover:bg-bg-subtle'}`}>
+                <Icon className="w-3.5 h-3.5" />{label}
+              </button>
+            )
+          })}
+        </div>
+
+        {tab === 'findings' && incidents.length > 0 && (
+          <button
+            onClick={async () => {
+              if (confirm('🚨 DANGER ZONE: This will wipe ALL evaluated deals, risk patterns, and chat history. Proceed?')) {
+                try {
+                  const res = await apiFetch(`${API_BASE}/api/v1/system/reset-all`, { method: 'POST' })
+                  if (res.ok) {
+                    setIncidents([])
+                    setPatterns({})
+                    logActivity('memory_wipe_all_clicked')
+                    alert('All history wiped successfully.')
+                  }
+                } catch (err) {
+                  console.error('Wipe all failed:', err)
+                }
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-danger-soft hover:bg-danger-soft text-danger text-[11px] font-semibold transition"
+            title="Wipe All History"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Wipe All History
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -137,6 +168,26 @@ export default function MemoryView({ defaultTab = 'findings' }: MemoryViewProps)
                           {inc.verdict.replace(/_/g, ' ')}
                         </span>
                       )}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          if (confirm(`Are you sure you want to delete the deal for ${inc.company || 'this company'}?`)) {
+                            try {
+                              const res = await apiFetch(`${API_BASE}/api/v1/incident/${inc.incident_id}`, { method: 'DELETE' })
+                              if (res.ok) {
+                                setIncidents(prev => prev.filter(i => i.incident_id !== inc.incident_id))
+                                logActivity('memory_deal_deleted', { incidentId: inc.incident_id, company: inc.company })
+                              }
+                            } catch (err) {
+                              console.error('Failed to delete deal:', err)
+                            }
+                          }
+                        }}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-danger-soft text-text-muted hover:text-danger transition-colors"
+                        title="Delete Deal"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                       <ChevronRight className="w-4 h-4 text-text-muted group-hover:text-accent transition-colors" />
                     </div>
                   </div>

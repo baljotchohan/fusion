@@ -1117,24 +1117,50 @@ class BaseAgent:
         if not self._should_handle_mock_message(sender, message):
             logger.info(f"[{self.display_name}] Ignoring mock message (gated): '{message[:60]}'")
             return
-        logger.info(f"[{self.display_name}] Enqueueing message from '{sender}': {message[:80]}...")
-        await self._message_queue.put((sender, message))
+            
+        from core.auth import current_uid
+        uid = current_uid.get("__public__")
+        
+        if not hasattr(self, "_message_queues"):
+            self._message_queues = {}
+        if not hasattr(self, "_queue_processors"):
+            self._queue_processors = {}
+
+        if uid not in self._message_queues:
+            self._message_queues[uid] = asyncio.Queue()
+
+        logger.info(f"[{self.display_name}] Enqueueing message for {uid} from '{sender}': {message[:80]}...")
+        await self._message_queues[uid].put((sender, message))
 
         # Kick off the drain loop if it isn't already running.
-        if not self._queue_processor_running:
-            self._queue_processor_running = True
-            asyncio.create_task(self._drain_message_queue())
+        if not self._queue_processors.get(uid):
+            self._queue_processors[uid] = True
+            asyncio.create_task(self._drain_message_queue_for_uid(uid))
 
-    async def _drain_message_queue(self):
-        """Process queued messages one at a time until the queue is empty."""
+    async def _drain_message_queue_for_uid(self, uid: str):
+        """Process queued messages for a specific user one at a time."""
+        from core.auth import current_uid, current_username
+        
+        username = uid
+        if uid == "__public__":
+            username = "guest"
+            
+        token_ctx = current_uid.set(uid)
+        username_ctx = current_username.set(username)
+        
         try:
-            while not self._message_queue.empty():
-                sender, message = await self._message_queue.get()
-                await self._handle_single_message(sender, message)
+            queue = self._message_queues.get(uid)
+            if queue:
+                while not queue.empty():
+                    sender, message = await queue.get()
+                    await self._handle_single_message(sender, message)
         except Exception as e:
-            logger.error(f"[{self.display_name}] Queue drain error: {e}")
+            logger.error(f"[{self.display_name}] Queue drain error for {uid}: {e}")
         finally:
-            self._queue_processor_running = False
+            self._queue_processors[uid] = False
+            current_uid.reset(token_ctx)
+            current_username.reset(username_ctx)
+
 
     async def _handle_single_message(self, sender: str, message: str):
         """Process one message: run the LangGraph executor and broadcast updates."""

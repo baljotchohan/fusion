@@ -118,6 +118,21 @@ class MemoryGraph:
             pass
         return incidents[incident_id]
 
+    def delete_incident(self, incident_id: str):
+        """Delete an incident record locally and from Firestore."""
+        with _LOCK:
+            incidents = self._read_file(self.incidents_file)
+            if incident_id in incidents:
+                del incidents[incident_id]
+                self._write_file(self.incidents_file, incidents)
+                logger.info(f"Memory: deleted incident {incident_id}")
+        # Mirror deletion to Firestore
+        try:
+            from core.firestore_memory import fs_delete_incident
+            fs_delete_incident(self._explicit_uid, incident_id)
+        except Exception as e:
+            logger.debug(f"Failed to delete incident from Firestore: {e}")
+
     def get_incident(self, incident_id: str) -> Optional[dict]:
         data = self._read_file(self.incidents_file).get(incident_id)
         if data:
@@ -302,7 +317,14 @@ class MemoryGraph:
     def clear_chat_history(self, session_id: Optional[str] = None):
         chat_file = self._get_chat_file_for_session(session_id)
         with _LOCK:
-            self._write_file(chat_file, [])
+            if session_id and chat_file.exists():
+                try:
+                    chat_file.unlink()
+                    logger.info(f"Memory: unlinked session file {chat_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete session file {chat_file}: {e}")
+            else:
+                self._write_file(chat_file, [])
 
     def clear_all(self):
         """Wipe everything: all deals, learned patterns, agent profiles, and chat history.
