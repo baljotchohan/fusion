@@ -56,12 +56,12 @@ def _ref(path: str):
 
 
 def probe() -> str:
-    """Make a real network read to confirm RTDB is reachable. Returns 'ok', 'disabled', or an error string."""
+    """Write a heartbeat to /diagnostics/heartbeat to confirm RTDB is reachable. Returns 'ok', 'disabled', or an error string."""
     if not _init():
         url = os.environ.get("FIREBASE_DATABASE_URL", "").strip()
         return "disabled — FIREBASE_DATABASE_URL not set" if not url else "disabled — Firebase Admin not initialized (check service account secret)"
     try:
-        _db.reference("/.info/connected").get()
+        _db.reference("/diagnostics/heartbeat").set({"timestamp": _now(), "status": "ok"})
         return "ok"
     except Exception as exc:
         return f"error — {exc}"
