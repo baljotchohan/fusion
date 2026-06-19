@@ -97,7 +97,17 @@ export function useAgentWebSocket(uid?: string | null) {
       const token = await getCurrentIdToken().catch(() => null)
       if (cancelled) return  // uid may have changed while we awaited the token
       const wsUrl = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
-      ws = new WebSocket(wsUrl)
+      try {
+        ws = new WebSocket(wsUrl)
+      } catch (err) {
+        console.error('[FUSION WS] Failed to create WebSocket connection:', err)
+        if (!cancelled) {
+          setIsConnected(false)
+          reconnectTimer = setTimeout(connect, reconnectDelay)
+          reconnectDelay = Math.min(reconnectDelay * 2, maxDelay)
+        }
+        return
+      }
 
       ws.onopen = () => {
         if (cancelled) { ws?.close(); return }

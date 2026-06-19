@@ -7,6 +7,7 @@ of the pitch deck for their domain analysis.
 import json
 import os
 import logging
+from typing import Optional
 from langchain_core.tools import tool
 
 logger = logging.getLogger("fusion.pitch_loader")
@@ -15,12 +16,47 @@ _PITCH_CACHE: dict = {}
 _DEFAULT_PITCH = "novapay_pitch.json"
 
 
+def resolve_pitch_file_for_incident(incident_id: str) -> Optional[str]:
+    """Resolve the pitch filename for a specific incident_id."""
+    if not incident_id:
+        return None
+    try:
+        from core.memory_graph import MemoryGraph
+        from core.demo_registry import resolve_pitch_file
+        m_graph = MemoryGraph()
+        inc = m_graph.get_incident(incident_id)
+        if inc:
+            meta = inc.get("metadata") or {}
+            company = meta.get("company")
+            if company:
+                resolved = resolve_pitch_file(company)
+                if resolved:
+                    return resolved
+        # Check if there is an uploaded file on disk
+        data_dir = os.path.join(os.path.dirname(__file__), "../data")
+        uploaded_filename = f"pitch_{incident_id}.json"
+        if os.path.exists(os.path.join(data_dir, uploaded_filename)):
+            return uploaded_filename
+    except Exception as e:
+        logger.warning(f"resolve_pitch_file_for_incident error: {e}")
+    return None
+
+
 def _load_pitch_file(filename: str = None) -> dict:
     """Load pitch JSON from the data/ directory. Cached after first load.
 
-    When no filename is given, resolves the active pitch from sim_state:
+    When no filename is given, resolves the active pitch from ContextVar or sim_state:
     active_pitch_file first, then the pitch_{incident_id}.json convention.
     Falls back to the latest incident in the memory graph if sim_state is cleared."""
+    if filename is None:
+        try:
+            from core.auth import current_pitch_file
+            val = current_pitch_file.get()
+            if val:
+                filename = val
+        except Exception:
+            pass
+
     if filename is None:
         try:
             from api.state import sim_state

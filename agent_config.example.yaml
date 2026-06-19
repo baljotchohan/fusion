@@ -1,159 +1,80 @@
-# ARGUS — Band Agent Configuration
+# FUSION — Band Agent Configuration
 # Copy this file to agent_config.yaml and fill in your Band credentials.
-# At kickoff (Jun 12): export BAND_API_KEY, then run
+# At kickoff: export BAND_API_KEY, then run
 #   python scripts/setup_band_rooms.py
-# to create the 9 real Band rooms and auto-populate each agent's room_id.
-# NEVER commit agent_config.yaml to GitHub (it is .gitignore'd).
+# to create the 5 real Band rooms and auto-populate each agent's room_id.
+# NEVER commit agent_config.yaml to GitHub.
 
 band:
   api_key: "${BAND_API_KEY}"   # Set at kickoff
   workspace_id: null            # Auto-assigned by setup_band_rooms.py
 
 agents:
-  threat_intel_agent:
+  managing_partner:
     room_id: null               # Auto-assigned by setup_band_rooms.py
-    room: "threat-intel-room"   # Local mock-mode room name
+    room: "managing-partner-room" # Local mock-mode room name
     agent_id: "get-from-band-dashboard"
     api_key: "get-from-band-dashboard"
-    name: "Threat Intelligence"
-    role: "CVE & MITRE analyst"
+    name: "Managing Partner"
+    role: "Committee chair"
     system_prompt: |
-      You are a cybersecurity threat intelligence analyst. Your role:
-      - Query MITRE ATT&CK techniques (858 total)
-      - Look up CVE data from NVD API
-      - Cross-reference attack patterns
-      - Report findings in technical detail with confidence scores
-      When asked, mention relevant CVEs and ATT&CK IDs.
-      Always end with: "Reporting findings to team via Band."
+      You are the Managing Partner of FUSION. Your role:
+      - Coordinate the investment committee evaluation.
+      - Convene the 4 specialist partners.
+      - Run the debate phase and resolve conflicts.
+      - Calculate the final scorecard and issue the INVEST/PASS/CONDITIONAL verdict.
 
-  recon_agent:
+  financial_partner:
     room_id: null
-    room: "recon-room"
+    room: "finance-partner-room"
     agent_id: "get-from-band-dashboard"
     api_key: "get-from-band-dashboard"
-    name: "Reconnaissance"
-    role: "Attack surface mapper"
+    name: "Financial Partner"
+    role: "Forensic accountant"
     system_prompt: |
-      You are a red team reconnaissance specialist. Your role:
-      - Scan company digital footprint
-      - Find exposed services, DNS records, subdomains
-      - Identify weak entry points
-      - Report in OSINT-style intelligence
-      When you discover something, @mention Red Team immediately.
+      You are the Financial Partner at FUSION. Your role:
+      - Stress-test startup financials, ARR, growth, and runway.
+      - Investigate unit economics and valuation multiples.
+      - Report financial risks and recommend red flag scores.
 
-  red_team_agent:
+  legal_partner:
     room_id: null
-    room: "redteam-room"
+    room: "legal-partner-room"
     agent_id: "get-from-band-dashboard"
     api_key: "get-from-band-dashboard"
-    name: "Red Team"
-    role: "Attack simulator"
+    name: "Legal Partner"
+    role: "Corporate attorney"
     system_prompt: |
-      You are an ethical red team operator. Your role:
-      - Simulate attacks using recon data
-      - Predict attacker next steps
-      - Test defenses
-      - Report exploitation chains
-      Always act as if you have limited time. @mention Blue Team when done.
+      You are the Legal Partner at FUSION. Your role:
+      - Audit IP, patent litigation, regulatory compliance, and cap table safety.
+      - Flag legal vulnerabilities.
+      - Report legal risk scores.
 
-  attack_path_agent:
+  technical_partner:
     room_id: null
-    room: "attack-path-room"
+    room: "tech-partner-room"
     agent_id: "get-from-band-dashboard"
     api_key: "get-from-band-dashboard"
-    name: "Attack Path Analysis"
-    role: "Risk scorer"
+    name: "Technical Partner"
+    role: "CTO / Auditor"
     system_prompt: |
-      You are a risk analyst. Your role:
-      - Quantify attack risk (1-100 score)
-      - Model attack chains
-      - Identify critical dependencies
-      - Prioritize by severity
-      Report risk matrix. @mention Executive Decision for high-risk paths.
+      You are the Technical Partner at FUSION. Your role:
+      - Audit tech stack currency, plaintext data storage, security posture, and PCI-DSS.
+      - Identify tech debt and scalability risks.
+      - Report technical risk scores.
 
-  detection_agent:
+  market_partner:
     room_id: null
-    room: "detection-room"
+    room: "market-partner-room"
     agent_id: "get-from-band-dashboard"
     api_key: "get-from-band-dashboard"
-    name: "Detection"
-    role: "Log analyst"
+    name: "Market Partner"
+    role: "Market analyst"
     system_prompt: |
-      You are a SOC analyst. Your role:
-      - Scan logs for IoCs (indicators of compromise)
-      - Match against threat intel
-      - Flag anomalies
-      - Correlate events across systems
-      Report suspicious activity. @mention Blue Team for remediation.
-
-  malware_agent:
-    room_id: null
-    room: "malware-room"
-    agent_id: "get-from-band-dashboard"
-    api_key: "get-from-band-dashboard"
-    name: "Malware Investigation"
-    role: "Reverse engineer"
-    system_prompt: |
-      You are a malware analyst. Your role:
-      - Analyze file hashes, behaviors
-      - Identify malware families
-      - Extract IoCs
-      - Assess blast radius
-      Report findings with severity. @mention Blue Team.
-
-  blue_team_agent:
-    room_id: null
-    room: "blueteam-room"
-    agent_id: "get-from-band-dashboard"
-    api_key: "get-from-band-dashboard"
-    name: "Blue Team Defense"
-    role: "Defense coordinator"
-    system_prompt: |
-      You are a blue team leader. Your role:
-      - Devise countermeasures
-      - Isolate affected systems
-      - Block IoCs (IPs, domains, hashes)
-      - Recommend patches
-      Coordinate defense. @mention Incident Commander with action plan.
-
-  incident_commander:
-    room_id: null
-    room: "incident-command-room"
-    agent_id: "get-from-band-dashboard"
-    api_key: "get-from-band-dashboard"
-    name: "Incident Commander"
-    role: "Orchestrator"
-    system_prompt: |
-      You are the incident commander. Your role:
-      - Coordinate all agents
-      - Synthesize findings into executive brief
-      - Escalate to CEO decision
-      - Make go/no-go calls
-      Listen to all agents. @mention Executive Decision with recommendation.
-
-  executive_decision:
-    room_id: null
-    room: "executive-room"
-    agent_id: "get-from-band-dashboard"
-    api_key: "get-from-band-dashboard"
-    name: "Executive Decision"
-    role: "C-suite decision maker"
-    sub_agents:
-      cfo:
-        name: "CFO"
-        prompt: "Cost impact? Ransom? Insurance claim? Business continuity?"
-      legal:
-        name: "Legal"
-        prompt: "Breach notification? Regulatory requirements? Liability?"
-      ops:
-        name: "Ops"
-        prompt: "Downtime? Recovery time? Resource needs?"
-      ceo:
-        name: "CEO"
-        prompt: "Final decision: respond internally or call FBI? Public disclosure?"
-    system_prompt: |
-      You coordinate CFO, Legal, Ops, and CEO. Synthesize their inputs.
-      Final decision: escalate threat level and recommended action.
+      You are the Market Partner at FUSION. Your role:
+      - Validate TAM, competitive positioning, and growth context.
+      - Rate defensibility moats and sector timing.
+      - Report market risk scores.
 
 llm_config:
   primary: "gemini"      # Default provider

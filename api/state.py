@@ -21,30 +21,71 @@ def record_session(key: str) -> None:
     _week_sessions[key].append(time.time())
 
 
+# Global incident to uid registry
+_incident_to_uid: Dict[str, str] = {}
+
+def register_incident_uid(incident_id: str, uid: str):
+    if incident_id and uid:
+        _incident_to_uid[incident_id] = uid
+
+def get_uid_for_incident(incident_id: str) -> Optional[str]:
+    return _incident_to_uid.get(incident_id)
+
+
 class SimulationState:
     def __init__(self):
-        # Store state dictionaries keyed by uid
+        # Store state dictionaries keyed by "uid:incident_id"
         self._states: Dict[str, Dict[str, Any]] = {}
 
     def _get_state(self) -> Dict[str, Any]:
         uid = "__public__"
+        incident_id = None
         try:
-            from core.auth import current_uid
+            from core.auth import current_uid, current_incident_id
             uid = current_uid.get()
-            if uid == "__mcp_client__":
-                # Fallback for stdio or background tasks
-                import os
-                uid = os.getenv("FUSION_UID") or os.getenv("FUSION_ACTIVE_UID") or "__mcp_client__"
+            incident_id = current_incident_id.get()
         except Exception:
             pass
 
-        if uid not in self._states:
-            self._states[uid] = {
+        if uid == "__mcp_client__":
+            import os
+            uid = os.getenv("FUSION_UID") or os.getenv("FUSION_ACTIVE_UID") or "__mcp_client__"
+
+        # If incident_id is not in context, try to look up or find an active one for the uid
+        if not incident_id:
+            active_state = None
+            for key, state in self._states.items():
+                if key.startswith(f"{uid}:") and state.get("running"):
+                    active_state = state
+                    break
+            if active_state:
+                return active_state
+
+            user_keys = [k for k in self._states.keys() if k.startswith(f"{uid}:")]
+            if user_keys:
+                user_keys.sort(key=lambda k: self._states[k].get("last_event_at", 0), reverse=True)
+                return self._states[user_keys[0]]
+
+            incident_id = "default"
+
+        # Look up uid using incident_id if we have incident_id but no authenticated uid
+        if uid in ("__public__", "__mcp_client__") and incident_id and incident_id != "default":
+            mapped_uid = _incident_to_uid.get(incident_id)
+            if mapped_uid:
+                uid = mapped_uid
+
+        # Register mapping if we have both
+        if uid and incident_id and incident_id != "default" and uid not in ("__public__", "__mcp_client__"):
+            _incident_to_uid[incident_id] = uid
+
+        state_key = f"{uid}:{incident_id}"
+        if state_key not in self._states:
+            self._states[state_key] = {
                 "running": False,
                 "active_uid": uid if uid not in ("__public__", "__mcp_client__") else None,
                 "active_user_name": None,
                 "agent_statuses": {},
-                "active_incident_id": None,
+                "active_incident_id": incident_id if incident_id != "default" else None,
                 "active_pitch_file": "novapay_pitch.json",
                 "dispatched_deals": set(),
                 "completed_agents": set(),
@@ -58,7 +99,7 @@ class SimulationState:
                 "_mp_verdict_pending": False,
                 "_mp_verdict_triggered": False,
             }
-        return self._states[uid]
+        return self._states[state_key]
 
     @property
     def running(self) -> bool:

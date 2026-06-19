@@ -28,12 +28,23 @@ class EventBus:
 
     async def broadcast(self, agent_name: str, status: str, output: dict = None):
         """Broadcast an agent state update to all registered listeners."""
+        uid = None
+        incident_id = None
+        try:
+            from core.auth import current_uid, current_incident_id
+            uid = current_uid.get()
+            incident_id = current_incident_id.get()
+        except Exception:
+            pass
+
         event_data = {
             "type": "agent_update",
             "agent": agent_name,
             "status": status,  # 'idle', 'working', 'done', 'alert'
             "output": output or {},
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "uid": uid,
+            "incident_id": incident_id,
         }
         
         logger.info(f"Broadcasting event: Agent={agent_name}, Status={status}")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # scripts/setup_band_rooms.py
 """
-Create the 9 real Band rooms — one per ARGUS agent — and write the assigned
+Create the 5 real Band rooms — one per FUSION partner — and write the assigned
 room IDs back into agent_config.yaml.
 
 Run this ONCE at hackathon kickoff (Jun 12) after exporting BAND_API_KEY:
@@ -23,7 +23,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
-logger = logging.getLogger("argus.setup_band_rooms")
+logger = logging.getLogger("fusion.setup_band_rooms")
 
 CONFIG_PATH = "agent_config.yaml"
 EXAMPLE_PATH = "agent_config.example.yaml"
@@ -61,7 +61,7 @@ async def get_or_create_workspace(client: httpx.AsyncClient, headers: dict, conf
         resp = await client.post(
             f"{BAND_API_BASE}/workspaces",
             headers=headers,
-            json={"name": "ARGUS SOC"},
+            json={"name": "FUSION Investment Committee"},
         )
         resp.raise_for_status()
         workspace_id = resp.json().get("id")
@@ -73,7 +73,7 @@ async def create_room(client, headers, workspace_id, agent_name, agent_cfg) -> s
     payload = {
         "name": agent_cfg.get("name", agent_name),
         "description": (
-            f"ARGUS agent room — {agent_cfg.get('role', agent_name)}.\n\n"
+            f"FUSION agent room — {agent_cfg.get('role', agent_name)}.\n\n"
             f"{agent_cfg.get('system_prompt', '')[:500]}"
         ),
     }
@@ -124,7 +124,7 @@ async def main():
 
     save_config(config)
     logger.info(f"\nDone. Created {created}, skipped {skipped}, failed {failed}.")
-    logger.info("Verify all 9 rooms on the band.ai dashboard, then run with BAND_MOCK=false.")
+    logger.info("Verify all 5 rooms on the band.ai dashboard, then run with BAND_MOCK=false.")
     if failed:
         sys.exit(1)
 

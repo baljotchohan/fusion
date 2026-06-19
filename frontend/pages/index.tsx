@@ -481,12 +481,16 @@ export default function FUSION() {
   }
 
   const triggerDealSimulation = async (companyName: string = 'NovaPay Inc') => {
-    resetAll()
-    setIsSimulating(true); setActiveCompany(companyName); setTab('overview'); setOverviewTab('roundtable')
-    logActivity('deal_simulated', { company: companyName })
     try {
       const res = await apiFetch(`${API_BASE}/api/trigger-deal?company=${encodeURIComponent(companyName)}`, { method: 'POST' })
       const data = await res.json()
+      if (data.status === 'already_running') {
+        alert(data.message || 'Another committee session is currently active. Please wait or reset the simulation.')
+        return
+      }
+      resetAll()
+      setIsSimulating(true); setActiveCompany(companyName); setTab('overview'); setOverviewTab('roundtable')
+      logActivity('deal_simulated', { company: companyName })
       if (data.deal_id) setActiveIncidentId(data.deal_id)
     } catch {
       setIsSimulating(false)

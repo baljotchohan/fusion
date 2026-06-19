@@ -60,10 +60,10 @@ const StepCopy = ({ label, onClick }: { label: string; onClick: () => void }) =>
   </button>
 )
 
-const StepOpen = ({ label, href }: { label: string; href: string }) => (
-  <a href={href} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-bg-muted border border-border text-[11px] font-medium text-text-primary hover:bg-bg-card transition cursor-pointer">
+const StepOpen = ({ label, onClick }: { label: string; onClick: () => void }) => (
+  <button onClick={onClick} className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-bg-muted border border-border text-[11px] font-medium text-text-primary hover:bg-bg-card transition cursor-pointer">
     <ExternalLink className="w-3 h-3" />{label}
-  </a>
+  </button>
 )
 
 const CodeBlock = ({ code, onCopy, isCopied }: { code: string; onCopy: () => void; isCopied: boolean }) => (
@@ -481,7 +481,7 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
                                 <StepRow key={i} n={i + 1} text={step.text}>
                                   {step.cta && (
                                     step.cta.label.startsWith('Open')
-                                      ? <StepOpen label={step.cta.label} href="#" />
+                                      ? <StepOpen label={step.cta.label} onClick={step.cta.fn} />
                                       : <StepCopy label={step.cta.label} onClick={step.cta.fn} />
                                   )}
                                 </StepRow>

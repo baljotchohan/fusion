@@ -61,9 +61,7 @@ REQUIRED_FILES = [
     "frontend/pages/index.tsx",
     "frontend/package.json",
     "frontend/hooks/useAgentWebSocket.ts",
-    "frontend/components/AgentCard.tsx",
     "frontend/components/AgentGraph.tsx",
-    "frontend/components/ExecutivePanel.tsx",
     "frontend/components/LiveLog.tsx",
     "frontend/components/MemoryView.tsx",
     "frontend/components/SettingsView.tsx",
@@ -207,7 +205,7 @@ async def test_mock_routing():
     received = []
     class MockAgent:
         name = "test_agent"
-        async def handle_mock_message(self, sender, msg):
+        async def handle_mock_message(self, sender, msg, incident_id=None):
             received.append((sender, msg))
 
     bus = MockBandBus()

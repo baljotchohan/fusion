@@ -98,7 +98,10 @@ def _call(payload: bytes) -> str:
                            "error": {"code": -32000, "message": str(e)}})
 
 
-for line in sys.stdin:
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
     line = line.strip()
     if not line:
         continue

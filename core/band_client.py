@@ -3,150 +3,145 @@
 Wrapper for the Band SDK client that supports real and mock operation modes.
 Real mode connects to the thenvoi (Band) platform via websockets.
 Mock mode runs a local in-memory message bus for local offline testing.
+
+Key design: messages sent before an agent registers are buffered in `_pending`
+and flushed the moment that agent registers. This eliminates the race condition
+where trigger-deal fires before staggered-startup agents are online.
 """
 import os
 import asyncio
 import logging
-from typing import Dict, List, Callable, Any
+from collections import defaultdict
+from typing import Dict, List, Any
 
 logger = logging.getLogger("fusion.band_client")
 
-# Mock message bus for in-memory agent communication
+
+# ── Canonical room name resolver ──────────────────────────────────────────────
+_ROOM_ALIASES: Dict[str, str] = {
+    # Managing Partner
+    "@managing-partner": "managing-partner-room",
+    "@managing-partner-agent": "managing-partner-room",
+    "managing-partner": "managing-partner-room",
+    "managing-partner-room": "managing-partner-room",
+    # Financial Partner
+    "@financial-partner": "finance-partner-room",
+    "@financial-partner-agent": "finance-partner-room",
+    "finance-partner": "finance-partner-room",
+    "finance-partner-room": "finance-partner-room",
+    "financial-partner": "finance-partner-room",
+    # Legal Partner
+    "@legal-partner": "legal-partner-room",
+    "@legal-partner-agent": "legal-partner-room",
+    "legal-partner": "legal-partner-room",
+    "legal-partner-room": "legal-partner-room",
+    # Technical Partner
+    "@technical-partner": "tech-partner-room",
+    "@technical-partner-agent": "tech-partner-room",
+    "tech-partner": "tech-partner-room",
+    "tech-partner-room": "tech-partner-room",
+    "technical-partner": "tech-partner-room",
+    # Market Partner
+    "@market-partner": "market-partner-room",
+    "@market-partner-agent": "market-partner-room",
+    "market-partner": "market-partner-room",
+    "market-partner-room": "market-partner-room",
+}
+
+
+def _resolve_room(target_room: str) -> str:
+    """Return the canonical FUSION room name for any alias/handle."""
+    cleaned = target_room.strip().lower()
+    if cleaned in _ROOM_ALIASES:
+        return _ROOM_ALIASES[cleaned]
+    # Fuzzy fallback
+    if "managing" in cleaned or "chair" in cleaned:
+        return "managing-partner-room"
+    if "financ" in cleaned:
+        return "finance-partner-room"
+    if "legal" in cleaned:
+        return "legal-partner-room"
+    if "tech" in cleaned:
+        return "tech-partner-room"
+    if "market" in cleaned:
+        return "market-partner-room"
+    return target_room  # unknown room — pass through unchanged
+
+
+# ── MockBandBus ───────────────────────────────────────────────────────────────
+
 class MockBandBus:
+    """In-memory message bus.
+
+    Messages sent to a room with no listeners are buffered in `_pending` and
+    delivered automatically when an agent registers for that room.
+    """
+
     def __init__(self):
         self.rooms: Dict[str, List[Any]] = {}
+        # pending[(room)] = list of (sender, message, incident_id) tuples
+        self._pending: Dict[str, list] = defaultdict(list)
         self._background_tasks: set = set()
 
     def register(self, room: str, agent: Any):
+        """Register an agent to a room and flush any buffered messages."""
         if room not in self.rooms:
             self.rooms[room] = []
         if agent not in self.rooms[room]:
             self.rooms[room].append(agent)
             logger.info(f"Mock Band Bus: Registered agent '{agent.name}' to room '{room}'")
 
-    async def send_message(self, sender: str, target_room: str, message: str):
-        # Resolve target room name to map handles and variants to registered rooms
-        ROOM_MAPPING = {
-            # ── FUSION rooms ──────────────────────────────────────
-            "@managing-partner": "managing-partner-room",
-            "@managing-partner-agent": "managing-partner-room",
-            "@financial-partner": "finance-partner-room",
-            "@financial-partner-agent": "finance-partner-room",
-            "@legal-partner": "legal-partner-room",
-            "@legal-partner-agent": "legal-partner-room",
-            "@technical-partner": "tech-partner-room",
-            "@technical-partner-agent": "tech-partner-room",
-            "@market-partner": "market-partner-room",
-            "@market-partner-agent": "market-partner-room",
-            "managing-partner-room": "managing-partner-room",
-            "managing-partner": "managing-partner-room",
-            "finance-partner-room": "finance-partner-room",
-            "finance-partner": "finance-partner-room",
-            "financial-partner": "finance-partner-room",
-            "legal-partner-room": "legal-partner-room",
-            "legal-partner": "legal-partner-room",
-            "tech-partner-room": "tech-partner-room",
-            "tech-partner": "tech-partner-room",
-            "technical-partner": "tech-partner-room",
-            "market-partner-room": "market-partner-room",
-            "market-partner": "market-partner-room",
-            # ── Legacy ARGUS rooms (kept for backward compat) ─────
-            "@threat-intel": "threat-intel-room",
-            "@threat-intel-agent": "threat-intel-room",
-            "@recon": "recon-room",
-            "@recon-agent": "recon-room",
-            "@red-team": "redteam-room",
-            "@red-team-agent": "redteam-room",
-            "@redteam": "redteam-room",
-            "@attack-path": "attack-path-room",
-            "@attack-path-agent": "attack-path-room",
-            "@detection": "detection-room",
-            "@detection-agent": "detection-room",
-            "@malware-investigation": "malware-room",
-            "@malware-investigation-agent": "malware-room",
-            "@malware": "malware-room",
-            "@malware-agent": "malware-room",
-            "@blue-team": "blueteam-room",
-            "@blue-team-agent": "blueteam-room",
-            "@blueteam": "blueteam-room",
-            "@incident-commander": "incident-command-room",
-            "@incident-commander-agent": "incident-command-room",
-            "@executive-decision": "executive-room",
-            "@executive-decision-agent": "executive-room",
-            "@executive": "executive-room",
-            "threat-intel": "threat-intel-room",
-            "recon": "recon-room",
-            "redteam": "redteam-room",
-            "red-team": "redteam-room",
-            "attack-path": "attack-path-room",
-            "detection": "detection-room",
-            "malware": "malware-room",
-            "blueteam": "blueteam-room",
-            "blue-team": "blueteam-room",
-            "incident-commander": "incident-command-room",
-            "incident-command": "incident-command-room",
-            "executive": "executive-room",
-            "executive-decision": "executive-room",
-        }
-        
-        cleaned = target_room.strip().lower()
-        resolved = ROOM_MAPPING.get(cleaned, target_room)
-        
-        # Fuzzy checks as fallback
-        if resolved not in self.rooms:
-            # FUSION fuzzy matches
-            if "managing" in cleaned or "chair" in cleaned:
-                resolved = "managing-partner-room"
-            elif "financ" in cleaned:
-                resolved = "finance-partner-room"
-            elif "legal" in cleaned:
-                resolved = "legal-partner-room"
-            elif "tech" in cleaned:
-                resolved = "tech-partner-room"
-            elif "market" in cleaned:
-                resolved = "market-partner-room"
-            # Legacy ARGUS fuzzy matches
-            elif "intel" in cleaned:
-                resolved = "threat-intel-room"
-            elif "recon" in cleaned:
-                resolved = "recon-room"
-            elif "red" in cleaned:
-                resolved = "redteam-room"
-            elif "path" in cleaned or "attack" in cleaned:
-                if "path" in cleaned:
-                    resolved = "attack-path-room"
-            elif "detect" in cleaned:
-                resolved = "detection-room"
-            elif "malware" in cleaned:
-                resolved = "malware-room"
-            elif "blue" in cleaned:
-                resolved = "blueteam-room"
-            elif "command" in cleaned or "incident" in cleaned:
-                resolved = "incident-command-room"
-            elif "exec" in cleaned:
-                resolved = "executive-room"
-
-        logger.info(f"Mock Band Bus: [{sender}] -> room '{target_room}' (resolved to '{resolved}'): {message[:120]}...")
-        if resolved not in self.rooms:
-            logger.warning(f"Mock Band Bus: Room '{resolved}' (original: '{target_room}') does not exist or has no listeners.")
-            return
-
-        for agent in self.rooms[resolved]:
-            # Schedule execution of the agent asynchronously to mimic WebSocket trigger.
-            # Wrap in an error handler so failures are logged (not silently swallowed).
+        # Flush buffered messages
+        pending = self._pending.pop(room, [])
+        for sender, message, incident_id in pending:
+            logger.info(
+                f"Mock Band Bus: Flushing buffered message to '{agent.name}' in '{room}' "
+                f"(was buffered before agent registered)"
+            )
             task = asyncio.create_task(
-                self._safe_dispatch(agent, sender, message, resolved)
+                self._safe_dispatch(agent, sender, message, room, incident_id)
             )
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
-    async def _safe_dispatch(self, agent, sender: str, message: str, room: str):
+    async def send_message(
+        self,
+        sender: str,
+        target_room: str,
+        message: str,
+        incident_id: str | None = None,
+    ):
+        resolved = _resolve_room(target_room)
+        logger.info(
+            f"Mock Band Bus: [{sender}] -> room '{target_room}' "
+            f"(resolved to '{resolved}'): {message[:120]}..."
+        )
+
+        if resolved not in self.rooms or not self.rooms[resolved]:
+            # Buffer for delivery when the agent registers
+            logger.info(
+                f"Mock Band Bus: Room '{resolved}' has no listeners yet — "
+                f"buffering message from '{sender}' for later delivery."
+            )
+            self._pending[resolved].append((sender, message, incident_id))
+            return
+
+        for agent in self.rooms[resolved]:
+            task = asyncio.create_task(
+                self._safe_dispatch(agent, sender, message, resolved, incident_id)
+            )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+    async def _safe_dispatch(
+        self, agent, sender: str, message: str, room: str, incident_id: str | None
+    ):
         """Dispatch a message to an agent with error handling and retry."""
         max_retries = 2
         for attempt in range(max_retries + 1):
             try:
-                await agent.handle_mock_message(sender, message)
-                return  # Success
+                await agent.handle_mock_message(sender, message, incident_id)
+                return
             except Exception as e:
                 logger.error(
                     f"Mock Band Bus: Agent '{agent.name}' in room '{room}' "
@@ -155,20 +150,19 @@ class MockBandBus:
                 if attempt < max_retries:
                     await asyncio.sleep(0.5 * (attempt + 1))
                 else:
-                    # All retries exhausted — broadcast alert so the dashboard shows the failure
                     try:
                         from core.event_bus import event_bus
                         await event_bus.broadcast(agent.name, "alert", {
                             "error": f"Failed to process message from {sender}: {str(e)[:200]}"
                         })
                     except Exception:
-                        pass  # Last resort — at least the error is logged above
+                        pass
+
 
 # Global singleton mock bus
 mock_bus = MockBandBus()
 
+
 def is_mock_mode() -> bool:
     """Returns True if Band SDK is running in offline mock mode."""
-    # Default to True (mock mode) if BAND_MOCK is set to 'true', or if credentials are empty
-    band_mock = os.getenv("BAND_MOCK", "true").lower() == "true"
-    return band_mock
+    return os.getenv("BAND_MOCK", "true").lower() == "true"

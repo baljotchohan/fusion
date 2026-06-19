@@ -98,6 +98,11 @@ class MemoryGraph:
         metadata:    e.g. {"trigger": "phishing_email", "threat_level": 7}
         """
         ruid = self._resolved_uid
+        try:
+            from api.state import register_incident_uid
+            register_incident_uid(incident_id, ruid)
+        except Exception:
+            pass
         with _LOCK:
             incidents = self._read_file(self.incidents_file)
             # If local is empty (e.g. after a server restart), seed from Firestore first
@@ -147,6 +152,13 @@ class MemoryGraph:
         return self._read_file(self.incidents_file)
 
     def get_incident(self, incident_id: str) -> Optional[dict]:
+        ruid = self._resolved_uid
+        if ruid:
+            try:
+                from api.state import register_incident_uid
+                register_incident_uid(incident_id, ruid)
+            except Exception:
+                pass
         data = self._read_file(self.incidents_file).get(incident_id)
         if data:
             return data

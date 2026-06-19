@@ -52,7 +52,8 @@ _chat_rate: dict[str, list[float]] = defaultdict(list)
 
 
 def _new_incident_id() -> str:
-    return f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    import uuid
+    return f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
 def is_field_missing(field: dict) -> bool:
@@ -895,104 +896,118 @@ async def chat_with_commander(msg: ChatMessage, request: Request):
     user_memory = memory_graph.__class__(uid=uid or "__public__")
     incident_id = msg.incident_id or sim_state.active_incident_id or _new_incident_id()
     
-    # Check for agent mention
-    mentioned_agent = None
-    lower_msg = msg.user_message.lower()
+    from core.auth import current_incident_id, current_pitch_file
+    from core.pitch_loader import resolve_pitch_file_for_incident
     
-    if any(h in lower_msg for h in ["@financial-partner", "@financial", "@finance"]):
-        mentioned_agent = "financial_partner"
-    elif any(h in lower_msg for h in ["@legal-partner", "@legal", "@lawyer"]):
-        mentioned_agent = "legal_partner"
-    elif any(h in lower_msg for h in ["@technical-partner", "@technical", "@tech", "@cto"]):
-        mentioned_agent = "technical_partner"
-    elif any(h in lower_msg for h in ["@market-partner", "@market"]):
-        mentioned_agent = "market_partner"
-    elif any(h in lower_msg for h in ["@managing-partner", "@managing", "@chair"]):
-        mentioned_agent = "managing_partner"
+    token_inc = current_incident_id.set(incident_id)
+    pitch_file = resolve_pitch_file_for_incident(incident_id)
+    token_pitch = None
+    if pitch_file:
+        token_pitch = current_pitch_file.set(pitch_file)
         
-    intent = _classify_intent(msg.user_message)
-    session_id = msg.session_id
-    user_memory.append_chat("user", msg.user_message, {"intent": intent, "mentioned_agent": mentioned_agent}, session_id=session_id)
-    
-    dispatched = False
-    if not mentioned_agent and intent == "trigger_evaluation" and not sim_state.running:
-        # Reset simulation state and clear agent busy flags for a fresh run
-        sim_state.reset()
-        sim_state.active_uid = uid
-        if is_mock_mode():
-            for room_agents in mock_bus.rooms.values():
-                for agent in room_agents:
-                    agent._is_busy = False
-
-        user_memory.create_incident(incident_id, {
-            "trigger": "commander_chat",
-            "user_message": msg.user_message[:300],
-            "threat_level": 5,
-        })
-        await _dispatch_incident(incident_id, msg.user_message)
-        dispatched = True
-    elif msg.incident_id is None and not sim_state.active_incident_id and user_memory.get_latest_incident_id():
-        incident_id = user_memory.get_latest_incident_id()
+    try:
+        # Check for agent mention
+        mentioned_agent = None
+        lower_msg = msg.user_message.lower()
         
-    thinking_steps = _build_thinking_steps(intent, dispatched, incident_id)
-    if mentioned_agent:
-        intent = "agent_mention"
-        thinking_steps += [f"Mention detected → routing to **{_display(mentioned_agent)}**", "Loading agent persona and memory graph context"]
-        commander_response = await _agent_reply(mentioned_agent, msg.user_message, incident_id, session_id=session_id, uid=uid)
-    elif intent == "challenge_verdict":
-        # Defend the committee's verdict with evidence when user pushes back
-        try:
-            from core.diligence_engine import run_diligence_calculations
-            from core.pitch_loader import _load_pitch_file
-            calc = run_diligence_calculations(_load_pitch_file())
-            company = calc.get("company_name", "the company")
-            verdict_raw = calc.get("verdict", "PASS")
-            verdict_display = "REJECT" if verdict_raw == "PASS" else verdict_raw
-            score = calc.get("weighted_score") or 0
-            reasons = calc.get("override_reasons", [])
-            reasons_text = "; ".join(str(r) for r in reasons[:2]) if reasons else "weighted risk score exceeded investment threshold"
-            commander_response = (
-                f"The committee's **{verdict_display}** verdict on {company} is evidence-based and stands. "
-                f"Weighted risk score: **{score:.1f}/10** — computed independently by Financial (30%), Legal (25%), Technical (25%), and Market (20%) partners. "
-                f"Primary drivers: {reasons_text}. "
-                f"To change this verdict, provide specific contradicting data. Which finding do you believe is incorrect?"
-            )
-        except Exception:
-            commander_response = (
-                "The committee's verdict is derived from a deterministic risk engine across four independent partner audits. "
-                "Without specific contradicting evidence, the assessment stands. Which finding do you want to challenge?"
-            )
-    else:
-        commander_response = await _commander_reply(intent, msg.user_message, incident_id, dispatched, session_id=session_id, uid=uid)
+        if any(h in lower_msg for h in ["@financial-partner", "@financial", "@finance"]):
+            mentioned_agent = "financial_partner"
+        elif any(h in lower_msg for h in ["@legal-partner", "@legal", "@lawyer"]):
+            mentioned_agent = "legal_partner"
+        elif any(h in lower_msg for h in ["@technical-partner", "@technical", "@tech", "@cto"]):
+            mentioned_agent = "technical_partner"
+        elif any(h in lower_msg for h in ["@market-partner", "@market"]):
+            mentioned_agent = "market_partner"
+        elif any(h in lower_msg for h in ["@managing-partner", "@managing", "@chair"]):
+            mentioned_agent = "managing_partner"
+            
+        intent = _classify_intent(msg.user_message)
+        session_id = msg.session_id
+        user_memory.append_chat("user", msg.user_message, {"intent": intent, "mentioned_agent": mentioned_agent}, session_id=session_id)
         
-    memory_context = user_memory.get_team_summary(incident_id)
-    
-    user_memory.append_chat("assistant", commander_response,
-                            {"intent": intent, "incident_id": incident_id, "dispatched": dispatched, "agent": mentioned_agent},
-                            session_id=session_id)
+        dispatched = False
+        if not mentioned_agent and intent == "trigger_evaluation" and not sim_state.running:
+            # Reset simulation state and clear agent busy flags for a fresh run
+            sim_state.reset()
+            sim_state.active_uid = uid
+            if is_mock_mode():
+                for room_agents in mock_bus.rooms.values():
+                    for agent in room_agents:
+                        agent._is_busy = False
 
-    # RTDB: persist chat exchange (fire-and-forget, non-fatal)
-    if uid:
-        try:
-            from core.rtdb import write_chat, write_activity
-            ok = write_chat(uid, session_id or incident_id, msg.user_message, commander_response, intent)
-            if dispatched:
-                write_activity(uid, "deal_triggered_via_chat", {"incidentId": incident_id})
-            if not ok:
-                logger.warning("RTDB chat write skipped/failed — check FIREBASE_DATABASE_URL secret")
-        except Exception as e:
-            logger.warning("RTDB chat write exception: %s", e)
+            user_memory.create_incident(incident_id, {
+                "trigger": "commander_chat",
+                "user_message": msg.user_message[:300],
+                "threat_level": 5,
+            })
+            await _dispatch_incident(incident_id, msg.user_message)
+            dispatched = True
+        elif msg.incident_id is None and not sim_state.active_incident_id and user_memory.get_latest_incident_id():
+            incident_id = user_memory.get_latest_incident_id()
+            
+        thinking_steps = _build_thinking_steps(intent, dispatched, incident_id)
+        if mentioned_agent:
+            intent = "agent_mention"
+            thinking_steps += [f"Mention detected → routing to **{_display(mentioned_agent)}**", "Loading agent persona and memory graph context"]
+            commander_response = await _agent_reply(mentioned_agent, msg.user_message, incident_id, session_id=session_id, uid=uid)
+        elif intent == "challenge_verdict":
+            # Defend the committee's verdict with evidence when user pushes back
+            try:
+                from core.diligence_engine import run_diligence_calculations
+                from core.pitch_loader import _load_pitch_file
+                calc = run_diligence_calculations(_load_pitch_file())
+                company = calc.get("company_name", "the company")
+                verdict_raw = calc.get("verdict", "PASS")
+                verdict_display = "REJECT" if verdict_raw == "PASS" else verdict_raw
+                score = calc.get("weighted_score") or 0
+                reasons = calc.get("override_reasons", [])
+                reasons_text = "; ".join(str(r) for r in reasons[:2]) if reasons else "weighted risk score exceeded investment threshold"
+                commander_response = (
+                    f"The committee's **{verdict_display}** verdict on {company} is evidence-based and stands. "
+                    f"Weighted risk score: **{score:.1f}/10** — computed independently by Financial (30%), Legal (25%), Technical (25%), and Market (20%) partners. "
+                    f"Primary drivers: {reasons_text}. "
+                    f"To change this verdict, provide specific contradicting data. Which finding do you believe is incorrect?"
+                )
+            except Exception:
+                commander_response = (
+                    "The committee's verdict is derived from a deterministic risk engine across four independent partner audits. "
+                    "Without specific contradicting evidence, the assessment stands. Which finding do you want to challenge?"
+                )
+        else:
+            commander_response = await _commander_reply(intent, msg.user_message, incident_id, dispatched, session_id=session_id, uid=uid)
+            
+        memory_context = user_memory.get_team_summary(incident_id)
+        
+        user_memory.append_chat("assistant", commander_response,
+                                {"intent": intent, "incident_id": incident_id, "dispatched": dispatched, "agent": mentioned_agent},
+                                session_id=session_id)
 
-    return ChatResponse(
-        commander_response=commander_response,
-        incident_id=incident_id,
-        agent_updates=_agent_statuses(),
-        memory_context=memory_context,
-        intent=intent,
-        thinking_steps=thinking_steps,
-        dispatched=dispatched,
-        suggestions=_suggestions_for(intent) if not mentioned_agent else ["Ask about legal risks", "Ask about financial runway", "Show verdict memo"],
-    )
+        # RTDB: persist chat exchange (fire-and-forget, non-fatal)
+        if uid:
+            try:
+                from core.rtdb import write_chat, write_activity
+                ok = write_chat(uid, session_id or incident_id, msg.user_message, commander_response, intent)
+                if dispatched:
+                    write_activity(uid, "deal_triggered_via_chat", {"incidentId": incident_id})
+                if not ok:
+                    logger.warning("RTDB chat write skipped/failed — check FIREBASE_DATABASE_URL secret")
+            except Exception as e:
+                logger.warning("RTDB chat write exception: %s", e)
+
+        return ChatResponse(
+            commander_response=commander_response,
+            incident_id=incident_id,
+            agent_updates=_agent_statuses(),
+            memory_context=memory_context,
+            intent=intent,
+            thinking_steps=thinking_steps,
+            dispatched=dispatched,
+            suggestions=_suggestions_for(intent) if not mentioned_agent else ["Ask about legal risks", "Ask about financial runway", "Show verdict memo"],
+        )
+    finally:
+        current_incident_id.reset(token_inc)
+        if token_pitch:
+            current_pitch_file.reset(token_pitch)
 
 
 @router.get("/chat/history")

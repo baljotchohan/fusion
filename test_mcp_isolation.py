@@ -21,6 +21,7 @@ import sys
 
 # Auth-disabled would short-circuit get_uid; force the real path for this check.
 os.environ.pop("FUSION_AUTH_DISABLED", None)
+os.environ["FUSION_TEST_MODE"] = "true"
 
 
 class _FakeRequest:

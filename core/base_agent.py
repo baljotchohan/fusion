@@ -33,6 +33,32 @@ logger = logging.getLogger("fusion.base_agent")
 
 import re as _re
 
+def resolve_incident_id_from_message(message: str) -> str | None:
+    """Scans the message text for known company names in the incidents list to resolve the incident_id."""
+    if not message:
+        return None
+    try:
+        from core.memory_graph import memory_graph
+        from core.pitch_loader import _company_name_of
+        incidents = memory_graph.list_incidents()
+        # Sort by created_at desc to match the most recent incident of a company
+        sorted_incidents = sorted(
+            incidents.items(),
+            key=lambda x: x[1].get("created_at", ""),
+            reverse=True
+        )
+        for inc_id, inc in sorted_incidents:
+            meta = inc.get("metadata") or {}
+            company = meta.get("company")
+            p_data = inc.get("pitch_data") or meta.get("pitch_data")
+            if p_data:
+                company = _company_name_of(p_data)
+            if company and company.lower() in message.lower():
+                return inc_id
+    except Exception as e:
+        logger.warning(f"resolve_incident_id_from_message failed: {e}")
+    return None
+
 # ── Process-wide LLM degradation window ──────────────────────────────────────
 # When any agent hits an unrecoverable provider error (daily quota exhausted,
 # request too large, invalid key), ALL agents skip the dead provider and run on
@@ -431,7 +457,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
         if not is_mentioned and msg.content and ("@" + agent_name_clean) in msg.content.lower():
             is_mentioned = True
 
-        is_ic = self._argus_agent_name == "incident_commander"
+        is_ic = self._argus_agent_name in ("incident_commander", "managing_partner")
         is_from_user = msg.sender_type == "User"
 
         # A human directly @-mentioning this agent is a live question, NOT part of the
@@ -502,18 +528,6 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
             logger.info(f"[{self._argus_agent_name}] First processed message for room {room_id} — forcing is_session_bootstrap=True to inject system prompt")
             is_session_bootstrap = True
             self._bootstrapped_rooms.add(room_id)
-        else:
-            is_session_bootstrap = False
-
-        # If any other agent is mentioned in the message, the Incident Commander should
-        # stay silent and let that agent handle it, unless the IC is also mentioned.
-        is_other_agent_mentioned = False
-        if is_ic and is_from_user and raw_mentions:
-            for m in raw_mentions:
-                m_id = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
-                if str(m_id) != str(self._argus_agent_id):
-                    is_other_agent_mentioned = True
-                    break
 
         if is_mentioned or (is_ic and is_from_user and not is_other_agent_mentioned):
             logger.info(f"[{self._argus_agent_name}] Triggered! Processing message: '{msg.content[:100]}'")
@@ -521,6 +535,22 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
             await event_bus.broadcast(self._argus_agent_name, "working", {
                 "current_action": f"Processing message from Band room"
             })
+            
+            # Resolve incident_id
+            incident_id = resolve_incident_id_from_message(msg.content)
+            if not incident_id:
+                from api.state import sim_state
+                incident_id = sim_state.active_incident_id or memory_graph.get_latest_incident_id() or ""
+                
+            from core.auth import current_incident_id, current_pitch_file
+            token_inc = current_incident_id.set(incident_id)
+            
+            from core.pitch_loader import resolve_pitch_file_for_incident
+            pitch_file = resolve_pitch_file_for_incident(incident_id)
+            token_pitch = None
+            if pitch_file:
+                token_pitch = current_pitch_file.set(pitch_file)
+                
             try:
                 await super().on_message(
                     msg,
@@ -603,7 +633,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                                                     break
                                     if found:
                                         break
- 
+      
                             # 2. If not found, search for plain content messages
                             if not found:
                                 for m_rev in reversed(new_msgs):
@@ -624,7 +654,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                                             final_thought = m_content
                                             found = True
                                             break
-
+     
                             # 3. Last resort fallback for managing_partner: check cached card in sim_state
                             if self._argus_agent_name == "managing_partner" and not ("DECISION:" in str(final_thought).upper()):
                                 if getattr(sim_state, "final_verdict_card", None):
@@ -637,15 +667,15 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                                 final_thought = "Standing by."
                 except Exception as e:
                     logger.warning(f"[{self._argus_agent_name}] Could not extract final thought from graph state: {e}", exc_info=True)
- 
+     
                 should_log = True
                 if self._argus_agent_name == "managing_partner":
                     if not ("DECISION:" in str(final_thought).upper()):
                         should_log = False
                         logger.info(f"[{self._argus_agent_name}] Skipping memory logging for non-verdict message")
-                
+                    
                 if should_log:
-                    await self._base_agent._log_to_memory(final_thought)
+                    await self._base_agent._log_to_memory(final_thought, incident_id)
                 await event_bus.broadcast(self._argus_agent_name, "done", {"report": final_thought})
             except Exception as e:
                 err_str = str(e)
@@ -676,7 +706,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                             f"Top flags: {'; '.join(str(f) for f in red_flags[:3]) or 'see diligence report'}."
                         )
                         sim_state.completed_agents.add(self._argus_agent_name)
-                        await self._base_agent._log_to_memory(fallback)
+                        await self._base_agent._log_to_memory(fallback, incident_id)
                         await event_bus.broadcast(self._argus_agent_name, "done", {"report": fallback})
                     except Exception as fe:
                         logger.error(f"[{self._argus_agent_name}] Fallback report generation failed: {fe}")
@@ -684,6 +714,10 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                 else:
                     logger.error(f"[{self._argus_agent_name}] Error during on_message: {e}")
                     await event_bus.broadcast(self._argus_agent_name, "alert", {"error": err_str})
+            finally:
+                current_incident_id.reset(token_inc)
+                if token_pitch:
+                    current_pitch_file.reset(token_pitch)
         else:
             logger.debug(f"[{self._argus_agent_name}] Ignoring message (not mentioned): '{msg.content[:60]}'")
 
@@ -944,42 +978,29 @@ class BaseAgent:
         agent_name = self.name
 
         @tool("query_team_memory")
-        def query_team_memory(attack_technique: str) -> str:
+        async def query_team_memory(attack_technique: str) -> str:
             """Query the team's shared memory graph for similar past incidents
             by MITRE ATT&CK technique ID (e.g. 'T1566.002') or keyword.
             Returns past findings so you can reuse what worked before."""
-            import concurrent.futures
             import json as _json
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                past = ex.submit(
-                    asyncio.run, memory_graph.query_similar_incidents(attack_technique)
-                ).result(timeout=10)
+            past = await memory_graph.query_similar_incidents(attack_technique)
             if not past:
                 return _json.dumps({"similar_incidents": [], "note": "No past incidents match — this is new territory."})
             return _json.dumps({"similar_incidents": past, "note": f"Team has seen this {len(past)} time(s) before."})
 
         @tool("get_defense_recipe")
-        def get_defense_recipe(mitre_id: str) -> str:
+        async def get_defense_recipe(mitre_id: str) -> str:
             """Retrieve the team's best-known defense recipe for a MITRE
             technique ID (e.g. 'T1566.001'), learned from past incidents."""
-            import concurrent.futures
             import json as _json
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                recipe = ex.submit(
-                    asyncio.run, memory_graph.get_defense_recipe(mitre_id)
-                ).result(timeout=10)
+            recipe = await memory_graph.get_defense_recipe(mitre_id)
             return _json.dumps(recipe or {"note": "No learned defense yet for this technique."})
 
         @tool("record_defense_recipe")
-        def record_defense_recipe(mitre_id: str, detection_method: str, defense_action: str, success_rate: float = 0.8) -> str:
+        async def record_defense_recipe(mitre_id: str, detection_method: str, defense_action: str, success_rate: float = 0.8) -> str:
             """Record a defense that worked for a MITRE technique so the whole
             team responds faster on the next similar incident."""
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                ex.submit(
-                    asyncio.run,
-                    memory_graph.record_attack_pattern(mitre_id, detection_method, defense_action, success_rate),
-                ).result(timeout=10)
+            await memory_graph.record_attack_pattern(mitre_id, detection_method, defense_action, success_rate)
             return f"Defense recipe for {mitre_id} recorded in shared team memory."
 
         return [query_team_memory, get_defense_recipe, record_defense_recipe]
@@ -988,7 +1009,7 @@ class BaseAgent:
         """Creates mock versions of Band SDK platform tools for offline testing."""
 
         @tool("thenvoi_send_message")
-        def mock_thenvoi_send_message(
+        async def mock_thenvoi_send_message(
             room: Optional[str] = None,
             message: Optional[str] = None,
             content: Optional[str] = None,
@@ -1011,15 +1032,17 @@ class BaseAgent:
             if msg_content is None:
                 msg_content = ""
                 
-            self._schedule_async(mock_bus.send_message(self.display_name, target_room, msg_content))
+            from core.auth import current_incident_id
+            inc_id = current_incident_id.get() or None
+            await mock_bus.send_message(self.display_name, target_room, msg_content, incident_id=inc_id)
             return f"Message sent successfully to room {target_room}."
 
         @tool("thenvoi_send_event")
-        def mock_thenvoi_send_event(event: str, data: Optional[Dict[str, Any]] = None) -> str:
+        async def mock_thenvoi_send_event(event: str, data: Optional[Dict[str, Any]] = None) -> str:
             """Broadcast an operational status update or thought to the war room dashboard.
             Use this to report progress, findings, or completed steps."""
             logger.info(f"[{self.display_name}] Operation Event: {event}")
-            self._schedule_async(event_bus.broadcast(self.name, "working", {"event": event, "data": data or {}}))
+            await event_bus.broadcast(self.name, "working", {"event": event, "data": data or {}})
             return "Event reported successfully."
 
         @tool("thenvoi_lookup_peers")
@@ -1106,7 +1129,7 @@ class BaseAgent:
         instead of running prematurely on each specialist's report."""
         return True
 
-    async def handle_mock_message(self, sender: str, message: str):
+    async def handle_mock_message(self, sender: str, message: str, incident_id: Optional[str] = None):
         """Handles a message arriving in Mock Mode.
 
         Messages are queued and drained sequentially so that specialist
@@ -1118,48 +1141,70 @@ class BaseAgent:
             logger.info(f"[{self.display_name}] Ignoring mock message (gated): '{message[:60]}'")
             return
             
-        from core.auth import current_uid
+        from core.auth import current_uid, current_incident_id
         uid = current_uid.get("__public__")
+        if not incident_id:
+            incident_id = current_incident_id.get("")
+        if not incident_id:
+            incident_id = "default"
+            
+        if uid in ("__public__", "__mcp_client__") and incident_id and incident_id != "default":
+            from api.state import get_uid_for_incident
+            mapped_uid = get_uid_for_incident(incident_id)
+            if mapped_uid:
+                uid = mapped_uid
         
         if not hasattr(self, "_message_queues"):
             self._message_queues = {}
         if not hasattr(self, "_queue_processors"):
             self._queue_processors = {}
 
-        if uid not in self._message_queues:
-            self._message_queues[uid] = asyncio.Queue()
+        queue_key = (uid, incident_id)
+        if queue_key not in self._message_queues:
+            self._message_queues[queue_key] = asyncio.Queue()
 
-        logger.info(f"[{self.display_name}] Enqueueing message for {uid} from '{sender}': {message[:80]}...")
-        await self._message_queues[uid].put((sender, message))
+        logger.info(f"[{self.display_name}] Enqueueing message for {uid}:{incident_id} from '{sender}': {message[:80]}...")
+        await self._message_queues[queue_key].put((sender, message))
 
         # Kick off the drain loop if it isn't already running.
-        if not self._queue_processors.get(uid):
-            self._queue_processors[uid] = True
-            asyncio.create_task(self._drain_message_queue_for_uid(uid))
+        if not self._queue_processors.get(queue_key):
+            self._queue_processors[queue_key] = True
+            asyncio.create_task(self._drain_message_queue_for_key(queue_key))
 
-    async def _drain_message_queue_for_uid(self, uid: str):
-        """Process queued messages for a specific user one at a time."""
-        from core.auth import current_uid, current_username
+    async def _drain_message_queue_for_key(self, queue_key):
+        """Process queued messages for a specific user and incident one at a time."""
+        from core.auth import current_uid, current_username, current_incident_id, current_pitch_file
         
+        uid, incident_id = queue_key
         username = uid
         if uid == "__public__":
             username = "guest"
             
         token_ctx = current_uid.set(uid)
         username_ctx = current_username.set(username)
+        incident_ctx = current_incident_id.set(incident_id)
+        
+        from core.pitch_loader import resolve_pitch_file_for_incident
+        pitch_file = resolve_pitch_file_for_incident(incident_id)
+        token_pitch = None
+        if pitch_file:
+            token_pitch = current_pitch_file.set(pitch_file)
         
         try:
-            queue = self._message_queues.get(uid)
+            queue = self._message_queues.get(queue_key)
             if queue:
                 while not queue.empty():
                     sender, message = await queue.get()
                     await self._handle_single_message(sender, message)
         except Exception as e:
-            logger.error(f"[{self.display_name}] Queue drain error for {uid}: {e}")
+            logger.error(f"[{self.display_name}] Queue drain error for {uid}:{incident_id}: {e}")
         finally:
-            self._queue_processors[uid] = False
+            self._queue_processors[queue_key] = False
             current_uid.reset(token_ctx)
             current_username.reset(username_ctx)
+            current_incident_id.reset(incident_ctx)
+            if token_pitch:
+                current_pitch_file.reset(token_pitch)
 
 
     async def _handle_single_message(self, sender: str, message: str):

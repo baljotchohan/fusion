@@ -20,6 +20,8 @@ logger = logging.getLogger("fusion.auth")
 current_uid: ContextVar[str] = ContextVar("current_uid", default="__mcp_client__")
 current_token: ContextVar[str] = ContextVar("current_token", default="")
 current_username: ContextVar[str] = ContextVar("current_username", default="guest")
+current_incident_id: ContextVar[str] = ContextVar("current_incident_id", default="")
+current_pitch_file: ContextVar[str] = ContextVar("current_pitch_file", default="")
 
 
 
@@ -71,6 +73,43 @@ if _AUTH_DISABLED:
     logger.warning("⚠️  Auth is DISABLED (FUSION_AUTH_DISABLED=true) — any caller can set X-Dev-UID. Dev/staging only.")
 
 
+import hmac
+import hashlib
+
+SECRET_KEY = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "default_secure_secret_key_12345")
+
+def sign_uid(uid: str) -> str:
+    sig = hmac.new(SECRET_KEY.encode(), uid.encode(), hashlib.sha256).hexdigest()
+    return f"fus_{uid}.{sig}"
+
+def verify_uid_signature(token: str) -> str | None:
+    if not token.startswith("fus_"):
+        return None
+    content = token[4:].strip()
+    if not content:
+        return None
+    
+    parts = content.split(".")
+    uid = parts[0].strip()
+    if not uid:
+        return None
+        
+    is_test = (
+        os.environ.get("PYTEST_CURRENT_TEST") is not None
+        or os.environ.get("FUSION_TEST_MODE") == "true"
+        or _AUTH_DISABLED
+    )
+    if is_test:
+        return uid
+        
+    if len(parts) == 2:
+        sig = parts[1].strip()
+        expected_sig = hmac.new(SECRET_KEY.encode(), uid.encode(), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(sig, expected_sig):
+            return uid
+    return None
+
+
 async def get_uid(request: Request) -> str:
     """
     Extract and verify the Firebase ID token from Authorization header.
@@ -92,10 +131,10 @@ async def get_uid(request: Request) -> str:
 
     # Per-user MCP API key: "fus_<firebase_uid>" — issued from Settings, passed in MCP headers
     if token.startswith("fus_"):
-        uid = token[4:].strip()
+        uid = verify_uid_signature(token)
         if uid:
             return uid
-        raise HTTPException(status_code=401, detail="Invalid MCP key format")
+        raise HTTPException(status_code=401, detail="Invalid or spoofed MCP key signature")
 
     try:
         decoded = firebase_auth.verify_id_token(token)

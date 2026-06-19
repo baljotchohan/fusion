@@ -97,138 +97,142 @@ def _clear_agent_busy_flags():
 
 async def run_pipeline_watchdog(incident_id: str):
     """Background task that monitors the active deal and forces a partial verdict if it hangs."""
-    import time
-    logger.info(f"Watchdog: Started for incident {incident_id}")
-    # Give the simulation some time to startup
-    await asyncio.sleep(5)
-    while True:
-        await asyncio.sleep(2)
-        # If the simulation finished, or was reset, or a different deal is running, stop watchdog
-        if not sim_state.running or sim_state.active_incident_id != incident_id:
-            logger.info(f"Watchdog: Finished for incident {incident_id}")
-            break
-            
+    from api.state import get_uid_for_incident
+    from core.auth import current_uid, current_incident_id
+    uid = get_uid_for_incident(incident_id) or "__public__"
+    token_uid = current_uid.set(uid)
+    token_inc = current_incident_id.set(incident_id)
+    try:
         import time
-        idle_time = time.time() - sim_state.last_event_at
-        # If 120s pass with no agent activity, trigger recovery. (Fast models
-        # finish a partner in seconds; a 2-min idle means a genuine stall.)
-        if idle_time > 120.0:
-            logger.warning(f"Watchdog: Incident {incident_id} has been idle for {idle_time:.1f}s (limit: 120s). Triggering recovery.")
-            await force_partial_verdict(incident_id)
-            break
+        logger.info(f"Watchdog: Started for incident {incident_id}")
+        # Give the simulation some time to startup
+        await asyncio.sleep(5)
+        while True:
+            await asyncio.sleep(2)
+            # If the simulation finished, or was reset, or a different deal is running, stop watchdog
+            if not sim_state.running or sim_state.active_incident_id != incident_id:
+                logger.info(f"Watchdog: Finished for incident {incident_id}")
+                break
+                
+            import time
+            idle_time = time.time() - sim_state.last_event_at
+            # If 120s pass with no agent activity, trigger recovery. (Fast models
+            # finish a partner in seconds; a 2-min idle means a genuine stall.)
+            if idle_time > 120.0:
+                logger.warning(f"Watchdog: Incident {incident_id} has been idle for {idle_time:.1f}s (limit: 120s). Triggering recovery.")
+                await force_partial_verdict(incident_id)
+                break
+    finally:
+        current_uid.reset(token_uid)
+        current_incident_id.reset(token_inc)
 
 async def force_partial_verdict(incident_id: str):
     """Fallback mechanism that packages available reports into a partial verdict."""
-    import time
-    from core.memory_graph import memory_graph
-    
-    logger.warning(f"Watchdog: Force-completing incident {incident_id} due to inactivity.")
-    
-    # 1. Reset simulation running state so trigger is unblocked
-    sim_state.running = False
-    sim_state.deal_concluded = True
-    _clear_agent_busy_flags()
-    
-    inc = memory_graph.get_incident(incident_id)
-    if not inc:
-        logger.error(f"Watchdog: Incident {incident_id} not found in memory graph — broadcasting done to unblock frontend.")
-        await event_bus.broadcast("managing_partner", "done", {"report": "DECISION: PASS — committee records unavailable for this session."})
-        return
-
-    # If final decision already exists, rebroadcast it so the frontend unblocks
-    if inc.get("final_decision"):
-        logger.info(f"Watchdog: Incident {incident_id} already has a final decision — rebroadcasting to unblock frontend.")
-        await event_bus.broadcast("managing_partner", "done", {"report": inc["final_decision"]})
-        return
-
-    # Load the pitch file
+    from api.state import get_uid_for_incident
+    from core.auth import current_uid, current_incident_id
+    uid = get_uid_for_incident(incident_id) or "__public__"
+    token_uid = current_uid.set(uid)
+    token_inc = current_incident_id.set(incident_id)
     try:
-        from core.pitch_loader import _load_pitch_file
-        pitch_data = _load_pitch_file() or {}
-    except Exception as e:
-        logger.error(f"Watchdog: Failed to load pitch file: {e}")
-        pitch_data = {}
+        import time
+        from core.memory_graph import memory_graph
+        
+        logger.warning(f"Watchdog: Force-completing incident {incident_id} due to inactivity.")
+        
+        # 1. Reset simulation running state so trigger is unblocked
+        sim_state.running = False
+        sim_state.deal_concluded = True
+        _clear_agent_busy_flags()
+        
+        inc = memory_graph.get_incident(incident_id)
+        if not inc:
+            logger.error(f"Watchdog: Incident {incident_id} not found in memory graph — broadcasting done to unblock frontend.")
+            await event_bus.broadcast("managing_partner", "done", {"report": "DECISION: PASS — committee records unavailable for this session."})
+            return
 
-    # Run calculations
-    try:
-        from core.diligence_engine import run_diligence_calculations
-        calc = run_diligence_calculations(pitch_data) if pitch_data else {}
-    except Exception as e:
-        logger.error(f"Watchdog: Failed to run diligence calculations: {e}")
-        calc = {}
+        # If final decision already exists, rebroadcast it so the frontend unblocks
+        if inc.get("final_decision"):
+            logger.info(f"Watchdog: Incident {incident_id} already has a final decision — rebroadcasting to unblock frontend.")
+            await event_bus.broadcast("managing_partner", "done", {"report": inc["final_decision"]})
+            return
 
-    company = sim_state.active_company_name or calc.get("company_name") or "Unknown Startup"
-    verdict = calc.get("verdict", "PASS")
-    verdict_display = "REJECT" if verdict == "PASS" else verdict
-    confidence = calc.get("verdict_confidence", 80)
-    evi_quality = calc.get("evidence_quality_score", 75)
-    readiness = calc.get("deal_readiness_score", 70)
-    readiness_status = calc.get("deal_readiness_status", "AUDITING")
-    
-    fin_risk = calc.get("fin_score", 5)
-    leg_risk = calc.get("leg_score", 5)
-    tech_risk = calc.get("tech_score", 5)
-    mkt_risk = calc.get("mkt_score", 5)
-    weighted_score = calc.get("weighted_score", 5.0)
+        # Load the pitch file
+        try:
+            from core.pitch_loader import _load_pitch_file
+            pitch_data = _load_pitch_file() or {}
+        except Exception as e:
+            logger.error(f"Watchdog: Failed to load pitch file: {e}")
+            pitch_data = {}
 
-    # Gather whatever findings we have from the timeline
-    findings = {}
-    for item in inc.get("timeline", []):
-        agent = item.get("agent")
-        finding = item.get("finding")
-        if agent and finding:
-            findings[agent] = finding
+        # Run calculations
+        try:
+            from core.diligence_engine import run_diligence_calculations
+            calc = run_diligence_calculations(pitch_data) if pitch_data else {}
+        except Exception as e:
+            logger.error(f"Watchdog: Failed to run diligence calculations: {e}")
+            calc = {}
 
-    # Build the memo. When all 4 partners reported, this is a clean, complete
-    # verdict; if some are missing, we flag exactly which diligence is pending.
-    specialists_order = [
-        ("financial_partner", "Financial Partner"),
-        ("legal_partner", "Legal Partner"),
-        ("technical_partner", "Technical Partner"),
-        ("market_partner", "Market Partner"),
-    ]
-    missing = [label for key, label in specialists_order if not findings.get(key)]
-    if missing:
-        memo_header = (
-            "# FUSION INVESTMENT MEMO (PARTIAL — SOME DILIGENCE INCOMPLETE)\n\n"
-            "> [!WARNING]\n"
-            f"> Rendered with partial input — pending: {', '.join(missing)}.\n\n"
-            "### 1. DILIGENCE REPORT\n"
-            "The committee rendered this verdict from the deterministic risk engine "
-            "plus the available partner findings."
-        )
-    else:
-        memo_header = (
-            "# FUSION INVESTMENT MEMO\n\n"
-            "### 1. DILIGENCE REPORT\n"
-            "All four partners completed due diligence. The verdict below combines the "
-            "deterministic risk engine with each partner's findings."
-        )
-    summaries = "\n".join(
-        f"* **{label}:** {findings.get(key, 'Diligence report pending or timed out.')}"
-        for key, label in specialists_order
-    )
+        company = sim_state.active_company_name or calc.get("company_name") or "Unknown Startup"
+        verdict = calc.get("verdict", "PASS")
+        verdict_display = "REJECT" if verdict == "PASS" else verdict
+        confidence = calc.get("verdict_confidence", 80)
+        evi_quality = calc.get("evidence_quality_score", 75)
+        readiness = calc.get("deal_readiness_score", 70)
+        readiness_status = calc.get("deal_readiness_status", "AUDITING")
+        
+        fin_risk = calc.get("fin_score", 5)
+        leg_risk = calc.get("leg_score", 5)
+        tech_risk = calc.get("tech_score", 5)
+        mkt_risk = calc.get("mkt_score", 5)
+        weighted_score = calc.get("weighted_score", 5.0)
 
-    report_text = f"""+----------------------------------------------------------+
-|         FUSION INVESTMENT COMMITTEE DECISION             |
-+----------------------------------------------------------+
-| Company:      {company:<42} |
-| Deal:         Series A Raise                             |
-| Date:         {datetime.now().strftime('%Y-%m-%d'):<42} |
-+----------------------------------------------------------+
-|  DECISION:    {verdict_display:<42} |
-|  CONFIDENCE:  {confidence:<3}%                                      |
-|  EVI QUALITY: {evi_quality:<3}%                                      |
-|  READINESS:   {readiness:<3}/100 ({readiness_status})                       |
-+----------------------------------------------------------+
+        # Gather whatever findings we have from the timeline
+        findings = {}
+        for item in inc.get("timeline", []):
+            agent = item.get("agent")
+            finding = item.get("finding")
+            if agent and finding:
+                findings[agent] = finding
 
-RISK SCORECARD:
-  Financial Risk:  {fin_risk}/10  (weight: 30%)
-  Legal Risk:      {leg_risk}/10  (weight: 25%)
-  Technical Risk:  {tech_risk}/10  (weight: 25%)
-  Market Risk:     {mkt_risk}/10  (weight: 20%)
-  -------------------------------------
-  WEIGHTED SCORE:  {weighted_score:.1f}/10
+        # Build a cohesive summary report from whatever parts we have
+        specialists = ["financial_partner", "legal_partner", "technical_partner", "market_partner"]
+        missing_partners = [p.replace("_", " ").title() for p in specialists if p not in findings]
+        
+        summaries = ""
+        for p in specialists:
+            if p in findings:
+                cleaned_name = p.replace("_", " ").title()
+                summaries += f"\n#### {cleaned_name} Analysis\n{findings[p]}\n"
+        if not summaries:
+            summaries = "\n*(No individual partner reports completed in time. Calculated scores are based on grounded metadata)*\n"
+
+        memo_header = ""
+        if missing_partners:
+            memo_header = (
+                f"> [!WARNING]\n"
+                f"> due diligence timeline exceeded. Active watchdog recovery forced a "
+                f"partial verdict without reports from: {', '.join(missing_partners)}.\n"
+            )
+
+        report_text = f"""### FUSION INVESTMENT COMMITTEE DECISION CARD
+
+### {company.upper()} — SERIES A EVALUATION
+**DECISION: {verdict_display}**
+
+---
+
+### 1. DECISION SUMMARY
+- **Investment Verdict**: {verdict_display}
+- **Verdict Confidence**: {confidence}%
+- **Evidence Quality**: {evi_quality}% (partial audit due to timeout)
+- **Deal Readiness**: {readiness}% ({readiness_status})
+
+**RISK SCORECARD:**
+- Financial Risk: {fin_risk}/10
+- Legal Risk: {leg_risk}/10
+- Technical Risk: {tech_risk}/10
+- Market Risk: {mkt_risk}/10
+- **WEIGHTED SCORE**:  {weighted_score:.1f}/10
 
 {memo_header}
 
@@ -239,255 +243,306 @@ RISK SCORECARD:
 — FUSION Investment Committee OS
 """
 
-    memory_graph.set_final_decision(incident_id, report_text)
-    sim_state.final_verdict_card = report_text
-    sim_state.completed_agents.add("managing_partner")
+        memory_graph.set_final_decision(incident_id, report_text)
+        sim_state.final_verdict_card = report_text
+        sim_state.completed_agents.add("managing_partner")
 
-    # Persist verdict to Firebase RTDB (fire-and-forget, non-fatal)
-    try:
-        from core.rtdb import write_deal, write_session
-        _rtdb_uid = sim_state.active_uid or "__public__"
-        ok1 = write_deal(_rtdb_uid, incident_id, {
-            "companyName": company,
-            "verdict": verdict_display,
-            "weightedScore": weighted_score,
-            "confidence": confidence,
-            "createdAt": datetime.now(timezone.utc).isoformat(),
-            "report": report_text[:4000],
-        })
-        ok2 = write_session(_rtdb_uid, incident_id, {"status": "complete", "verdict": verdict_display})
-        if not ok1 or not ok2:
-            logger.warning("RTDB verdict write skipped/failed (ok1=%s ok2=%s) — check FIREBASE_DATABASE_URL secret and HF Space logs", ok1, ok2)
-    except Exception as e:
-        logger.warning("RTDB verdict write exception: %s", e)
+        # Persist verdict to Firebase RTDB (fire-and-forget, non-fatal)
+        try:
+            from core.rtdb import write_deal, write_session
+            _rtdb_uid = sim_state.active_uid or "__public__"
+            ok1 = write_deal(_rtdb_uid, incident_id, {
+                "companyName": company,
+                "verdict": verdict_display,
+                "weightedScore": weighted_score,
+                "confidence": confidence,
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+                "report": report_text[:4000],
+            })
+            ok2 = write_session(_rtdb_uid, incident_id, {"status": "complete", "verdict": verdict_display})
+            if not ok1 or not ok2:
+                logger.warning("RTDB verdict write skipped/failed (ok1=%s ok2=%s) — check FIREBASE_DATABASE_URL secret and HF Space logs", ok1, ok2)
+        except Exception as e:
+            logger.warning("RTDB verdict write exception: %s", e)
 
-    # Broadcast 'done' event for managing_partner to Websockets so the frontend transitions
-    await event_bus.broadcast("managing_partner", "done", {"report": report_text})
-    logger.info("Watchdog: Partial verdict successfully broadcast and saved.")
+        # Broadcast 'done' event for managing_partner to Websockets so the frontend transitions
+        await event_bus.broadcast("managing_partner", "done", {"report": report_text})
+        logger.info("Watchdog: Partial verdict successfully broadcast and saved.")
+    finally:
+        current_uid.reset(token_uid)
+        current_incident_id.reset(token_inc)
 
 
 async def _run_debate_phase(incident_id: str):
     """Broadcast a visible inter-partner debate when divergent risk signals are detected."""
+    from api.state import get_uid_for_incident
+    from core.auth import current_uid, current_incident_id
+    uid = get_uid_for_incident(incident_id) or "__public__"
+    token_uid = current_uid.set(uid)
+    token_inc = current_incident_id.set(incident_id)
     try:
-        from core.pitch_loader import _load_pitch_file
-        from core.diligence_engine import run_diligence_calculations
-        calc = run_diligence_calculations(_load_pitch_file())
-    except Exception:
-        return
+        try:
+            from core.pitch_loader import _load_pitch_file
+            from core.diligence_engine import run_diligence_calculations
+            calc = run_diligence_calculations(_load_pitch_file())
+        except Exception:
+            return
 
-    fin = calc.get("fin_score") or 0
-    leg = calc.get("leg_score") or 0
-    tech = calc.get("tech_score") or 0
-    mkt = calc.get("mkt_score") or 0
-    contradictions = calc.get("contradictions", [])
-    company = calc.get("company_name", "the company")
+        fin = calc.get("fin_score") or 0
+        leg = calc.get("leg_score") or 0
+        tech = calc.get("tech_score") or 0
+        mkt = calc.get("mkt_score") or 0
+        contradictions = calc.get("contradictions", [])
+        company = calc.get("company_name", "the company")
 
-    scores = {"financial_partner": (fin, "Financial"), "legal_partner": (leg, "Legal"),
-              "technical_partner": (tech, "Technical"), "market_partner": (mkt, "Market")}
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1][0])
-    low_agent, (low_score, low_label) = sorted_scores[0]
-    high_agent, (high_score, high_label) = sorted_scores[-1]
-    spread = high_score - low_score
+        scores = {"financial_partner": (fin, "Financial"), "legal_partner": (leg, "Legal"),
+                  "technical_partner": (tech, "Technical"), "market_partner": (mkt, "Market")}
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1][0])
+        low_agent, (low_score, low_label) = sorted_scores[0]
+        high_agent, (high_score, high_label) = sorted_scores[-1]
+        spread = high_score - low_score
 
-    if spread < 2.0 and not contradictions:
-        return  # No meaningful conflict — skip debate
+        if spread < 2.0 and not contradictions:
+            return  # No meaningful conflict — skip debate
 
-    await event_bus.broadcast("managing_partner", "debate", {
-        "current_action": f"🔴 INTER-PARTNER CONFLICT DETECTED — {company} shows divergent risk signals across domains. Initiating debate round...",
-        "debate_type": "conflict_start",
-    })
-    await asyncio.sleep(0.7)
-
-    if spread >= 2.0:
-        await event_bus.broadcast(high_agent, "debate", {
-            "current_action": f"⚠️ {high_label} risk at {high_score:.1f}/10 — I'm flagging material issues that cannot be dismissed. These findings directly affect deal viability.",
-            "debate_type": "argument",
-        })
-        await asyncio.sleep(0.7)
-        await event_bus.broadcast(low_agent, "debate", {
-            "current_action": f"Acknowledged. {low_label} fundamentals score {low_score:.1f}/10 — sector positioning and execution capacity provide material upside. Risk may be overstated.",
-            "debate_type": "rebuttal",
-        })
-        await asyncio.sleep(0.7)
-        await event_bus.broadcast(high_agent, "debate", {
-            "current_action": f"Upside noted, but {high_label} risk at this severity has historically preceded deal failures in our portfolio. Requesting conservative weighting in the final scorecard.",
-            "debate_type": "counter",
-        })
-        await asyncio.sleep(0.6)
-
-    if contradictions:
-        contra = contradictions[0]
         await event_bus.broadcast("managing_partner", "debate", {
-            "current_action": f"⚡ Data conflict logged: {contra.get('message', 'Conflicting evidence across domain reports')}. Adjusting confidence and evidence quality scores.",
-            "debate_type": "conflict_detail",
+            "current_action": f"🔴 INTER-PARTNER CONFLICT DETECTED — {company} shows divergent risk signals across domains. Initiating debate round...",
+            "debate_type": "conflict_start",
         })
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.7)
 
-    await event_bus.broadcast("managing_partner", "debate", {
-        "current_action": "✅ DEBATE RESOLVED — applying domain conflict weights and proceeding to final verdict synthesis...",
-        "debate_type": "resolution",
-    })
-    await asyncio.sleep(0.4)
+        if spread >= 2.0:
+            await event_bus.broadcast(high_agent, "debate", {
+                "current_action": f"⚠️ {high_label} risk at {high_score:.1f}/10 — I'm flagging material issues that cannot be dismissed. These findings directly affect deal viability.",
+                "debate_type": "argument",
+            })
+            await asyncio.sleep(0.7)
+            await event_bus.broadcast(low_agent, "debate", {
+                "current_action": f"Acknowledged. {low_label} fundamentals score {low_score:.1f}/10 — sector positioning and execution capacity provide material upside. Risk may be overstated.",
+                "debate_type": "rebuttal",
+            })
+            await asyncio.sleep(0.7)
+            await event_bus.broadcast(high_agent, "debate", {
+                "current_action": f"Upside noted, but {high_label} risk at this severity has historically preceded deal failures in our portfolio. Requesting conservative weighting in the final scorecard.",
+                "debate_type": "counter",
+            })
+            await asyncio.sleep(0.6)
+
+        if contradictions:
+            contra = contradictions[0]
+            await event_bus.broadcast("managing_partner", "debate", {
+                "current_action": f"⚡ Data conflict logged: {contra.get('message', 'Conflicting evidence across domain reports')}. Adjusting confidence and evidence quality scores.",
+                "debate_type": "conflict_detail",
+            })
+            await asyncio.sleep(0.5)
+
+        await event_bus.broadcast("managing_partner", "debate", {
+            "current_action": "✅ DEBATE RESOLVED — applying domain conflict weights and proceeding to final verdict synthesis...",
+            "debate_type": "resolution",
+        })
+        await asyncio.sleep(0.4)
+    finally:
+        current_uid.reset(token_uid)
+        current_incident_id.reset(token_inc)
 
 
 async def _trigger_mp_verdict(incident_id: str):
     """Deterministically tell the Managing Partner to synthesize the final
     verdict. Fires exactly once, when all 4 specialists have reported — so the
     verdict never depends on the MP's LLM noticing completion on its own."""
-    # Safety net: if the MP doesn't conclude shortly, force a clean verdict.
-    # Schedule it BEFORE we do any network awaits, in case the send hangs or fails.
-    asyncio.create_task(_mp_verdict_safety_net(incident_id))
-
-    # Visible debate round before synthesis — shows judges inter-agent reasoning
-    await _run_debate_phase(incident_id)
-
-    from core.memory_graph import memory_graph
-    from agents.managing_partner import VERDICT_TRIGGER
-
-    inc = memory_graph.get_incident(incident_id) or {}
-    specialists = {"financial_partner", "legal_partner", "technical_partner", "market_partner"}
-    findings = {}
-    for item in inc.get("timeline", []):
-        a = item.get("agent")
-        f = item.get("finding")
-        if a in specialists and f:
-            findings[a] = str(f)
-    summary = "\n".join(
-        f"- {a.replace('_', ' ').title()}: {f[:400]}" for a, f in findings.items()
-    ) or "(partner findings are logged in deal memory)"
-    company = sim_state.active_company_name or "the company"
-    msg = (
-        f"{VERDICT_TRIGGER} All 4 partners have completed due diligence on {company}.\n\n"
-        f"Partner findings:\n{summary}\n\n"
-        f"Now call get_calculated_scores() and deliver the FINAL INVESTMENT COMMITTEE "
-        f"DECISION card (it MUST contain 'DECISION:'), using the exact scores returned."
-    )
-
-    logger.info(f"Orchestrator: triggering Managing Partner verdict for {incident_id}.")
+    from api.state import get_uid_for_incident
+    from core.auth import current_uid, current_incident_id
+    uid = get_uid_for_incident(incident_id) or "__public__"
+    token_uid = current_uid.set(uid)
+    token_inc = current_incident_id.set(incident_id)
     try:
-        if is_mock_mode():
-            await mock_bus.send_message(
-                sender="FUSION-Orchestrator",
-                target_room="managing-partner-room",
-                message=msg,
-            )
-        else:
-            from api.v1 import dispatch_real_band_message
-            await dispatch_real_band_message(msg, "managing-partner", sender_agent_name="financial_partner")
-    except Exception as e:
-        logger.error(f"Orchestrator: failed to trigger MP verdict: {e}")
+        # Safety net: if the MP doesn't conclude shortly, force a clean verdict.
+        # Schedule it BEFORE we do any network awaits, in case the send hangs or fails.
+        asyncio.create_task(_mp_verdict_safety_net(incident_id))
+
+        # Visible debate round before synthesis — shows judges inter-agent reasoning
+        await _run_debate_phase(incident_id)
+
+        from core.memory_graph import memory_graph
+        from agents.managing_partner import VERDICT_TRIGGER
+
+        inc = memory_graph.get_incident(incident_id) or {}
+        specialists = {"financial_partner", "legal_partner", "technical_partner", "market_partner"}
+        findings = {}
+        for item in inc.get("timeline", []):
+            a = item.get("agent")
+            f = item.get("finding")
+            if a in specialists and f:
+                findings[a] = str(f)
+        summary = "\n".join(
+            f"- {a.replace('_', ' ').title()}: {f[:400]}" for a, f in findings.items()
+        ) or "(partner findings are logged in deal memory)"
+        company = sim_state.active_company_name or "the company"
+        msg = (
+            f"{VERDICT_TRIGGER} All 4 partners have completed due diligence on {company}.\n\n"
+            f"Partner findings:\n{summary}\n\n"
+            f"Now call get_calculated_scores() and deliver the FINAL INVESTMENT COMMITTEE "
+            f"DECISION card (it MUST contain 'DECISION:'), using the exact scores returned."
+        )
+
+        logger.info(f"Orchestrator: triggering Managing Partner verdict for {incident_id}.")
+        try:
+            if is_mock_mode():
+                await mock_bus.send_message(
+                    sender="FUSION-Orchestrator",
+                    target_room="managing-partner-room",
+                    message=msg,
+                    incident_id=incident_id,
+                )
+            else:
+                from api.v1 import dispatch_real_band_message
+                await dispatch_real_band_message(msg, "managing-partner", sender_agent_name="financial_partner")
+        except Exception as e:
+            logger.error(f"Orchestrator: failed to trigger MP verdict: {e}")
+    finally:
+        current_uid.reset(token_uid)
+        current_incident_id.reset(token_inc)
 
 
 async def _mp_verdict_safety_net(incident_id: str):
     """If the Managing Partner hasn't produced a verdict within the window after
     being triggered, force a clean deterministic verdict (engine numbers + all 4
     partner findings are already available), so a deal can never hang."""
-    await asyncio.sleep(20)
-    if sim_state.active_incident_id == incident_id and not sim_state.deal_concluded:
-        logger.warning(
-            f"Orchestrator: MP verdict not rendered within 20s for {incident_id} — forcing clean verdict."
-        )
-        await force_partial_verdict(incident_id)
+    from api.state import get_uid_for_incident
+    from core.auth import current_uid, current_incident_id
+    uid = get_uid_for_incident(incident_id) or "__public__"
+    token_uid = current_uid.set(uid)
+    token_inc = current_incident_id.set(incident_id)
+    try:
+        await asyncio.sleep(20)
+        if sim_state.active_incident_id == incident_id and not sim_state.deal_concluded:
+            logger.warning(
+                f"Orchestrator: MP verdict not rendered within 20s for {incident_id} — forcing clean verdict."
+            )
+            await force_partial_verdict(incident_id)
+    finally:
+        current_uid.reset(token_uid)
+        current_incident_id.reset(token_inc)
 
 
 async def broadcast_event_to_websockets(event_data: dict):
     """Callback registered with event_bus to forward agent updates to the dashboard."""
-    sim_state.touch()
-    # Track last-known status per agent for the chat API / MCP clients
-    if event_data.get("agent"):
-        sim_state.agent_statuses[event_data["agent"]] = event_data.get("status", "idle")
+    from core.auth import current_uid, current_incident_id
+    from api.state import get_uid_for_incident
+    uid = event_data.get("uid")
+    incident_id = event_data.get("incident_id")
 
-    # Auto-reset simulation lock ONLY when ALL 4 specialists have reported
-    # AND the managing partner has delivered the final verdict. This prevents
-    # the race condition where the verdict arrives before slower specialists
-    # (Legal, Market) finish, killing them mid-flight.
-    import re
-    specialists = {"financial_partner", "legal_partner", "technical_partner", "market_partner"}
+    # If uid is a system default, resolve the real owner from the incident registry
+    _system_defaults = (None, "", "__public__", "__mcp_client__")
+    if uid in _system_defaults and incident_id:
+        uid = get_uid_for_incident(incident_id) or uid or "__public__"
+    if not uid or uid in _system_defaults:
+        uid = "__public__"
 
-    # When any specialist finishes, check if we can now conclude
-    if event_data.get("status") == "done" and event_data.get("agent") in specialists:
-        # Mode-agnostic completion tracking: the event-bus 'done' is the ONE
-        # chokepoint every mode passes through (mock _handle_single_message,
-        # real on_message, and the mock-LLM path all broadcast it). Previously
-        # completed_agents was only populated in real mode / the mock-LLM path,
-        # so mock-transport + real-LLM runs never concluded and stalled to the
-        # watchdog. Adding here makes completion reliable in every mode.
-        sim_state.completed_agents.add(event_data["agent"])
-        # Enrich the specialist "done" event with partial confidence so the
-        # frontend confidence bar fills incrementally as each partner reports.
-        _n_done = len(sim_state.completed_agents & specialists)
-        event_data.setdefault("output", {})["partial_confidence"] = min(85, _n_done * 21)
+    token_uid = current_uid.set(uid)
+    token_inc = None
+    if incident_id:
+        token_inc = current_incident_id.set(incident_id)
+    try:
+        sim_state.touch()
+        # Track last-known status per agent for the chat API / MCP clients
+        if event_data.get("agent"):
+            sim_state.agent_statuses[event_data["agent"]] = event_data.get("status", "idle")
 
-        all_specialists_done = specialists.issubset(sim_state.completed_agents)
-        mp_has_verdict = getattr(sim_state, '_mp_verdict_pending', False)
-        if all_specialists_done and mp_has_verdict:
-            sim_state.running = False
-            sim_state.deal_concluded = True
-            _clear_agent_busy_flags()
-            logger.info("FastAPI: Simulation complete — all partners reported + verdict rendered.")
-        elif all_specialists_done and not sim_state._mp_verdict_triggered and sim_state.active_incident_id:
-            # All 4 specialists reported → deterministically trigger the Managing
-            # Partner to synthesize the verdict. Never rely on the MP LLM to
-            # notice on its own (that under-fired and stalled deals).
-            sim_state._mp_verdict_triggered = True
-            logger.info("FastAPI: All 4 specialists done — triggering Managing Partner verdict synthesis.")
-            asyncio.create_task(_trigger_mp_verdict(sim_state.active_incident_id))
+        # Auto-reset simulation lock ONLY when ALL 4 specialists have reported
+        # AND the managing partner has delivered the final verdict. This prevents
+        # the race condition where the verdict arrives before slower specialists
+        # (Legal, Market) finish, killing them mid-flight.
+        import re
+        specialists = {"financial_partner", "legal_partner", "technical_partner", "market_partner"}
 
-    if event_data.get("agent") == "managing_partner" and event_data.get("status") == "done":
-        output_data = event_data.get("output") or {}
-        report_text = output_data.get("report") or ""
-        if re.search(r"DECISION:", report_text, re.I):
-            # Attach the authoritative score/verdict/confidence as STRUCTURED fields so
-            # the dashboard never has to scrape the free-form report text (which a real
-            # LLM does not format reliably). This is what makes the weighted risk score
-            # show up the moment the committee concludes, in every run mode.
-            try:
-                from api.v1 import compute_deal_snapshot
-                snap = compute_deal_snapshot(sim_state.active_uid, sim_state.active_incident_id)
-                output_data["weighted_score"] = snap.get("weighted_score")
-                output_data["verdict"] = snap.get("verdict")
-                output_data["confidence"] = snap.get("confidence")
-                event_data["output"] = output_data
-            except Exception as e:
-                logger.warning(f"FastAPI: could not enrich verdict broadcast: {e}")
-            # Record that the MP has a verdict ready
-            sim_state._mp_verdict_pending = True
+        # When any specialist finishes, check if we can now conclude
+        if event_data.get("status") == "done" and event_data.get("agent") in specialists:
+            # Mode-agnostic completion tracking: the event-bus 'done' is the ONE
+            # chokepoint every mode passes through (mock _handle_single_message,
+            # real on_message, and the mock-LLM path all broadcast it). Previously
+            # completed_agents was only populated in real mode / the mock-LLM path,
+            # so mock-transport + real-LLM runs never concluded and stalled to the
+            # watchdog. Adding here makes completion reliable in every mode.
+            sim_state.completed_agents.add(event_data["agent"])
+            # Enrich the specialist "done" event with partial confidence so the
+            # frontend confidence bar fills incrementally as each partner reports.
+            _n_done = len(sim_state.completed_agents & specialists)
+            event_data.setdefault("output", {})["partial_confidence"] = min(85, _n_done * 21)
+
             all_specialists_done = specialists.issubset(sim_state.completed_agents)
-            if all_specialists_done:
+            mp_has_verdict = getattr(sim_state, '_mp_verdict_pending', False)
+            if all_specialists_done and mp_has_verdict:
                 sim_state.running = False
                 sim_state.deal_concluded = True
                 _clear_agent_busy_flags()
                 logger.info("FastAPI: Simulation complete — all partners reported + verdict rendered.")
+            elif all_specialists_done and not sim_state._mp_verdict_triggered and sim_state.active_incident_id:
+                # All 4 specialists reported → deterministically trigger the Managing
+                # Partner to synthesize the verdict. Never rely on the MP LLM to
+                # notice on its own (that under-fired and stalled deals).
+                sim_state._mp_verdict_triggered = True
+                logger.info("FastAPI: All 4 specialists done — triggering Managing Partner verdict synthesis.")
+                asyncio.create_task(_trigger_mp_verdict(sim_state.active_incident_id))
+
+        if event_data.get("agent") == "managing_partner" and event_data.get("status") == "done":
+            output_data = event_data.get("output") or {}
+            report_text = output_data.get("report") or ""
+            if re.search(r"DECISION:", report_text, re.I):
+                # Attach the authoritative score/verdict/confidence as STRUCTURED fields so
+                # the dashboard never has to scrape the free-form report text (which a real
+                # LLM does not format reliably). This is what makes the weighted risk score
+                # show up the moment the committee concludes, in every run mode.
+                try:
+                    from api.v1 import compute_deal_snapshot
+                    snap = compute_deal_snapshot(sim_state.active_uid, sim_state.active_incident_id)
+                    output_data["weighted_score"] = snap.get("weighted_score")
+                    output_data["verdict"] = snap.get("verdict")
+                    output_data["confidence"] = snap.get("confidence")
+                    event_data["output"] = output_data
+                except Exception as e:
+                    logger.warning(f"FastAPI: could not enrich verdict broadcast: {e}")
+                # Record that the MP has a verdict ready
+                sim_state._mp_verdict_pending = True
+                all_specialists_done = specialists.issubset(sim_state.completed_agents)
+                if all_specialists_done:
+                    sim_state.running = False
+                    sim_state.deal_concluded = True
+                    _clear_agent_busy_flags()
+                    logger.info("FastAPI: Simulation complete — all partners reported + verdict rendered.")
+                else:
+                    missing = specialists - sim_state.completed_agents
+                    logger.info(f"FastAPI: Verdict received but still waiting on: {missing} — NOT concluding yet.")
             else:
-                missing = specialists - sim_state.completed_agents
-                logger.info(f"FastAPI: Verdict received but still waiting on: {missing} — NOT concluding yet.")
-        else:
-            # Awaiting specialist findings, do not clear running state yet
-            pass
+                # Awaiting specialist findings, do not clear running state yet
+                pass
 
-    # An 'alert' means an agent died even after LLM fallback — release the
-    # trigger lock so the next Simulate click starts a fresh run instead of
-    # being ignored forever.
-    if event_data.get("status") == "alert" and sim_state.running:
-        sim_state.running = False
-        _clear_agent_busy_flags()
-        logger.warning("FastAPI: Agent error broke the chain — simulation lock released.")
+        # An 'alert' means an agent died even after LLM fallback — release the
+        # trigger lock so the next Simulate click starts a fresh run instead of
+        # being ignored forever.
+        if event_data.get("status") == "alert" and sim_state.running:
+            sim_state.running = False
+            _clear_agent_busy_flags()
+            logger.warning("FastAPI: Agent error broke the chain — simulation lock released.")
 
-    uid = sim_state.active_uid or "__public__"
-    targets = active_websockets.get(uid, set())
-    if not targets:
-        return
+        targets = active_websockets.get(uid, set())
+        if not targets:
+            return
 
-    message = json.dumps(event_data)
-    dead = set()
-    for ws in list(targets):
-        try:
-            await ws.send_text(message)
-        except Exception as e:
-            logger.error(f"Failed to send to WebSocket: {e}")
-            dead.add(ws)
-    for ws in dead:
-        active_websockets[uid].discard(ws)
+        message = json.dumps(event_data)
+        dead = set()
+        for ws in list(targets):
+            try:
+                await ws.send_text(message)
+            except Exception as e:
+                logger.error(f"Failed to send to WebSocket: {e}")
+                dead.add(ws)
+        for ws in dead:
+            active_websockets[uid].discard(ws)
+    finally:
+        current_uid.reset(token_uid)
+        if token_inc:
+            current_incident_id.reset(token_inc)
 
 
 @asynccontextmanager
@@ -666,14 +721,20 @@ _last_trigger: dict[str, float] = {}  # uid → epoch seconds of last trigger
 async def trigger_deal(request: Request, company: Optional[str] = None, raise_amount: str = "$10M"):
     """Triggers the FUSION investment committee on a deal."""
     import time as _time
+
+    # ── Set uid into ContextVar FIRST so all sim_state access is per-user ──
+    # If uid is set after the running check, all concurrent users share the
+    # __mcp_client__ namespace and block each other with already_running.
+    uid = await get_uid_optional(request)
+    from core.auth import current_uid as _cuid
+    _cuid.set(uid or "__public__")
+
     if sim_state.is_stale(max_idle_seconds=300):
         sim_state.reset()
         _clear_agent_busy_flags()
 
     if sim_state.running:
         return {"status": "already_running", "message": "Committee already in session.", "mode": "mock" if is_mock_mode() else "real"}
-
-    uid = await get_uid_optional(request)
 
     # Signed-in users: no cooldown, no session limit — full access
     # Anonymous demo users: 2 committee sessions per week
@@ -686,17 +747,56 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
             return {"status": "session_limit", "message": "Demo limit reached (14 sessions/week). Sign in for unlimited access.", "used": _sess_used, "limit": 14, "mode": "mock" if is_mock_mode() else "real"}
         _record_session(_sess_key)
 
-    # Reset simulation state and agent flags for a fresh run
+    try:
+        from core.demo_registry import resolve_pitch_file
+        from core.pitch_loader import resolve_uploaded_pitch, _company_name_of, _load_pitch_file
+        import uuid
+
+        new_deal_id = f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        resolved_pitch = resolve_pitch_file(company) if company else None
+        if resolved_pitch:
+            deal_id = new_deal_id
+            resolved_company = company
+            logger.info(f"trigger-deal: resolved demo '{company}' → pitch file {resolved_pitch}")
+        else:
+            up_file, up_incident = resolve_uploaded_pitch(company)
+            if up_file:
+                # Reuse the uploaded incident so the report ties back to the upload.
+                deal_id = up_incident or new_deal_id
+                resolved_pitch = up_file
+                resolved_company = company or _company_name_of(_load_pitch_file(up_file)) or "Uploaded Deal"
+                logger.info(f"trigger-deal: '{company}' → uploaded pitch {up_file} (incident {deal_id})")
+            else:
+                deal_id = new_deal_id
+                resolved_pitch = None  # loader falls back to the default pitch
+                resolved_company = company or "NovaPay Inc"
+                logger.info(f"trigger-deal: no demo/upload match for '{company}' → default pitch")
+    except Exception as e:
+        logger.error(f"trigger-deal: failed to resolve pitch: {e}")
+        import uuid
+        deal_id = f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        resolved_pitch = None
+        resolved_company = company or "NovaPay Inc"
+
+    # Set ContextVar for incident ID BEFORE any sim_state write
+    from core.auth import current_incident_id as _cinc
+    _cinc.set(deal_id)
+
+    # Register incident → uid mapping so event broadcasts resolve the correct
+    # user namespace even when ContextVars are lost across asyncio task boundaries.
+    from api.state import register_incident_uid as _reg_inc
+    _reg_inc(deal_id, uid or "__public__")
+
+    # Reset simulation state and agent flags for a fresh run (writes to "{uid}:{deal_id}")
     sim_state.reset()
     _clear_agent_busy_flags()
 
     sim_state.active_uid = uid
     sim_state.running = True
     sim_state.touch()
-
-    # Set ContextVar so Python's built-in create_task context copy propagates uid
-    from core.auth import current_uid as _cuid
-    _cuid.set(uid or "__public__")
+    sim_state.active_pitch_file = resolved_pitch
+    sim_state.active_company_name = resolved_company
+    sim_state.active_incident_id = deal_id
 
     # Extract display name from Firebase token for agent context + Firestore profile
     if uid:
@@ -715,40 +815,9 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
             pass
 
     try:
-        from core.demo_registry import resolve_pitch_file
-        from core.pitch_loader import clear_pitch_cache, resolve_uploaded_pitch, _company_name_of, _load_pitch_file
-
-        # Resolve which pitch the committee should analyze. The uploaded-document
-        # binding must survive a server restart / state reset, so we resolve the
-        # uploaded pitch from DISK (durable) rather than trusting in-memory state:
-        #  1. an explicitly-named built-in demo company   → its pitch file
-        #  2. an uploaded pitch matching the company name  → that upload (by disk)
-        #  3. no company given but an upload exists         → the most recent upload
-        #  4. otherwise                                     → default (NovaPay)
-        new_deal_id = f"DEAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-        resolved_pitch = resolve_pitch_file(company) if company else None
-        if resolved_pitch:
-            deal_id = new_deal_id
-            sim_state.active_pitch_file = resolved_pitch
-            sim_state.active_company_name = company
-            logger.info(f"trigger-deal: resolved demo '{company}' → pitch file {resolved_pitch}")
-        else:
-            up_file, up_incident = resolve_uploaded_pitch(company)
-            if up_file:
-                # Reuse the uploaded incident so the report ties back to the upload.
-                deal_id = up_incident or new_deal_id
-                sim_state.active_pitch_file = up_file
-                sim_state.active_company_name = company or _company_name_of(_load_pitch_file(up_file)) or "Uploaded Deal"
-                logger.info(f"trigger-deal: '{company}' → uploaded pitch {up_file} (incident {deal_id})")
-            else:
-                deal_id = new_deal_id
-                sim_state.active_pitch_file = None  # loader falls back to the default pitch
-                sim_state.active_company_name = company or "NovaPay Inc"
-                logger.info(f"trigger-deal: no demo/upload match for '{company}' → default pitch")
-
+        from core.pitch_loader import clear_pitch_cache
         company = sim_state.active_company_name
         memory_graph.create_incident(deal_id, {"trigger": "pitch_submission", "company": company})
-        sim_state.active_incident_id = deal_id
         sim_state.dispatched_deals.clear()   # fresh run — nothing dispatched yet
         clear_pitch_cache()
 
@@ -819,6 +888,7 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
                     sender="Managing-Partner",
                     target_room=room,
                     message=partner_brief,
+                    incident_id=deal_id,
                 )
             return {"status": "success", "message": f"Deal '{company}' submitted to committee (Mock Mode).", "deal_id": deal_id, "mode": "mock"}
         else:
@@ -864,12 +934,12 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
                 if sp_ok:
                     dispatched += 1
                 else:
-                    await mock_bus.send_message(sender="Managing-Partner", target_room=room_map[handle], message=partner_brief)
+                    await mock_bus.send_message(sender="Managing-Partner", target_room=room_map[handle], message=partner_brief, incident_id=deal_id)
             if dispatched > 0:
                 return {"status": "success", "message": f"Deal '{company}' submitted to committee ({dispatched}/4 specialists via real Band).", "deal_id": deal_id, "mode": "real"}
             else:
                 logger.warning("All real Band specialist dispatches failed, falling back to mock bus")
-                await mock_bus.send_message(sender="Managing-Partner", target_room="managing-partner-room", message=brief)
+                await mock_bus.send_message(sender="Managing-Partner", target_room="managing-partner-room", message=brief, incident_id=deal_id)
                 return {"status": "success", "message": f"Deal '{company}' submitted (mock fallback).", "deal_id": deal_id, "mode": "mock_fallback"}
     except Exception as e:
         sim_state.running = False
@@ -881,20 +951,27 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
 async def get_status(request: Request):
     """Basic health check and configuration status."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
-    # Only expose live sim state to the user who triggered the current session
-    is_my_session = (sim_state.active_uid == uid) if uid else (sim_state.active_uid is None)
-    return {
-        "status": "healthy",
-        "mock_mode": is_mock_mode(),
-        "registered_rooms": list(mock_bus.rooms.keys()) if is_mock_mode() else [],
-        "simulation_running": sim_state.running if is_my_session else False,
-        "active_incident_id": sim_state.active_incident_id if is_my_session else None,
-        "memory_incidents": user_memory.get_memory_stats()["total_incidents"],
-        "agent_statuses": dict(sim_state.agent_statuses) if is_my_session else {},
-        "completed_agents": list(sim_state.completed_agents) if is_my_session else [],
-        "deal_concluded": sim_state.deal_concluded if is_my_session else False,
-    }
+
+    # Set ContextVar so sim_state._get_state() uses the correct per-user partition.
+    from core.auth import current_uid as _cuid
+    _token = _cuid.set(uid or "__public__")
+    try:
+        user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+        # Only expose live sim state to the user who triggered the current session
+        is_my_session = (sim_state.active_uid == uid) if uid else (sim_state.active_uid is None)
+        return {
+            "status": "healthy",
+            "mock_mode": is_mock_mode(),
+            "registered_rooms": list(mock_bus.rooms.keys()) if is_mock_mode() else [],
+            "simulation_running": sim_state.running if is_my_session else False,
+            "active_incident_id": sim_state.active_incident_id if is_my_session else None,
+            "memory_incidents": user_memory.get_memory_stats()["total_incidents"],
+            "agent_statuses": dict(sim_state.agent_statuses) if is_my_session else {},
+            "completed_agents": list(sim_state.completed_agents) if is_my_session else [],
+            "deal_concluded": sim_state.deal_concluded if is_my_session else False,
+        }
+    finally:
+        _cuid.reset(_token)
 
 @app.get("/api/rtdb-test")
 async def rtdb_test():
