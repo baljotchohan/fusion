@@ -128,7 +128,7 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
           <p className={labelCls}>Connect via MCP</p>
         </div>
         <p className="text-[11.5px] text-text-secondary mb-4">
-          Use FUSION's 5-agent VC committee directly from your AI tools — no browser needed.
+          Use FUSION&apos;s 5-agent VC committee directly from your AI tools — no browser needed.
         </p>
 
         {/* Tabs */}

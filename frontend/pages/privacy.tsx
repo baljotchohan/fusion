@@ -26,7 +26,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-sm font-bold text-white uppercase tracking-wider font-mono mb-2">2. Information We Access</h2>
             <p>
-              When you authenticate using Google Sign-In, we access only the basic profile information provided by Google's non-sensitive OAuth scope:
+              When you authenticate using Google Sign-In, we access only the basic profile information provided by Google&apos;s non-sensitive OAuth scope:
             </p>
             <ul className="list-disc pl-5 mt-2 space-y-1">
               <li>Your email address (to identify your account)</li>

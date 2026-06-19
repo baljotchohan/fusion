@@ -125,7 +125,7 @@ export function ExecutivePanel({
               No active evaluation
             </p>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center max-w-[200px] leading-relaxed">
-              Submit a deal to receive the committee's verdict memo.
+              Submit a deal to receive the committee&apos;s verdict memo.
             </p>
           </motion.div>
         )}

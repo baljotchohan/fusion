@@ -1,6 +1,5 @@
 // pages/index.tsx — FUSION VC Command Center
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-// @ts-ignore — suppress missing type defs for lucide-react icons
 import Head from 'next/head'
 import { auth, onAuthStateChanged, signInWithGoogle, signInAsGuest, signOut as firebaseSignOut, type User, getCurrentIdToken } from '@/lib/firebase'
 import { apiFetch, logActivity } from '@/lib/apiFetch'
@@ -143,7 +142,7 @@ export default function FUSION() {
   const [activeCompany, setActiveCompany] = useState<string | null>(null)
   const maxFileSizeMb = 10
 
-  const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now())
+  const [lastActivityTime, setLastActivityTime] = useState<number>(() => Date.now())
   const [showStalledWarning, setShowStalledWarning] = useState(false)
 
   useEffect(() => {
@@ -181,7 +180,7 @@ export default function FUSION() {
       setShowRecoveryPrompt(false)
       setShowStalledWarning(false)
       await apiFetch(`${API_BASE}/api/force-verdict?incident_id=${activeIncidentId || ''}`, { method: 'POST' })
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to force verdict synthesis:', err)
     }
   }
@@ -290,7 +289,7 @@ export default function FUSION() {
         const data = await res.json()
         setChatSessions(data || [])
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load chat sessions:', err)
     }
   }, [firebaseUser?.uid])
@@ -304,7 +303,7 @@ export default function FUSION() {
     const sessionParam = activeSessionId ? `&session_id=${encodeURIComponent(activeSessionId)}` : ''
     apiFetch(`${API_BASE}/api/v1/chat/history?limit=40${sessionParam}`).then(r => r.json()).then(d => {
       if (d && Array.isArray(d.history) && d.history.length) {
-        setChatHistory(d.history.map((t: any) => ({ role: t.role, content: t.content, incidentId: t.meta?.incident_id, intent: t.meta?.intent })))
+        setChatHistory(d.history.map((t: {role: 'user'|'assistant'; content: string; meta?: {incident_id?: string; intent?: string}}) => ({ role: t.role, content: t.content, incidentId: t.meta?.incident_id, intent: t.meta?.intent })))
       } else {
         setChatHistory([])
       }
@@ -344,7 +343,7 @@ export default function FUSION() {
         setThreatScore(0)
         resetAll()
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to restore deal state:', err)
     }
   }, [firebaseUser?.uid, setCeoDecision, setThreatScore, resetAll])
@@ -387,7 +386,7 @@ export default function FUSION() {
           loadChatSessions()
           logActivity('chat_session_deleted', { sessionId })
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to delete chat session:', err)
       }
     }
@@ -436,7 +435,7 @@ export default function FUSION() {
             })
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.debug('Failed to log connection telemetry:', err)
       }
     }
@@ -830,7 +829,7 @@ export default function FUSION() {
                 
                 {chatSessions.length === 0 ? (
                   <div className="text-[11px] text-text-muted py-1 leading-normal">
-                    No saved chats. Click '+' to start a new chat.
+                    No saved chats. Click &apos;+&apos; to start a new chat.
                   </div>
                 ) : (
                   <div className="space-y-0.5 max-h-[160px] overflow-y-auto noscrollbar">
@@ -921,7 +920,7 @@ export default function FUSION() {
                 
                 {chatSessions.length === 0 ? (
                   <div className="text-[10.5px] text-text-muted px-2 py-1 leading-normal">
-                    No saved chats. Click '+' to start a new chat.
+                    No saved chats. Click &apos;+&apos; to start a new chat.
                   </div>
                 ) : (
                   <div className="space-y-0.5 max-h-[160px] overflow-y-auto noscrollbar pr-1">
@@ -1618,7 +1617,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
       currentIdx++
       if (currentIdx < simSteps.length) {
         setSimStepIdx(currentIdx)
-        setSelectedSimNode(simSteps[currentIdx].activeNode as any)
+        setSelectedSimNode(simSteps[currentIdx].activeNode as 'managing' | 'financial' | 'legal' | 'technical' | 'market' | 'core')
         setSimLogs(prev => [...prev, simSteps[currentIdx].log])
       } else {
         clearInterval(interval)
@@ -1905,7 +1904,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
             Roundtable Deliberation Visualizer
           </h2>
           <p className="mt-4 text-text-secondary leading-relaxed text-sm max-w-xl mx-auto">
-            Witness how FUSION coordinates specialist agents, validates metrics through calculations engines, and generates consensus decisions. Click "Start Swarm Deliberation" to run.
+            Witness how FUSION coordinates specialist agents, validates metrics through calculations engines, and generates consensus decisions. Click &quot;Start Swarm Deliberation&quot; to run.
           </p>
         </div>
 
@@ -2256,7 +2255,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
               
               <div className="h-[120px] rounded-2xl border border-border bg-bg-card p-4 font-mono text-[11px] overflow-y-auto space-y-2 noscrollbar">
                 {simLogs.length === 0 ? (
-                  <span className="text-text-muted block italic">Ready to run. Click "Trigger Diligence Run" below.</span>
+                  <span className="text-text-muted block italic">Ready to run. Click &quot;Trigger Diligence Run&quot; below.</span>
                 ) : (
                   simLogs.map((log, i) => (
                     <div key={i} className="text-text-secondary leading-relaxed animate-fade-in-up">
@@ -2484,7 +2483,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
                 <div>
                   <h4 className="font-bold text-text-primary text-[13px] font-mono">Dynamic Agent Recruitment</h4>
                   <p className="text-text-secondary text-xs mt-1 leading-relaxed">
-                    Using Band's <code>thenvoi_lookup_peers</code> and <code>thenvoi_add_participant</code>, the Incident Commander dynamically discovers active boardroom specialists and adds them to active deliberation threads on demand.
+                    Using Band&apos;s <code>thenvoi_lookup_peers</code> and <code>thenvoi_add_participant</code>, the Incident Commander dynamically discovers active boardroom specialists and adds them to active deliberation threads on demand.
                   </p>
                 </div>
               </div>
@@ -2571,34 +2570,34 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
                   <div>&nbsp;&nbsp;&nbsp;&nbsp;config = load_yaml(config_path)</div>
                   <div>&nbsp;&nbsp;&nbsp;&nbsp;adapter = LangGraphAdapter(graph=agent_graph)</div>
                   <div>&nbsp;&nbsp;&nbsp;&nbsp;band_agent = BandAgent(</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;agent_id=config[<span className="text-yellow-600">"agent_id"</span>],</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;api_key=config[<span className="text-yellow-600">"api_key"</span>],</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;agent_id=config[<span className="text-yellow-600">&quot;agent_id&quot;</span>],</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;api_key=config[<span className="text-yellow-600">&quot;api_key&quot;</span>],</div>
                   <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;adapter=adapter</div>
                   <div>&nbsp;&nbsp;&nbsp;&nbsp;)</div>
                   <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500 font-bold">await</span> band_agent.connect() &nbsp;<span className="text-neutral-500"># Connects to Band WebSocket event bus</span></div>
                   <br />
                   <div><span className="text-neutral-500 font-sans tracking-wide mb-1 block"># incident_commander.py - Room invitation flow</span></div>
                   <div><span className="text-emerald-500 font-bold">await</span> band_agent.platform.thenvoi_add_participant(</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;room=<span className="text-yellow-600">"incident-command-room"</span>,</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;agent=<span className="text-yellow-600">"@Recon-Agent"</span></div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;room=<span className="text-yellow-600">&quot;incident-command-room&quot;</span>,</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;agent=<span className="text-yellow-600">&quot;@Recon-Agent&quot;</span></div>
                   <div>)</div>
                 </div>
               ) : (
                 <div className="font-mono text-[10.5px] bg-bg-subtle border border-border p-4 rounded-xl overflow-x-auto text-accent space-y-1.5 leading-relaxed noscrollbar flex-1 min-h-[460px] text-left">
-                  <div><span className="text-neutral-500 font-sans tracking-wide mb-1 block">// Real-time event payload routed via Band WebSocket Room</span></div>
+                  <div><span className="text-neutral-500 font-sans tracking-wide mb-1 block">{'// Real-time event payload routed via Band WebSocket Room'}</span></div>
                   <div>{"{"}</div>
-                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"event"</span>: <span className="text-yellow-600">"message_published"</span>,</div>
-                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"room"</span>: <span className="text-yellow-600">"incident-command-room"</span>,</div>
-                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"sender"</span>: <span className="text-yellow-600">"@Threat-Intel-Agent"</span>,</div>
-                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"recipient"</span>: <span className="text-yellow-600">"@Incident-Commander"</span>,</div>
-                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"timestamp"</span>: <span className="text-yellow-600">"2026-06-17T01:12:45Z"</span>,</div>
-                  <div>&nbsp;&nbsp;<span className="text-emerald-500">"payload"</span>: {"{"}</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"threat_type"</span>: <span className="text-yellow-600">"Spearphishing Attachment"</span>,</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"mitre_ttps"</span>: [<span className="text-yellow-600">"T1566"</span>, <span className="text-yellow-600">"T1566.001"</span>, <span className="text-yellow-600">"T1204.002"</span>],</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"cves"</span>: [{"{"} <span className="text-emerald-500">"id"</span>: <span className="text-yellow-600">"CVE-2024-21378"</span>, <span className="text-emerald-500">"cvss"</span>: <span className="text-yellow-600">9.8</span>, <span className="text-emerald-500">"severity"</span>: <span className="text-yellow-600">"CRITICAL"</span> {"}"}],</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"severity_score"</span>: <span className="text-yellow-600">82</span>,</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"target"</span>: {"{"} <span className="text-emerald-500">"email"</span>: <span className="text-yellow-600">"ceo@techcorp.com"</span>, <span className="text-emerald-500">"role"</span>: <span className="text-yellow-600">"CEO"</span>, <span className="text-emerald-500">"admin"</span>: <span className="text-yellow-600">true</span> {"}"},</div>
-                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">"recommended_actions"</span>: [<span className="text-yellow-600">"Isolate mail server"</span>, <span className="text-yellow-600">"Block sender domain"</span>]</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">&quot;event&quot;</span>: <span className="text-yellow-600">&quot;message_published&quot;</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">&quot;room&quot;</span>: <span className="text-yellow-600">&quot;incident-command-room&quot;</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">&quot;sender&quot;</span>: <span className="text-yellow-600">&quot;@Threat-Intel-Agent&quot;</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">&quot;recipient&quot;</span>: <span className="text-yellow-600">&quot;@Incident-Commander&quot;</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">&quot;timestamp&quot;</span>: <span className="text-yellow-600">&quot;2026-06-17T01:12:45Z&quot;</span>,</div>
+                  <div>&nbsp;&nbsp;<span className="text-emerald-500">&quot;payload&quot;</span>: {"{"}</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">&quot;threat_type&quot;</span>: <span className="text-yellow-600">&quot;Spearphishing Attachment&quot;</span>,</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">&quot;mitre_ttps&quot;</span>: [<span className="text-yellow-600">&quot;T1566&quot;</span>, <span className="text-yellow-600">&quot;T1566.001&quot;</span>, <span className="text-yellow-600">&quot;T1204.002&quot;</span>],</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">&quot;cves&quot;</span>: [{"{"} <span className="text-emerald-500">&quot;id&quot;</span>: <span className="text-yellow-600">&quot;CVE-2024-21378&quot;</span>, <span className="text-emerald-500">&quot;cvss&quot;</span>: <span className="text-yellow-600">9.8</span>, <span className="text-emerald-500">&quot;severity&quot;</span>: <span className="text-yellow-600">&quot;CRITICAL&quot;</span> {"}"}],</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">&quot;severity_score&quot;</span>: <span className="text-yellow-600">82</span>,</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">&quot;target&quot;</span>: {"{"} <span className="text-emerald-500">&quot;email&quot;</span>: <span className="text-yellow-600">&quot;ceo@techcorp.com&quot;</span>, <span className="text-emerald-500">&quot;role&quot;</span>: <span className="text-yellow-600">&quot;CEO&quot;</span>, <span className="text-emerald-500">&quot;admin&quot;</span>: <span className="text-yellow-600">true</span> {"}"},</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-emerald-500">&quot;recommended_actions&quot;</span>: [<span className="text-yellow-600">&quot;Isolate mail server&quot;</span>, <span className="text-yellow-600">&quot;Block sender domain&quot;</span>]</div>
                   <div>&nbsp;&nbsp;{"}"}</div>
                   <div>{"}"}</div>
                 </div>
@@ -2614,7 +2613,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
           <span className="text-[10px] font-mono uppercase tracking-wider text-accent font-bold">Architecture & Integrations</span>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-text-primary mt-1.5 font-mono">Core Architectural Specs</h2>
           <p className="mt-4 text-text-secondary leading-relaxed text-sm">
-            FUSION's infrastructure leverages a deterministic calculations engine, the Band AI WebSocket bus, and MCP server standards.
+            FUSION&apos;s infrastructure leverages a deterministic calculations engine, the Band AI WebSocket bus, and MCP server standards.
           </p>
         </div>
 
@@ -2632,9 +2631,9 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
               </p>
             </div>
             <div className="mt-8 p-4 rounded-xl border border-border bg-bg-subtle font-mono text-[10px] text-text-secondary">
-              <span className="text-text-muted block mb-1">// calculations_engine.py</span>
+              <span className="text-text-muted block mb-1">{'// calculations_engine.py'}</span>
               <span className="text-emerald-400">def</span> calculate_runway(cash, burn):<br />
-              &nbsp;&nbsp;<span className="text-emerald-400">return</span> cash / burn if burn &gt; 0 else float('inf')
+              &nbsp;&nbsp;<span className="text-emerald-400">return</span> cash / burn if burn &gt; 0 else float(&apos;inf&apos;)
             </div>
           </div>
 
@@ -2650,10 +2649,10 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
               </p>
             </div>
             <div className="mt-8 p-4 rounded-xl border border-border bg-bg-subtle font-mono text-[10px] text-text-secondary">
-              <span className="text-text-muted block mb-1">// band_bus.py</span>
+              <span className="text-text-muted block mb-1">{'// band_bus.py'}</span>
               await band_sdk.publish(<br />
-              &nbsp;&nbsp;room=<span className="text-emerald-400">"#managing-partner-room"</span>,<br />
-              &nbsp;&nbsp;event=<span className="text-emerald-400">"diligence_triggered"</span><br />
+              &nbsp;&nbsp;room=<span className="text-emerald-400">&quot;#managing-partner-room&quot;</span>,<br />
+              &nbsp;&nbsp;event=<span className="text-emerald-400">&quot;diligence_triggered&quot;</span><br />
               )
             </div>
           </div>
@@ -2666,14 +2665,14 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
               </div>
               <h4 className="text-lg font-bold text-text-primary font-mono">3. Open MCP Servers</h4>
               <p className="mt-4 text-xs text-text-secondary leading-relaxed">
-                Exposes FUSION's intelligence database as structured tools for external LLM clients (Claude Desktop, Cursor, or CLI). Stdio and HTTP endpoints expose tools to retrieve verdicts, check deal status, or query vaults.
+                Exposes FUSION&apos;s intelligence database as structured tools for external LLM clients (Claude Desktop, Cursor, or CLI). Stdio and HTTP endpoints expose tools to retrieve verdicts, check deal status, or query vaults.
               </p>
             </div>
             <div className="mt-8 p-4 rounded-xl border border-border bg-bg-subtle font-mono text-[10px] text-text-secondary">
-              <span className="text-text-muted block mb-1">// mcp_server.py config</span>
-              "fusion": &#123;<br />
-              &nbsp;&nbsp;"command": <span className="text-emerald-400">"python"</span>,<br />
-              &nbsp;&nbsp;"args": [<span className="text-emerald-400">"mcp_server.py"</span>]<br />
+              <span className="text-text-muted block mb-1">{'// mcp_server.py config'}</span>
+              &quot;fusion&quot;: &#123;<br />
+              &nbsp;&nbsp;&quot;command&quot;: <span className="text-emerald-400">&quot;python&quot;</span>,<br />
+              &nbsp;&nbsp;&quot;args&quot;: [<span className="text-emerald-400">&quot;mcp_server.py&quot;</span>]<br />
               &#125;
             </div>
           </div>
@@ -2742,7 +2741,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
                   We built FUSION to address the research complexities companies face when investing in or acquiring another company.
                 </p>
                 <p>
-                  Due diligence is slow, expensive, and siloed — specialists work in separate lanes and rarely see each other's findings. FUSION brings five specialist AI agents into one boardroom, investigating a startup simultaneously across financial, legal, technical, and market dimensions — then delivering a single, evidence-backed verdict.
+                  Due diligence is slow, expensive, and siloed — specialists work in separate lanes and rarely see each other&apos;s findings. FUSION brings five specialist AI agents into one boardroom, investigating a startup simultaneously across financial, legal, technical, and market dimensions — then delivering a single, evidence-backed verdict.
                 </p>
               </div>
             </div>
@@ -2958,7 +2957,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
               <div className="space-y-4 animate-fade-in-up">
                 <h3 className="text-2xl font-bold text-text-primary font-mono">Deterministic Calculations Logic</h3>
                 <p className="text-xs text-text-secondary leading-relaxed">
-                  FUSION's calculations core overrides LLM hallucinations by computing critical startup metrics using pure Python scripts:
+                  FUSION&apos;s calculations core overrides LLM hallucinations by computing critical startup metrics using pure Python scripts:
                 </p>
 
                 <h4 className="text-sm font-bold text-text-primary font-mono mt-6">Primary Formulas</h4>
@@ -2997,7 +2996,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
                 </div>
 
                 <div className="p-4 rounded-xl border border-red-500/20 bg-red-500/5 text-xs text-red-600 dark:text-red-400 leading-relaxed font-mono">
-                  ⚠️ <strong>Recusal Override Triggered:</strong> If any single customer concentration exceeds 40% (such as NovaPay's 42% on Penn Medicine), the calculations engine automatically triggers a REJECT override, bypassing LLM voting.
+                  ⚠️ <strong>Recusal Override Triggered:</strong> If any single customer concentration exceeds 40% (such as NovaPay&apos;s 42% on Penn Medicine), the calculations engine automatically triggers a REJECT override, bypassing LLM voting.
                 </div>
               </div>
             )}
@@ -3007,7 +3006,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
               <div className="space-y-4 animate-fade-in-up">
                 <h3 className="text-2xl font-bold text-text-primary font-mono">Band AI WebSocket Event Bus</h3>
                 <p className="text-xs text-text-secondary leading-relaxed">
-                  FUSION's multi-agent coordination routes across the Band Event Bus. Agents communicate on WebSocket channels to publish findings asynchronously.
+                  FUSION&apos;s multi-agent coordination routes across the Band Event Bus. Agents communicate on WebSocket channels to publish findings asynchronously.
                 </p>
 
                 <h4 className="text-sm font-bold text-text-primary font-mono mt-6">LangGraph Routing Sequence</h4>

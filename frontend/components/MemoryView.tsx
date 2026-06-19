@@ -134,7 +134,7 @@ export default function MemoryView({ defaultTab = 'findings' }: MemoryViewProps)
                     logActivity('memory_wipe_all_clicked')
                     alert('All history wiped successfully.')
                   }
-                } catch (err) {
+                } catch (err: any) {
                   console.error('Wipe all failed:', err)
                 }
               }
@@ -178,7 +178,7 @@ export default function MemoryView({ defaultTab = 'findings' }: MemoryViewProps)
                                 setIncidents(prev => prev.filter(i => i.incident_id !== inc.incident_id))
                                 logActivity('memory_deal_deleted', { incidentId: inc.incident_id, company: inc.company })
                               }
-                            } catch (err) {
+                            } catch (err: any) {
                               console.error('Failed to delete deal:', err)
                             }
                           }

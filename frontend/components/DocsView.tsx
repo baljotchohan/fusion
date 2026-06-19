@@ -262,7 +262,7 @@ npm run dev`}</Code>
         {section === 'architecture' && (
           <div>
             <H>Architecture</H>
-            <P>FUSION's technical framework consists of:</P>
+            <P>FUSION&apos;s technical framework consists of:</P>
             <ul className="space-y-2 text-[12px] text-text-secondary mb-3">
               <li>• <B>FastAPI & Uvicorn</B> — REST API and real-time WebSockets.</li>
               <li>• <B>LangGraph React Agents</B> — Specialist partners equipped with memory and web tools.</li>
