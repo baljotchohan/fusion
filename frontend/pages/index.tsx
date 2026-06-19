@@ -714,11 +714,14 @@ export default function FUSION() {
   )
 
   const handleSignOut = async () => {
-    setShowLanding(true)   // show home immediately, don't wait for Firebase round-trip
     logActivity('user_logged_out', { email: firebaseUser?.email, uid: firebaseUser?.uid })
     await firebaseSignOut()
     localStorage.removeItem('fusion.activeIncidentId')
     setChatHistory([])
+    setChatSessions([])
+    setActiveSessionId(null)
+    setActiveIncidentId(null)
+    setActiveCompany(null)
     resetAll()
   }
 
@@ -751,7 +754,7 @@ export default function FUSION() {
     )
   }
 
-  if (!isLoggedIn || showLanding) {
+  if (!isLoggedIn) {
     return (
       <LandingPage
         onLogin={() => {}}

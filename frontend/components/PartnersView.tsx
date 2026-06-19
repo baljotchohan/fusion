@@ -1,6 +1,6 @@
 // components/PartnersView.tsx — AI Partner Profiles
 import React, { useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2 } from 'lucide-react'
 import { AGENTS } from '../lib/agents'
 import { logActivity } from '@/lib/apiFetch'
@@ -80,23 +80,25 @@ export function PartnersView() {
                   <ChevronDown className={`w-4 h-4 text-text-muted transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                 </button>
 
-                {isExpanded && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="px-5 pb-5"
-                  >
-                    <ul className="grid grid-cols-2 gap-2">
-                      {agent.checklist.map((item, i) => (
-                        <li key={i} className="flex items-center gap-2 text-[12px] text-text-secondary">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-accent-green shrink-0" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </motion.div>
-                )}
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="px-5 pb-5"
+                    >
+                      <ul className="grid grid-cols-2 gap-2">
+                        {agent.checklist.map((item) => (
+                          <li key={item} className="flex items-center gap-2 text-[12px] text-text-secondary">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-accent-green shrink-0" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </motion.div>
           )

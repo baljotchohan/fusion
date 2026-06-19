@@ -3,13 +3,17 @@
 import React from 'react'
 
 interface Props { children: React.ReactNode }
-interface State { error: Error | null }
+interface State { error: Error | null; resetKey: number }
 
 export default class ErrorBoundary extends React.Component<Props, State> {
-  state: State = { error: null }
+  state: State = { error: null, resetKey: 0 }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { error }
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[ErrorBoundary]', error, info.componentStack)
   }
 
   render() {
@@ -19,7 +23,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
           <p className="text-danger font-semibold text-[14px]">Something went wrong</p>
           <p className="text-text-muted text-[12px] max-w-xs">{this.state.error.message}</p>
           <button
-            onClick={() => this.setState({ error: null })}
+            onClick={() => this.setState(s => ({ error: null, resetKey: s.resetKey + 1 }))}
             className="px-4 py-2 rounded-lg border border-border text-[12px] text-text-secondary hover:bg-bg-muted transition cursor-pointer"
           >
             Try again
@@ -27,6 +31,6 @@ export default class ErrorBoundary extends React.Component<Props, State> {
         </div>
       )
     }
-    return this.props.children
+    return <React.Fragment key={this.state.resetKey}>{this.props.children}</React.Fragment>
   }
 }

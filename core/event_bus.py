@@ -38,8 +38,8 @@ class EventBus:
         
         logger.info(f"Broadcasting event: Agent={agent_name}, Status={status}")
         
-        # Call all listener callbacks (which should be async-safe or handled)
-        for listener in self._listeners:
+        # Snapshot the list so register/unregister during broadcast is safe
+        for listener in list(self._listeners):
             try:
                 # If listener is a coroutine function, await it, otherwise run it
                 import inspect

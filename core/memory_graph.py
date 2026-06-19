@@ -15,7 +15,7 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from datetime import datetime, timezone
 
 logger = logging.getLogger("fusion.memory_graph")
@@ -374,18 +374,26 @@ class MemoryGraph:
     def _read_file(self, path: Path) -> dict:
         try:
             return json.loads(path.read_text())
-        except Exception:
+        except Exception as e:
+            if path.exists():
+                logger.warning("_read_file: corrupt or unreadable %s — %s", path, e)
             return {}
 
     def _read_list(self, path: Path) -> list:
         try:
             data = json.loads(path.read_text())
             return data if isinstance(data, list) else []
-        except Exception:
+        except Exception as e:
+            if path.exists():
+                logger.warning("_read_list: corrupt or unreadable %s — %s", path, e)
             return []
 
     def _write_file(self, path: Path, data):
-        path.write_text(json.dumps(data, indent=2))
+        # Write to a temp file first, then rename atomically to prevent
+        # a server crash mid-write from leaving a corrupt JSON file.
+        tmp = path.with_suffix('.tmp')
+        tmp.write_text(json.dumps(data, indent=2))
+        tmp.replace(path)
 
 
 # Global singleton shared by the API, the agents, and the MCP server

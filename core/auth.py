@@ -64,6 +64,11 @@ def _init_firebase():
 _init_firebase()
 
 _AUTH_DISABLED = os.environ.get("FUSION_AUTH_DISABLED", "").lower() == "true"
+if _AUTH_DISABLED:
+    _env = os.environ.get("ENVIRONMENT", "dev").lower()
+    if _env in ("production", "prod"):
+        raise RuntimeError("FUSION_AUTH_DISABLED must not be set in production — remove it from HF Space secrets.")
+    logger.warning("⚠️  Auth is DISABLED (FUSION_AUTH_DISABLED=true) — any caller can set X-Dev-UID. Dev/staging only.")
 
 
 async def get_uid(request: Request) -> str:

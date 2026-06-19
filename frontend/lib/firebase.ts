@@ -8,6 +8,8 @@ import {
   signInAnonymously,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
   type User,
 } from 'firebase/auth'
 
@@ -24,6 +26,9 @@ const firebaseConfig = {
 // Prevent duplicate initialization in Next.js hot-reload
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
 export const auth = getAuth(app)
+// Pin persistence so both Google and guest sessions survive refresh/browser-close.
+// Must be called before any sign-in; ignored if already set (idempotent).
+setPersistence(auth, browserLocalPersistence).catch(() => {})
 
 // Silently handle any pending redirect from a previous broken attempt.
 // signInWithRedirect is broken in Chrome M115+/Firefox 109+/Safari 16.1+ due to

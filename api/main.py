@@ -246,7 +246,7 @@ RISK SCORECARD:
     try:
         from core.rtdb import write_deal, write_session
         _rtdb_uid = sim_state.active_uid or "__public__"
-        write_deal(_rtdb_uid, incident_id, {
+        ok1 = write_deal(_rtdb_uid, incident_id, {
             "companyName": company,
             "verdict": verdict_display,
             "weightedScore": weighted_score,
@@ -254,9 +254,11 @@ RISK SCORECARD:
             "createdAt": datetime.now(timezone.utc).isoformat(),
             "report": report_text[:4000],
         })
-        write_session(_rtdb_uid, incident_id, {"status": "complete", "verdict": verdict_display})
-    except Exception:
-        pass
+        ok2 = write_session(_rtdb_uid, incident_id, {"status": "complete", "verdict": verdict_display})
+        if not ok1 or not ok2:
+            logger.warning("RTDB verdict write skipped/failed (ok1=%s ok2=%s) — check FIREBASE_DATABASE_URL secret and HF Space logs", ok1, ok2)
+    except Exception as e:
+        logger.warning("RTDB verdict write exception: %s", e)
 
     # Broadcast 'done' event for managing_partner to Websockets so the frontend transitions
     await event_bus.broadcast("managing_partner", "done", {"report": report_text})
@@ -558,9 +560,9 @@ class TriggerResponse(BaseModel):
     mode: str
 
 @app.post("/api/trigger-attack", response_model=TriggerResponse)
-async def trigger_attack():
+async def trigger_attack(request: Request):
     """Compatibility wrapper that triggers the FUSION deal review."""
-    res = await trigger_deal()
+    res = await trigger_deal(request=request)
     return TriggerResponse(
         status=res.get("status", "error"),
         message=res.get("message", ""),
@@ -597,6 +599,10 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
     sim_state.active_uid = uid
     sim_state.running = True
     sim_state.touch()
+
+    # Set ContextVar so Python's built-in create_task context copy propagates uid
+    from core.auth import current_uid as _cuid
+    _cuid.set(uid or "__public__")
 
     # Extract display name from Firebase token for agent context + Firestore profile
     if uid:
@@ -656,14 +662,16 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
         try:
             from core.rtdb import write_session, write_activity
             _rtdb_uid = uid or "__public__"
-            write_session(_rtdb_uid, deal_id, {
+            ok = write_session(_rtdb_uid, deal_id, {
                 "companyName": company,
                 "status": "running",
                 "startedAt": datetime.now(timezone.utc).isoformat(),
             })
             write_activity(_rtdb_uid, "deal_triggered", {"dealId": deal_id, "company": company})
-        except Exception:
-            pass
+            if not ok:
+                logger.warning("RTDB session write skipped/failed — check FIREBASE_DATABASE_URL secret and HF Space logs")
+        except Exception as e:
+            logger.warning("RTDB session write exception: %s", e)
 
         _submitter = f" Submitted by {sim_state.active_user_name}." if sim_state.active_user_name else ""
         brief = f"New deal submitted for committee review: {company} — Series A, {raise_amount} raise.{_submitter} Full pitch data is loaded in the deal brief. Please convene the investment committee and begin due diligence."
@@ -805,8 +813,13 @@ async def mcp_connect_info():
 
 
 @app.post("/api/reset")
-async def reset_simulation():
+async def reset_simulation(request: Request):
     """Resets the simulation state so a new attack can be triggered."""
+    uid = await get_uid_optional(request)
+    # Only the user who owns the current session (or any caller if no session is active) may reset.
+    if sim_state.active_uid and uid != sim_state.active_uid:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Only the session owner may reset the committee.")
     sim_state.reset()
     # Clear all agent busy flags so they're ready for the next run
     if is_mock_mode():

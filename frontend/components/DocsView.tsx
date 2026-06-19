@@ -41,7 +41,13 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 }
 function Code({ children, label }: { children: string; label?: string }) {
   const [copied, setCopied] = useState(false)
-  const copy = () => { navigator.clipboard?.writeText(children); setCopied(true); setTimeout(() => setCopied(false), 1200) }
+  const copy = async () => {
+    try {
+      if (navigator.clipboard) await navigator.clipboard.writeText(children)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch { /* clipboard denied */ }
+  }
   return (
     <div className="rounded-xl border border-border bg-bg-base my-3 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
@@ -70,7 +76,7 @@ function EndpointRow({ method, path, desc }: { method: string; path: string; des
 
 const MCP_TOOLS: [string, string][] = [
   ['chat_with_managing_partner', 'Talk to the Managing Partner; submitting a pitch recruits the specialist partners.'],
-  ['get_deal_history', 'Retrieve past investment target timelines, decisions, and risk scorecard data.'],
+  ['get_deal_record', 'Retrieve past investment target timelines, decisions, and risk scorecard data.'],
   ['get_boardroom_verdict', 'Get the investment committee\'s final verdict for a startup deal.'],
   ['query_deal_vault', 'Find similar past startup evaluations by sector or risk pattern.'],
   ['learn_risk_pattern', 'Teach the committee a due diligence checklist or risk pattern.'],

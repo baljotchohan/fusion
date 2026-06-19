@@ -927,11 +927,13 @@ async def chat_with_commander(msg: ChatMessage, request: Request):
     if uid:
         try:
             from core.rtdb import write_chat, write_activity
-            write_chat(uid, session_id or incident_id, msg.user_message, commander_response, intent)
+            ok = write_chat(uid, session_id or incident_id, msg.user_message, commander_response, intent)
             if dispatched:
                 write_activity(uid, "deal_triggered_via_chat", {"incidentId": incident_id})
-        except Exception:
-            pass
+            if not ok:
+                logger.warning("RTDB chat write skipped/failed — check FIREBASE_DATABASE_URL secret")
+        except Exception as e:
+            logger.warning("RTDB chat write exception: %s", e)
 
     return ChatResponse(
         commander_response=commander_response,
@@ -973,6 +975,8 @@ async def websocket_chat(websocket: WebSocket, session_id: Optional[str] = None,
             uid = decoded["uid"]
         except Exception:
             pass
+    from core.auth import current_uid as _ws_uid
+    _ws_uid.set(uid)
 
     await websocket.accept()
 
@@ -1074,11 +1078,6 @@ async def list_incidents(request: Request):
     uid = await get_uid_optional(request)
     user_memory = memory_graph.__class__(uid=uid or "__public__")
     incidents = dict(user_memory.list_incidents())
-    # Also surface deals that were triggered before sign-in (stored under __public__),
-    # so a page refresh never makes a just-concluded deal vanish from History.
-    if uid and uid != "__public__":
-        for inc_id, inc in memory_graph.__class__(uid="__public__").list_incidents().items():
-            incidents.setdefault(inc_id, inc)
 
     def _company(meta):
         c = meta.get("company")
@@ -1479,7 +1478,7 @@ async def get_system_settings(request: Request):
             "tool_count": len(MCP_TOOLS),
             "tools": MCP_TOOLS,
         },
-        "memory_stats": memory_graph.get_memory_stats(),
+        "memory_stats": memory_graph.__class__(uid=uid or "__public__").get_memory_stats(),
     }
 
 
@@ -1529,15 +1528,17 @@ async def reset_all_history(request: Request):
     uid = await get_uid_optional(request)
     user_memory = memory_graph.__class__(uid=uid or "__public__")
     user_memory.clear_all()
-    
+
     # Wipe user data in Firebase RTDB as well
     try:
         from core.rtdb import clear_user_data
         clear_user_data(uid or "__public__")
     except Exception as e:
         logger.error(f"Failed to clear RTDB for user {uid}: {e}")
-        
-    sim_state.reset()
+
+    # Only reset the global simulation state if the caller owns the current session
+    if not sim_state.active_uid or uid == sim_state.active_uid:
+        sim_state.reset()
     # Clear any stuck agent busy flags so the next run starts clean
     if is_mock_mode():
         for room_agents in mock_bus.rooms.values():

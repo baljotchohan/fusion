@@ -15,7 +15,10 @@ export async function apiFetch(url: string, init?: RequestInit): Promise<Respons
   const response = await fetch(url, { ...init, headers })
   if (response.status === 401) {
     // Token expired or revoked — sign out so onAuthStateChanged routes to login
-    signOut().catch(() => {})
+    signOut().catch(() => {
+      // Last resort if signOut itself fails: force a hard reload to clear all state
+      if (typeof window !== 'undefined') window.location.reload()
+    })
   }
   return response
 }

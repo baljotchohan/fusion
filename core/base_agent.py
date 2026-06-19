@@ -1171,7 +1171,13 @@ class BaseAgent:
         await event_bus.broadcast(self.name, "working", {"current_action": f"Analyzing input from {sender}"})
 
         inputs = {"messages": [("user", f"Message from {sender}: {message}")]}
-        config = {"configurable": {"thread_id": self.name}}
+        try:
+            from api.state import sim_state
+            _tid_uid = getattr(sim_state, "active_uid", None) or "__public__"
+            _tid_inc = getattr(sim_state, "active_incident_id", None) or "default"
+        except Exception:
+            _tid_uid, _tid_inc = "__public__", "default"
+        config = {"configurable": {"thread_id": f"{self.name}:{_tid_uid}:{_tid_inc}"}}
 
         try:
             response = await self._invoke_resilient(inputs, config)

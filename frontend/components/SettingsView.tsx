@@ -27,12 +27,13 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
     null, 2
   )
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => {
+  const copyToClipboard = async (text: string) => {
+    try {
+      if (navigator.clipboard) await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
       logActivity('mcp_config_copied', { type: mcpTab })
-    })
+    } catch { /* clipboard denied */ }
   }
 
   const fetchSettings = async () => {
@@ -74,12 +75,14 @@ export default function SettingsView({ theme, onToggleTheme }: SettingsViewProps
     setResetting(true)
     try {
       logActivity('danger_zone_reset_all')
-      await apiFetch(`${API_BASE}/api/v1/system/reset-all`, { method: 'POST' })
-    } catch (e) {
-      console.error('Reset failed:', e)
-    } finally {
+      const res = await apiFetch(`${API_BASE}/api/v1/system/reset-all`, { method: 'POST' })
+      if (!res.ok) throw new Error(`Server returned ${res.status}`)
       // Full reload guarantees in-memory chat + live state start clean
       window.location.reload()
+    } catch (e) {
+      console.error('Reset failed:', e)
+      setResetting(false)
+      setConfirmReset(false)
     }
   }
 

@@ -11,14 +11,19 @@ const LS_KEY = 'fusion_mcp_key'
 /* ── copy button ── */
 function CopyButton({ text, disabled, onCopy }: { text: string; disabled?: boolean; onCopy?: () => void }) {
   const [ok, setOk] = useState(false)
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  React.useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
   return (
     <button
       disabled={disabled}
-      onClick={() => {
-        navigator.clipboard?.writeText(text)
-        setOk(true)
-        setTimeout(() => setOk(false), 1400)
-        if (onCopy) onCopy()
+      onClick={async () => {
+        try {
+          if (navigator.clipboard) await navigator.clipboard.writeText(text)
+          setOk(true)
+          if (timerRef.current) clearTimeout(timerRef.current)
+          timerRef.current = setTimeout(() => setOk(false), 1400)
+          if (onCopy) onCopy()
+        } catch { /* clipboard denied */ }
       }}
       className={`shrink-0 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-all cursor-pointer
         ${disabled ? 'opacity-30 cursor-not-allowed' : ok ? 'bg-accent text-white' : 'bg-accent/10 text-accent hover:bg-accent/20'}`}
@@ -158,9 +163,9 @@ export function IntegrationsView() {
 
       {/* server status */}
       <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-bg-card">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${serverOnline === false ? 'bg-text-muted' : 'bg-success animate-pulse'}`} />
-        <span className={`text-[12px] font-medium ${serverOnline === false ? 'text-text-muted' : 'text-success'}`}>
-          {serverOnline === false ? 'Server offline' : `Server live · ${tools.length || 5} tools ready`}
+        <span className={`w-2 h-2 rounded-full shrink-0 ${serverOnline === false ? 'bg-text-muted' : serverOnline === null ? 'bg-text-muted animate-pulse' : 'bg-success animate-pulse'}`} />
+        <span className={`text-[12px] font-medium ${serverOnline === false ? 'text-text-muted' : serverOnline === null ? 'text-text-secondary' : 'text-success'}`}>
+          {serverOnline === null ? 'Checking server…' : serverOnline === false ? 'Server offline' : `Server live · ${tools.length || 5} tools ready`}
         </span>
         <code className="ml-auto text-[10.5px] font-mono text-text-muted truncate max-w-[240px]">{mcpUrl}</code>
       </div>

@@ -41,7 +41,8 @@ function plainEnglish(status: AgentStatus, lastOutput?: Record<string, any> | nu
   if (status === 'working') return lastOutput?.current_action || 'Analyzing the situation…'
   if (status === 'done') {
     const report: string = lastOutput?.report || ''
-    return report ? report.replace(/[-—#*`]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 110) + '…' : 'Finished — report delivered to the team.'
+    const cleaned = report.replace(/[-—#*`]/g, ' ').replace(/\s+/g, ' ').trim()
+    return cleaned ? (cleaned.length > 110 ? cleaned.slice(0, 110) + '…' : cleaned) : 'Finished — report delivered to the team.'
   }
   if (status === 'alert') return 'Needs attention — something went wrong.'
   return 'Waiting for deal briefing…'
@@ -83,11 +84,11 @@ export function AgentCard({ name, displayName, status, description, llm, room, d
       <div className="mt-3 pt-2 border-t border-slate-200/50 dark:border-slate-800/60 flex flex-col gap-0.5 text-[9px] font-mono">
         <div className="flex items-center justify-between">
           <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider text-[8px]">LLM:</span>
-          <span className="text-slate-600 dark:text-slate-350 font-medium">{llm}</span>
+          <span className="text-slate-600 dark:text-slate-300 font-medium">{llm}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-slate-400 dark:text-slate-500 uppercase tracking-wider text-[8px]">Room:</span>
-          <span className="text-slate-600 dark:text-slate-350 font-medium max-w-[120px] truncate" title={room}>{room}</span>
+          <span className="text-slate-600 dark:text-slate-300 font-medium max-w-[120px] truncate" title={room}>{room}</span>
         </div>
       </div>
     </div>

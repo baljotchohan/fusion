@@ -18,14 +18,27 @@ export interface StoryBeat {
   timestamp: string
 }
 
-// Plain-English narration for each agent's completed work. Keeps the dashboard
-// readable for non-experts — the raw report still lives on the agent card.
-const HUMAN: Record<string, { line: string; tone: StoryBeat['tone'] }> = {
-  managing_partner: { line: 'Managing Partner convened the committee and briefed the specialists on NovaPay Inc.', tone: 'info' },
-  financial_partner: { line: 'Financial Partner completed stress-test: flagged 78% ARR concentration in Amazon contract.', tone: 'alert' },
-  legal_partner: { line: 'Legal Partner audited liabilities: flagged the active $8.0M Klarna patent lawsuit.', tone: 'alert' },
-  technical_partner: { line: 'Technical Partner audited the product stack: flagged EOL Node.js 14 and plaintext SSNs.', tone: 'alert' },
-  market_partner: { line: 'Market Partner verified sector trends: noted the 12% YoY industry decline and BNPL saturation.', tone: 'alert' },
+// Display names for the story feed — the actual finding text comes from the backend output.
+const AGENT_LABELS: Record<string, string> = {
+  managing_partner: 'Managing Partner',
+  financial_partner: 'Financial Partner',
+  legal_partner: 'Legal Partner',
+  technical_partner: 'Technical Partner',
+  market_partner: 'Market Partner',
+}
+
+function buildStoryLine(agent: string, output: Record<string, any>): { line: string; tone: StoryBeat['tone'] } {
+  const label = AGENT_LABELS[agent] || agent
+  // Prefer structured backend summary, then first 120 chars of the report
+  const summary: string = output?.summary || output?.current_action || ''
+  const report: string = output?.report || ''
+  const firstLine = (summary || report).replace(/[-—#*`]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
+  const redFlagCount: number = output?.red_flag_count ?? 0
+  const tone: StoryBeat['tone'] = redFlagCount > 0 ? 'alert' : agent === 'managing_partner' ? 'info' : 'alert'
+  const line = firstLine
+    ? `${label}: ${firstLine}${firstLine.length >= 120 ? '…' : ''}`
+    : `${label} completed analysis.`
+  return { line, tone }
 }
 
 export function useAgentWebSocket(uid?: string | null) {
@@ -71,20 +84,25 @@ export function useAgentWebSocket(uid?: string | null) {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let reconnectDelay = 1000
     const maxDelay = 10000
+    let cancelled = false  // guards all setState calls after unmount/uid-change
 
     async function connect() {
+      if (cancelled) return
       const baseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws'
       const token = await getCurrentIdToken().catch(() => null)
+      if (cancelled) return  // uid may have changed while we awaited the token
       const wsUrl = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
       ws = new WebSocket(wsUrl)
 
       ws.onopen = () => {
+        if (cancelled) { ws?.close(); return }
         console.log('[FUSION WS] connected')
         setIsConnected(true)
-        reconnectDelay = 1000 // Reset backoff on successful connection
+        reconnectDelay = 1000
       }
 
       ws.onmessage = (event) => {
+        if (cancelled) return
         try {
           const update: AgentUpdate = JSON.parse(event.data)
 
@@ -94,11 +112,7 @@ export function useAgentWebSocket(uid?: string | null) {
             setAgentOutputs(prev => ({ ...prev, [update.agent]: update.output }))
           }
 
-          // Meeting Minutes: collapse consecutive heartbeats from the SAME agent
-          // in the SAME phase (e.g. repeated "working" updates) into one live
-          // entry instead of stacking dozens of near-duplicate lines. A genuine
-          // transition (working→done) or a different agent speaking appends a
-          // fresh entry.
+          // Collapse consecutive heartbeats from the same agent in the same phase
           setLogEvents(prev => {
             const last = prev[prev.length - 1]
             if (last && last.agent === update.agent && last.status === update.status) {
@@ -107,21 +121,18 @@ export function useAgentWebSocket(uid?: string | null) {
             return [...prev, update].slice(-80)
           })
 
-          // Build the plain-English story feed when an agent finishes a step.
-          if (update.status === 'done' && HUMAN[update.agent]) {
+          // Build the plain-English story feed from actual backend output
+          if (update.status === 'done') {
             setStoryFeed(prev => {
               if (prev.some(b => b.agent === update.agent)) return prev
-              const h = HUMAN[update.agent]
-              return [...prev, { agent: update.agent, line: h.line, tone: h.tone, timestamp: update.timestamp }]
+              const { line, tone } = buildStoryLine(update.agent, update.output)
+              return [...prev, { agent: update.agent, line, tone, timestamp: update.timestamp }]
             })
           }
 
           if (update.agent === 'managing_partner' && update.output) {
             const out = update.output
             const report: string = out.report || ''
-            // Prefer the authoritative STRUCTURED fields the backend attaches to the
-            // verdict broadcast — a real LLM does not format the report text reliably,
-            // so regex-scraping alone leaves the score blank. Fall back to regex.
             const riskMatch = report.match(/weighted\s*(?:risk\s*)?score\s*\*?\*?\s*:\s*\*?\*?\s*([\d\.]+)/i)
             const structuredRisk = typeof out.weighted_score === 'number' ? out.weighted_score : null
             const riskVal = structuredRisk ?? (riskMatch ? Number(riskMatch[1]) : null)
@@ -149,16 +160,18 @@ export function useAgentWebSocket(uid?: string | null) {
       }
 
       ws.onclose = () => {
+        if (cancelled) return
         setIsConnected(false)
         console.log(`[FUSION WS] closed. Reconnecting in ${reconnectDelay}ms...`)
         reconnectTimer = setTimeout(connect, reconnectDelay)
-        reconnectDelay = Math.min(reconnectDelay * 2, maxDelay) // Exponential backoff (1s -> 2s -> 4s -> 8s -> 10s)
+        reconnectDelay = Math.min(reconnectDelay * 2, maxDelay)
       }
-      ws.onerror = () => ws?.close()
+      ws.onerror = () => { if (!cancelled) ws?.close() }
     }
 
     connect()
     return () => {
+      cancelled = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
       ws?.close()
     }
