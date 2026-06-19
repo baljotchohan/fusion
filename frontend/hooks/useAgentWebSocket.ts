@@ -1,5 +1,5 @@
 // hooks/useAgentWebSocket.ts
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { getCurrentIdToken } from '@/lib/firebase'
 
 export type AgentStatus = 'idle' | 'working' | 'done' | 'alert'
@@ -43,8 +43,12 @@ export function useAgentWebSocket(uid?: string | null) {
   const [ceoDecision, setCeoDecision] = useState<Record<string, any> | null>(null)
   const [isConnected, setIsConnected] = useState<boolean>(false)
 
-  // Declare resetAll first so we can call it in the WebSocket useEffect
-  function resetAll() {
+  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
+
+  // Stable reference — all deps are React-guaranteed stable state setters.
+  // Must be useCallback so restoreDealState (which depends on it) doesn't
+  // get a new reference every render and trigger an infinite effect loop.
+  const resetAll = useCallback(() => {
     setThreatScore(0)
     setCeoDecision(null)
     setLogEvents([])
@@ -58,9 +62,7 @@ export function useAgentWebSocket(uid?: string | null) {
       technical_partner: 'idle',
       market_partner: 'idle',
     })
-  }
-
-  const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false)
+  }, [])
 
   useEffect(() => {
     resetAll()
