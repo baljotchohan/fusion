@@ -91,6 +91,8 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
   const mcpUrl = 'https://baljot07-fusion.hf.space/mcp/'
   const smitheryUrl = 'https://smithery.ai/server/@baljotchohan/fusion-vc'
   const proxyDownloadUrl = 'https://raw.githubusercontent.com/baljotchohan/fusion/main/scripts/mcp_proxy.py'
+  // Downloads to a fixed, username-independent path so the config below always matches.
+  const proxyPwshCmd = `curl.exe -L ${proxyDownloadUrl} -o C:\\Users\\Public\\mcp_proxy.py`
   const keyDisplay = mcpKey ?? 'fus_YOUR_KEY'
 
   const vsCodeJson = JSON.stringify({
@@ -121,7 +123,7 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
     mcpServers: {
       'fusion-vc': {
         command: 'python',
-        args: ['C:\\Users\\you\\mcp_proxy.py', keyDisplay],
+        args: ['C:\\Users\\Public\\mcp_proxy.py', keyDisplay],
       },
     },
   }, null, 2)
@@ -444,17 +446,18 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
                             {desktopOs === 'win' ? (
                               <div className="space-y-4">
                                 <div className="space-y-3">
-                                  <StepRow n={1} text="Download the Python proxy script (one file, no install needed)">
-                                    <StepOpen label="Download mcp_proxy.py" href={proxyDownloadUrl} />
+                                  <StepRow n={1} text="Open PowerShell and run this — it downloads the proxy to a fixed path (no admin needed):">
+                                    <StepCopy label="Copy command" onClick={() => copyItem('proxy_dl', proxyPwshCmd)} />
                                   </StepRow>
-                                  <StepRow n={2} text={'Save it somewhere accessible, e.g. C:\\Users\\you\\mcp_proxy.py — note the full path'} />
-                                  <StepRow n={3} text="Copy the config below, then update the path on line 4 to match where you saved it">
+                                  <CodeBlock code={proxyPwshCmd} onCopy={() => copyItem('proxy_dl', proxyPwshCmd)} isCopied={copiedId === 'proxy_dl'} />
+                                  <StepRow n={2} text="Copy the config below — the path already matches the download above, nothing to edit:">
                                     <StepCopy label="Copy Config" onClick={() => copyItem('claude_desktop', claudeDesktopWinJson)} />
                                   </StepRow>
-                                  <StepRow n={4} text="Open File → Settings → Developer → Edit Config, paste, save, fully quit and reopen Claude Desktop" />
+                                  <CodeBlock code={claudeDesktopWinJson} onCopy={() => copyItem('claude_desktop', claudeDesktopWinJson)} isCopied={isCopied} />
+                                  <StepRow n={3} text="In Claude Desktop: File → Settings → Developer → Edit Config → paste → save. Then fully quit and reopen (check the system tray). Click Allow on the trust prompt." />
                                 </div>
-                                <CodeBlock code={claudeDesktopWinJson} onCopy={() => copyItem('claude_desktop', claudeDesktopWinJson)} isCopied={isCopied} />
-                                <p className="text-[10px] text-text-muted font-mono">Config: %APPDATA%\Claude\claude_desktop_config.json</p>
+                                <p className="text-[10px] text-text-muted font-mono">Config file: %APPDATA%\Claude\claude_desktop_config.json</p>
+                                <p className="text-[10px] text-text-muted">No Node.js or npx needed — this uses Python, which you already have.</p>
                               </div>
                             ) : (
                               <div className="space-y-4">
