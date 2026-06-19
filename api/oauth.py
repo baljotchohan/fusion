@@ -59,6 +59,21 @@ async def oauth_protected_resource():
     }
 
 
+# RFC 9728 §3.1 path-aware variants: clients insert the resource path ("/mcp")
+# after the well-known segment and try that FIRST. Serve the same metadata so
+# mcp-remote / claude.ai / ChatGPT discovery succeeds instead of 404-ing.
+@router.get("/.well-known/oauth-protected-resource/mcp")
+@router.get("/.well-known/oauth-protected-resource/mcp/")
+async def oauth_protected_resource_mcp():
+    return await oauth_protected_resource()
+
+
+@router.get("/.well-known/oauth-authorization-server/mcp")
+@router.get("/.well-known/oauth-authorization-server/mcp/")
+async def oauth_metadata_mcp():
+    return await oauth_metadata()
+
+
 # ── Dynamic Client Registration ─────────────────────────────────────────────────
 
 @router.post("/oauth/register")

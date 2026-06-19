@@ -606,13 +606,18 @@ async def mcp_security(request: Request, call_next):
 
     # Global API key guard (when MCP_API_KEY is configured)
     if MCP_API_KEY and token != MCP_API_KEY:
+        # RFC 9728: point the client at our protected-resource metadata so OAuth
+        # clients (mcp-remote, claude.ai, ChatGPT) can discover the auth server.
+        _proto = request.headers.get("x-forwarded-proto", "https")
+        _host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "baljot07-fusion.hf.space"
+        _rm = f"{_proto}://{_host}/.well-known/oauth-protected-resource"
         return JSONResponse(
             {"jsonrpc": "2.0", "id": None, "error": {
                 "code": -32001,
                 "message": "Unauthorized — sign in at https://baljot07-fusion.hf.space and get your key from Settings → MCP."
             }},
             status_code=401,
-            headers={"WWW-Authenticate": 'Bearer realm="FUSION MCP"'},
+            headers={"WWW-Authenticate": f'Bearer realm="FUSION MCP", resource_metadata="{_rm}"'},
         )
 
     # Rate limit anonymous / global-key callers — doubled from default
