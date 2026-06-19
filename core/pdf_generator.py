@@ -1,8 +1,9 @@
 # core/pdf_generator.py
 """
 PDF Report Generator — compiles FUSION diligence markdown into a
-publication-quality PDF with colored verdict, visual risk bars,
-and clean partner audit cards.
+publication-quality PDF. Each partner agent gets a dedicated page with
+a full-width role banner, the scorecard is a structured 2-column grid,
+and every page carries consistent header / footer chrome.
 """
 import io
 import os
@@ -20,30 +21,87 @@ from reportlab.pdfgen import canvas
 from reportlab.graphics.shapes import Drawing, Rect, String as GStr, Line as GLine
 from reportlab.graphics import renderPDF
 
-# ── Brand palette ─────────────────────────────────────────────────────────────
+# ── Brand palette ──────────────────────────────────────────────────────────────
 C_SLATE_900  = colors.HexColor("#0f172a")
+C_SLATE_800  = colors.HexColor("#1e293b")
 C_SLATE_700  = colors.HexColor("#334155")
 C_SLATE_600  = colors.HexColor("#475569")
+C_SLATE_400  = colors.HexColor("#94a3b8")
 C_SLATE_300  = colors.HexColor("#cbd5e1")
 C_SLATE_200  = colors.HexColor("#e2e8f0")
+C_SLATE_100  = colors.HexColor("#f1f5f9")
 C_SLATE_50   = colors.HexColor("#f8fafc")
 C_WHITE      = colors.HexColor("#ffffff")
+C_GREEN_700  = colors.HexColor("#15803d")
 C_GREEN_600  = colors.HexColor("#16a34a")
 C_GREEN_50   = colors.HexColor("#f0fdf4")
 C_GREEN_BAR  = colors.HexColor("#22c55e")
 C_AMBER_600  = colors.HexColor("#d97706")
 C_AMBER_50   = colors.HexColor("#fffbeb")
 C_AMBER_BAR  = colors.HexColor("#f59e0b")
+C_RED_700    = colors.HexColor("#b91c1c")
 C_RED_600    = colors.HexColor("#dc2626")
 C_RED_50     = colors.HexColor("#fef2f2")
 C_RED_BAR    = colors.HexColor("#ef4444")
+C_BLUE_700   = colors.HexColor("#1d4ed8")
 C_BLUE_600   = colors.HexColor("#2563eb")
+C_BLUE_50    = colors.HexColor("#eff6ff")
+C_VIOLET_600 = colors.HexColor("#7c3aed")
+C_VIOLET_50  = colors.HexColor("#f5f3ff")
+C_CYAN_600   = colors.HexColor("#0891b2")
+C_CYAN_50    = colors.HexColor("#ecfeff")
 
 _LOGO_PATH  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fusionlogo.png")
 _LOGO_CACHE: dict = {}
 
+# Partner role metadata — maps lowercase partial name to display info
+_PARTNER_META = {
+    "managing": {
+        "title": "MANAGING PARTNER",
+        "role":  "Investment Committee Orchestrator  ·  Final Verdict Authority",
+        "accent": C_SLATE_800,
+        "bg":    C_SLATE_900,
+        "fg":    C_WHITE,
+    },
+    "financial": {
+        "title": "FINANCIAL PARTNER",
+        "role":  "Financial Due Diligence  ·  Committee Weight: 30%",
+        "accent": C_BLUE_700,
+        "bg":    C_BLUE_600,
+        "fg":    C_WHITE,
+    },
+    "legal": {
+        "title": "LEGAL PARTNER",
+        "role":  "Legal & Compliance Review  ·  Committee Weight: 25%",
+        "accent": C_VIOLET_600,
+        "bg":    C_VIOLET_600,
+        "fg":    C_WHITE,
+    },
+    "technical": {
+        "title": "TECHNICAL PARTNER",
+        "role":  "Technical Architecture Review  ·  Committee Weight: 25%",
+        "accent": C_CYAN_600,
+        "bg":    C_CYAN_600,
+        "fg":    C_WHITE,
+    },
+    "market": {
+        "title": "MARKET PARTNER",
+        "role":  "Market & Competitive Intelligence  ·  Committee Weight: 20%",
+        "accent": C_GREEN_600,
+        "bg":    C_GREEN_600,
+        "fg":    C_WHITE,
+    },
+}
 
-# ── Logo ──────────────────────────────────────────────────────────────────────
+def _partner_meta(name: str) -> dict:
+    key = name.lower()
+    for k, v in _PARTNER_META.items():
+        if k in key:
+            return v
+    return {"title": name.upper(), "role": "Partner Report", "accent": C_SLATE_700, "bg": C_SLATE_700, "fg": C_WHITE}
+
+
+# ── Logo ───────────────────────────────────────────────────────────────────────
 def _get_brand_logo():
     if "logo" in _LOGO_CACHE:
         return _LOGO_CACHE["logo"]
@@ -70,9 +128,8 @@ def _get_brand_logo():
     return result
 
 
-# ── Text cleaning ─────────────────────────────────────────────────────────────
+# ── Text cleaning ──────────────────────────────────────────────────────────────
 def _strip_agent_internals(text: str) -> str:
-    """Remove LLM tool-call artifacts that must never appear in client reports."""
     if not text:
         return text
     text = re.sub(r'thenvoi_send_message\s*\(.*?\)', '', text, flags=re.DOTALL)
@@ -114,20 +171,19 @@ def clean_unicode_and_emojis(text: str) -> str:
 
 
 def _fmt(text: str) -> str:
-    """Bold-markdown to ReportLab tags + clean."""
     text = clean_unicode_and_emojis(text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
     return text
 
 
-# ── Verdict helpers ───────────────────────────────────────────────────────────
+# ── Verdict / risk helpers ─────────────────────────────────────────────────────
 def _verdict_colors(verdict: str):
     v = verdict.upper().strip()
-    if v in ("INVEST",):
-        return C_GREEN_600, C_GREEN_50, C_GREEN_600
-    if v in ("CONDITIONAL",):
-        return C_AMBER_600, C_AMBER_50, C_AMBER_600
-    return C_RED_600, C_RED_50, C_RED_600   # REJECT / PASS / anything else
+    if v == "INVEST":
+        return C_GREEN_700, C_GREEN_50, C_GREEN_600
+    if v == "CONDITIONAL":
+        return C_AMBER_600, C_AMBER_50, C_AMBER_BAR
+    return C_RED_700, C_RED_50, C_RED_600
 
 
 def _risk_bar_color(score: float) -> colors.Color:
@@ -138,6 +194,14 @@ def _risk_bar_color(score: float) -> colors.Color:
     return C_RED_BAR
 
 
+def _risk_label(score: float) -> str:
+    if score <= 4:
+        return "LOW"
+    if score <= 6:
+        return "MEDIUM"
+    return "HIGH"
+
+
 def _severity_color(severity: int) -> colors.Color:
     if severity >= 8:
         return C_RED_600
@@ -146,7 +210,7 @@ def _severity_color(severity: int) -> colors.Color:
     return C_GREEN_600
 
 
-# ── Risk bar chart (Drawing) ──────────────────────────────────────────────────
+# ── Risk bar chart Drawing ─────────────────────────────────────────────────────
 def _risk_bar_chart(fin: float, leg: float, tech: float, mkt: float, weighted: float) -> Drawing:
     domains = [
         ("Financial Risk", fin, "30%"),
@@ -154,76 +218,80 @@ def _risk_bar_chart(fin: float, leg: float, tech: float, mkt: float, weighted: f
         ("Technical Risk", tech, "25%"),
         ("Market Risk",    mkt, "20%"),
     ]
-    LABEL_W   = 100
-    BAR_MAX_W = 280
-    SCORE_W   = 80
-    ROW_H     = 26
-    PAD       = 6
+    LABEL_W   = 110
+    BAR_MAX_W = 300
+    SCORE_W   = 90
+    ROW_H     = 28
+    PAD       = 8
     TOTAL_W   = LABEL_W + BAR_MAX_W + SCORE_W + 24
-    TOTAL_H   = len(domains) * ROW_H + PAD * 2 + ROW_H + 8  # extra row for weighted
+    TOTAL_H   = len(domains) * ROW_H + PAD * 2 + ROW_H + 10
 
     d = Drawing(TOTAL_W, TOTAL_H)
 
     # Column headers
-    d.add(GStr(LABEL_W - 4, TOTAL_H - PAD - 8, "DOMAIN",
-               fontName="Helvetica-Bold", fontSize=7.5,
+    d.add(GStr(LABEL_W - 6, TOTAL_H - PAD - 8, "DOMAIN",
+               fontName="Helvetica-Bold", fontSize=7,
                fillColor=C_SLATE_600, textAnchor="end"))
-    d.add(GStr(LABEL_W + BAR_MAX_W / 2, TOTAL_H - PAD - 8, "RISK LEVEL",
-               fontName="Helvetica-Bold", fontSize=7.5,
+    d.add(GStr(LABEL_W + BAR_MAX_W / 2, TOTAL_H - PAD - 8, "RISK LEVEL (0–10)",
+               fontName="Helvetica-Bold", fontSize=7,
                fillColor=C_SLATE_600, textAnchor="middle"))
-    d.add(GStr(LABEL_W + BAR_MAX_W + 8, TOTAL_H - PAD - 8, "SCORE",
-               fontName="Helvetica-Bold", fontSize=7.5,
+    d.add(GStr(LABEL_W + BAR_MAX_W + 10, TOTAL_H - PAD - 8, "SCORE  (WEIGHT)",
+               fontName="Helvetica-Bold", fontSize=7,
                fillColor=C_SLATE_600, textAnchor="start"))
+
+    # Tick lines at 2, 4, 6, 8
+    for tick in [2, 4, 6, 8, 10]:
+        tx = LABEL_W + (tick / 10.0) * BAR_MAX_W
+        d.add(GLine(tx, PAD, tx, TOTAL_H - PAD - 14,
+                    strokeColor=C_SLATE_200, strokeWidth=0.5))
 
     for i, (name, score, weight) in enumerate(domains):
         y = TOTAL_H - PAD - 16 - (i + 1) * ROW_H
         bar_w = (score / 10.0) * BAR_MAX_W
-        bar_h = 14
+        bar_h = 16
 
-        # Label
-        d.add(GStr(LABEL_W - 6, y + 4, name,
-                   fontName="Helvetica", fontSize=8.5,
+        d.add(GStr(LABEL_W - 8, y + 5, name,
+                   fontName="Helvetica-Bold", fontSize=8,
                    fillColor=C_SLATE_700, textAnchor="end"))
 
-        # Background track
+        # Track
         d.add(Rect(LABEL_W, y, BAR_MAX_W, bar_h,
-                   fillColor=C_SLATE_200, strokeColor=C_SLATE_300, strokeWidth=0.5))
-
-        # Filled bar
+                   fillColor=C_SLATE_100, strokeColor=C_SLATE_300, strokeWidth=0.5,
+                   rx=2, ry=2))
+        # Fill
         if bar_w > 0:
             d.add(Rect(LABEL_W, y, bar_w, bar_h,
-                       fillColor=_risk_bar_color(score), strokeWidth=0))
+                       fillColor=_risk_bar_color(score), strokeWidth=0, rx=2, ry=2))
 
-        # Score + weight label
-        d.add(GStr(LABEL_W + BAR_MAX_W + 8, y + 4,
-                   f"{score:.1f}/10  (wt {weight})",
+        d.add(GStr(LABEL_W + BAR_MAX_W + 10, y + 5,
+                   f"{score:.1f}/10  ({weight})",
                    fontName="Helvetica-Bold", fontSize=8.5,
                    fillColor=C_SLATE_900))
 
     # Weighted total row
     if weighted is not None:
         y = PAD
-        d.add(GLine(LABEL_W, y + ROW_H - 2, TOTAL_W, y + ROW_H - 2,
-                    strokeColor=C_SLATE_300, strokeWidth=0.5))
-        d.add(GStr(LABEL_W - 6, y + 4, "WEIGHTED SCORE",
-                   fontName="Helvetica-Bold", fontSize=8.5,
+        d.add(GLine(0, y + ROW_H - 2, TOTAL_W, y + ROW_H - 2,
+                    strokeColor=C_SLATE_300, strokeWidth=0.75))
+        d.add(GStr(LABEL_W - 8, y + 5, "WEIGHTED TOTAL",
+                   fontName="Helvetica-Bold", fontSize=8,
                    fillColor=C_SLATE_900, textAnchor="end"))
         bar_w = (weighted / 10.0) * BAR_MAX_W
-        d.add(Rect(LABEL_W, y, BAR_MAX_W, 14,
-                   fillColor=C_SLATE_200, strokeColor=C_SLATE_300, strokeWidth=0.5))
+        d.add(Rect(LABEL_W, y, BAR_MAX_W, 16,
+                   fillColor=C_SLATE_100, strokeColor=C_SLATE_300, strokeWidth=0.5,
+                   rx=2, ry=2))
         if bar_w > 0:
-            d.add(Rect(LABEL_W, y, bar_w, 14,
-                       fillColor=_risk_bar_color(weighted), strokeWidth=0))
-        d.add(GStr(LABEL_W + BAR_MAX_W + 8, y + 4,
+            d.add(Rect(LABEL_W, y, bar_w, 16,
+                       fillColor=_risk_bar_color(weighted), strokeWidth=0, rx=2, ry=2))
+        d.add(GStr(LABEL_W + BAR_MAX_W + 10, y + 5,
                    f"{weighted:.2f}/10",
-                   fontName="Helvetica-Bold", fontSize=9,
+                   fontName="Helvetica-Bold", fontSize=9.5,
                    fillColor=C_SLATE_900))
 
     return d
 
 
 class _DrawingFlowable(Flowable):
-    """Wraps a reportlab Drawing so it can sit in a platypus story."""
     def __init__(self, drawing: Drawing):
         super().__init__()
         self.drawing = drawing
@@ -234,7 +302,7 @@ class _DrawingFlowable(Flowable):
         renderPDF.draw(self.drawing, self.canv, 0, 0)
 
 
-# ── Running header / footer ───────────────────────────────────────────────────
+# ── Running header / footer ────────────────────────────────────────────────────
 class BrandedCanvas(canvas.Canvas):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -258,110 +326,217 @@ class BrandedCanvas(canvas.Canvas):
             self.restoreState()
             return
 
-        # Header
-        text_x = 54
+        W = 612
+        MARGIN = 54
+
+        # ── Header ────────────────────────────────────────────────────────────
+        self.setStrokeColor(C_SLATE_300)
+        self.setLineWidth(0.5)
+        self.line(MARGIN, 748, W - MARGIN, 748)
+
+        text_x = MARGIN
         logo = _get_brand_logo()
         if logo:
             png_bytes, aspect = logo
-            lh = 10
+            lh = 11
             lw = lh * aspect
             try:
                 self.drawImage(ImageReader(io.BytesIO(png_bytes)),
-                               54, 752, width=lw, height=lh, mask="auto")
-                text_x = 54 + lw + 8
+                               MARGIN, 753, width=lw, height=lh, mask="auto")
+                text_x = MARGIN + lw + 8
             except Exception:
                 pass
-        self.setFont("Helvetica-Bold", 7.5)
-        self.setFillColor(C_SLATE_600)
-        self.drawString(text_x, 755, "|   DUE DILIGENCE AUDIT REPORT")
-        self.drawRightString(612 - 54, 755, "CONFIDENTIAL")
-        self.setStrokeColor(C_SLATE_300)
-        self.setLineWidth(0.5)
-        self.line(54, 745, 612 - 54, 745)
 
-        # Footer
-        self.line(54, 55, 612 - 54, 55)
-        self.setFont("Helvetica", 7.5)
-        self.drawString(54, 42, "FUSION Investment Committee  ·  AI-Powered Venture Capital Due Diligence")
-        self.drawRightString(612 - 54, 42, f"Page {self._pageNumber} of {total_pages}")
+        self.setFont("Helvetica-Bold", 7)
+        self.setFillColor(C_SLATE_600)
+        self.drawString(text_x, 756, "FUSION  ·  DUE DILIGENCE AUDIT REPORT")
+        self.drawRightString(W - MARGIN, 756, "CONFIDENTIAL")
+
+        # ── Footer ────────────────────────────────────────────────────────────
+        self.line(MARGIN, 56, W - MARGIN, 56)
+        self.setFont("Helvetica", 7)
+        self.setFillColor(C_SLATE_600)
+        self.drawString(MARGIN, 44, "FUSION Investment Committee  ·  AI-Powered Venture Capital Due Diligence")
+        self.drawRightString(W - MARGIN, 44, f"Page {self._pageNumber} of {total_pages}")
         self.restoreState()
 
 
-# ── Partner audit card ────────────────────────────────────────────────────────
-def _partner_card(partner_name: str, findings: list,
-                  body_style: ParagraphStyle, bullet_style: ParagraphStyle,
-                  severity: int = 5) -> list:
-    elements = []
-    accent = _severity_color(severity)
-    partner_clean = clean_unicode_and_emojis(partner_name)
+# ── Partner page banner ────────────────────────────────────────────────────────
+def _partner_page_header(meta: dict, company: str, sev: int,
+                         body_style: ParagraphStyle) -> list:
+    """Full-width colored banner that opens every partner's dedicated page."""
+    accent = meta["bg"]
+    fg     = meta["fg"]
 
-    title_style = ParagraphStyle(
-        "CardTitle", parent=body_style,
-        fontName="Helvetica-Bold", fontSize=11, leading=14,
-        textColor=C_SLATE_900, spaceBefore=14, spaceAfter=2, keepWithNext=True,
-    )
-    badge_style = ParagraphStyle(
-        "SevBadge", parent=body_style,
-        fontName="Helvetica-Bold", fontSize=8, leading=10,
-        textColor=accent,
-    )
-    ts_style = ParagraphStyle(
-        "CardTS", parent=body_style,
-        fontName="Helvetica-Oblique", fontSize=7.5, leading=10,
-        textColor=C_SLATE_600, spaceAfter=6, keepWithNext=True,
-    )
+    sev_label = "HIGH SEVERITY" if sev >= 8 else ("MEDIUM SEVERITY" if sev >= 5 else "LOW SEVERITY")
+    sev_color = _severity_color(sev)
 
-    # Severity label
-    sev_label = "HIGH SEVERITY" if severity >= 8 else ("MEDIUM" if severity >= 5 else "LOW")
+    title_st = ParagraphStyle("PBT", fontName="Helvetica-Bold", fontSize=18, leading=22,
+                               textColor=colors.HexColor("#ffffff"), spaceBefore=0, spaceAfter=0)
+    role_st  = ParagraphStyle("PBR", fontName="Helvetica",       fontSize=9,  leading=13,
+                               textColor=colors.HexColor("#e2e8f0"), spaceBefore=2, spaceAfter=0)
+    co_st    = ParagraphStyle("PBC", fontName="Helvetica-Oblique", fontSize=8, leading=11,
+                               textColor=colors.HexColor("#cbd5e1"), spaceBefore=4, spaceAfter=0)
 
-    header_items = [
-        Paragraph(partner_clean.upper(), title_style),
-        Paragraph(f"{sev_label}  ·  {severity}/10", badge_style),
+    banner = Table(
+        [[Paragraph(meta["title"], title_st)],
+         [Paragraph(meta["role"],  role_st)],
+         [Paragraph(f"Company Under Review: {company}", co_st)]],
+        colWidths=[504]
+    )
+    banner.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), accent),
+        ("TOPPADDING",    (0, 0), (-1, -1), 14),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 4),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 10),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 18),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 18),
+    ]))
+
+    sev_st = ParagraphStyle("SB", fontName="Helvetica-Bold", fontSize=8, leading=10,
+                             textColor=sev_color)
+    meta_st = ParagraphStyle("SM", fontName="Helvetica", fontSize=8, leading=12,
+                              textColor=C_SLATE_700)
+    sev_table = Table(
+        [[Paragraph(f"SEVERITY ASSESSMENT: {sev_label}  ·  {sev}/10", sev_st),
+          Paragraph("This page contains the partner's independent due diligence findings.", meta_st)]],
+        colWidths=[252, 252]
+    )
+    sev_table.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), C_SLATE_50),
+        ("LINEBELOW",     (0, 0), (-1, -1), 0.5, C_SLATE_200),
+        ("TOPPADDING",    (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 14),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 14),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+
+    return [banner, sev_table, Spacer(1, 14)]
+
+
+# ── Scorecard grid (2 × 2 domain cards + weighted total) ──────────────────────
+def _scorecard_grid(fin: float, leg: float, tech: float, mkt: float,
+                    weighted: float | None, verdict_color: colors.Color,
+                    verdict_bg: colors.Color, body_style: ParagraphStyle) -> list:
+    """Structured 2-column domain cards + weighted total banner."""
+    domains = [
+        ("Financial Risk", fin,  "30%", C_BLUE_600,   C_BLUE_50),
+        ("Legal Risk",     leg,  "25%", C_VIOLET_600, C_VIOLET_50),
+        ("Technical Risk", tech, "25%", C_CYAN_600,   C_CYAN_50),
+        ("Market Risk",    mkt,  "20%", C_GREEN_600,  C_GREEN_50),
     ]
 
-    timestamp_text = None
-    body_items = []
-    for kind, text in findings:
-        if kind == "timestamp":
-            timestamp_text = text
-        elif kind == "bullet":
-            body_items.append(Paragraph(f"&bull; {text}", bullet_style))
-        elif kind == "subhead":
-            body_items.append(Paragraph(f"<b>{text}</b>", ParagraphStyle(
-                "CardSH", parent=body_style, fontName="Helvetica-Bold",
-                fontSize=9, leading=12, spaceBefore=6, spaceAfter=2)))
-        else:
-            if text.strip():
-                body_items.append(Paragraph(text, body_style))
+    def _cell(name, score, weight, accent, bg):
+        bar_color = _risk_bar_color(score)
+        risk_txt  = _risk_label(score)
 
-    if timestamp_text:
-        header_items.append(Paragraph(timestamp_text, ts_style))
+        name_st  = ParagraphStyle("DN", fontName="Helvetica-Bold", fontSize=7.5, leading=10,
+                                   textColor=accent, spaceBefore=0, spaceAfter=2)
+        score_st = ParagraphStyle("DS", fontName="Helvetica-Bold", fontSize=20, leading=24,
+                                   textColor=C_SLATE_900, spaceBefore=0, spaceAfter=0)
+        risk_st  = ParagraphStyle("DR", fontName="Helvetica-Bold", fontSize=7, leading=9,
+                                   textColor=bar_color, spaceBefore=2, spaceAfter=2)
+        wt_st    = ParagraphStyle("DW", fontName="Helvetica", fontSize=7.5, leading=10,
+                                   textColor=C_SLATE_600)
 
-    # Accent left-border using a 1-col table
-    content_rows = []
-    for el in header_items + (body_items[:1] if body_items else []):
-        content_rows.append([el])
-
-    if content_rows:
-        kt = Table(content_rows, colWidths=[484])
-        kt.setStyle(TableStyle([
-            ("LEFTPADDING",  (0, 0), (-1, -1), 10),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("TOPPADDING",   (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 2),
-            ("LINEBEFORE",   (0, 0), (-1, -1), 3, accent),
+        cell_content = Table(
+            [[Paragraph(name.upper(), name_st)],
+             [Paragraph(f"{score:.1f}/10", score_st)],
+             [Paragraph(f"RISK: {risk_txt}", risk_st)],
+             [Paragraph(f"Committee weight: {weight}", wt_st)]],
+            colWidths=[228]
+        )
+        cell_content.setStyle(TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, -1), bg),
+            ("TOPPADDING",    (0, 0), (-1, -1), 12),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 14),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 14),
+            ("LINEBEFORE",    (0, 0), (-1, -1), 3, accent),
         ]))
-        elements.append(kt)
+        return cell_content
 
-    elements.extend(body_items[1:])
-    elements.append(HRFlowable(width="100%", thickness=0.5,
-                                color=C_SLATE_200, spaceBefore=10, spaceAfter=4))
+    cells = [_cell(n, s, w, a, b) for n, s, w, a, b in domains]
+
+    grid = Table(
+        [[cells[0], cells[1]],
+         [cells[2], cells[3]]],
+        colWidths=[252, 252],
+        rowHeights=[None, None]
+    )
+    grid.setStyle(TableStyle([
+        ("GRID",           (0, 0), (-1, -1), 0.5, C_SLATE_200),
+        ("TOPPADDING",     (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING",  (0, 0), (-1, -1), 0),
+        ("LEFTPADDING",    (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING",   (0, 0), (-1, -1), 0),
+    ]))
+
+    elements = [grid, Spacer(1, 8)]
+
+    # Weighted total banner
+    if weighted is not None:
+        wt_label_st = ParagraphStyle("WL", fontName="Helvetica-Bold", fontSize=9,
+                                      leading=12, textColor=C_SLATE_50)
+        wt_score_st = ParagraphStyle("WS", fontName="Helvetica-Bold", fontSize=22,
+                                      leading=26, textColor=verdict_color, alignment=2)
+        wt_note_st  = ParagraphStyle("WN", fontName="Helvetica", fontSize=8,
+                                      leading=11, textColor=C_SLATE_400)
+
+        wt_table = Table(
+            [[Paragraph("WEIGHTED RISK SCORE", wt_label_st),
+              Paragraph(f"{weighted:.2f} / 10", wt_score_st)],
+             [Paragraph("Financial 30%  ·  Legal 25%  ·  Technical 25%  ·  Market 20%", wt_note_st),
+              Paragraph("", wt_note_st)]],
+            colWidths=[340, 164]
+        )
+        wt_table.setStyle(TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, -1), C_SLATE_800),
+            ("TOPPADDING",    (0, 0), (-1, -1), 12),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 18),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 18),
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+            ("SPAN",          (1, 0), (1, 1)),
+        ]))
+        elements.append(wt_table)
+
     return elements
 
 
-# ── Main compiler ─────────────────────────────────────────────────────────────
+# ── Partner findings block ─────────────────────────────────────────────────────
+def _partner_findings(findings: list, body_style: ParagraphStyle,
+                      bullet_style: ParagraphStyle) -> list:
+    elements = []
+    for kind, text in findings:
+        if kind == "timestamp":
+            ts_st = ParagraphStyle("TS", fontName="Helvetica-Oblique", fontSize=7.5,
+                                    leading=10, textColor=C_SLATE_400, spaceAfter=8)
+            elements.append(Paragraph(text, ts_st))
+        elif kind == "bullet":
+            elements.append(Paragraph(f"&bull;  {text}", bullet_style))
+        elif kind == "subhead":
+            sh_st = ParagraphStyle("SH", fontName="Helvetica-Bold", fontSize=10,
+                                    leading=13, textColor=C_SLATE_900,
+                                    spaceBefore=10, spaceAfter=4, keepWithNext=True)
+            elements.append(Paragraph(f"<b>{text}</b>", sh_st))
+        else:
+            if text.strip():
+                elements.append(Paragraph(text, body_style))
+    return elements
+
+
+# ── Main compiler ──────────────────────────────────────────────────────────────
 def compile_pdf_report(report_md: str, company_name: str) -> bytes:
-    """Parse FUSION diligence markdown and compile a professional PDF."""
+    """Parse FUSION diligence markdown and compile a structured PDF.
+
+    Structure:
+      Page 1  — Cover (company, verdict badge, metadata)
+      Page 2  — Executive Verdict Summary + Investment Memo
+      Page 3  — Risk Analysis Scorecard (2×2 grid + bar chart)
+      Page 4+ — One dedicated page per partner agent
+    """
     report_md = _strip_agent_internals(report_md)
     buffer = io.BytesIO()
 
@@ -375,18 +550,27 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     def _style(name, **kw):
         return ParagraphStyle(name, parent=SS["Normal"], **kw)
 
-    cover_title  = _style("CvT",  fontName="Helvetica-Bold", fontSize=26, leading=32, textColor=C_SLATE_900, spaceAfter=8)
-    cover_sub    = _style("CvS",  fontName="Helvetica-Bold", fontSize=11, leading=15, textColor=C_SLATE_700, spaceAfter=36)
-    h1           = _style("H1",   fontName="Helvetica-Bold", fontSize=13, leading=17, textColor=C_SLATE_900, spaceBefore=20, spaceAfter=6,  keepWithNext=True)
-    h2           = _style("H2",   fontName="Helvetica-Bold", fontSize=10, leading=14, textColor=C_SLATE_700, spaceBefore=10, spaceAfter=4,  keepWithNext=True)
-    body         = _style("Body", fontName="Helvetica",      fontSize=9,  leading=13.5, textColor=C_SLATE_900, spaceAfter=5)
-    bullet       = _style("Bull", fontName="Helvetica",      fontSize=9,  leading=13.5, textColor=C_SLATE_900, spaceAfter=4, leftIndent=14, firstLineIndent=-10)
-    meta_lbl     = _style("ML",   fontName="Helvetica-Bold", fontSize=9,  leading=13,  textColor=C_SLATE_600)
-    meta_val     = _style("MV",   fontName="Helvetica",      fontSize=9,  leading=13,  textColor=C_SLATE_900)
+    cover_title = _style("CvT",  fontName="Helvetica-Bold", fontSize=28, leading=34,
+                          textColor=C_SLATE_900, spaceAfter=8)
+    cover_sub   = _style("CvS",  fontName="Helvetica-Bold", fontSize=12, leading=16,
+                          textColor=C_SLATE_700, spaceAfter=32)
+    h1          = _style("H1",   fontName="Helvetica-Bold", fontSize=13, leading=17,
+                          textColor=C_SLATE_900, spaceBefore=20, spaceAfter=6, keepWithNext=True)
+    h2          = _style("H2",   fontName="Helvetica-Bold", fontSize=10, leading=14,
+                          textColor=C_SLATE_700, spaceBefore=10, spaceAfter=4, keepWithNext=True)
+    body        = _style("Body", fontName="Helvetica",      fontSize=9,  leading=14,
+                          textColor=C_SLATE_900, spaceAfter=5)
+    bullet      = _style("Bull", fontName="Helvetica",      fontSize=9,  leading=14,
+                          textColor=C_SLATE_900, spaceAfter=4,
+                          leftIndent=16, firstLineIndent=-12)
+    meta_lbl    = _style("ML",   fontName="Helvetica-Bold", fontSize=8.5, leading=12,
+                          textColor=C_SLATE_600)
+    meta_val    = _style("MV",   fontName="Helvetica",      fontSize=8.5, leading=12,
+                          textColor=C_SLATE_900)
 
     lines = report_md.split("\n")
 
-    # ── Parse metadata ────────────────────────────────────────────────────────
+    # ── Parse metadata ─────────────────────────────────────────────────────────
     deal_record    = "N/A"
     date_evaluated = "N/A"
     company_clean  = clean_unicode_and_emojis(company_name)
@@ -405,7 +589,7 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     deal_record    = clean_unicode_and_emojis(deal_record)
     date_evaluated = clean_unicode_and_emojis(date_evaluated)
 
-    # ── Parse risk scores ─────────────────────────────────────────────────────
+    # ── Parse risk scores ──────────────────────────────────────────────────────
     fin_score = leg_score = tech_score = mkt_score = weighted = None
     for line in lines:
         s = line.strip()
@@ -420,7 +604,7 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
         m = re.search(r"WEIGHTED RISK SCORE.*?(\d+(?:\.\d+)?)/10", s, re.IGNORECASE)
         if m: weighted = float(m.group(1))
 
-    # ── Parse verdict memo block ──────────────────────────────────────────────
+    # ── Parse verdict memo ─────────────────────────────────────────────────────
     verdict_memo: list[str] = []
     in_memo = False
     for line in lines:
@@ -434,8 +618,8 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
             else:
                 verdict_memo.append(line)
 
-    # ── Parse partner timeline ────────────────────────────────────────────────
-    partners: list[tuple] = []   # (name, severity, findings_list)
+    # ── Parse partners ─────────────────────────────────────────────────────────
+    partners: list[tuple] = []  # (name, severity, findings_list)
     cur_name, cur_sev, cur_findings = None, 5, []
     in_timeline = False
 
@@ -446,8 +630,6 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
             continue
         if not in_timeline:
             continue
-
-        # Skip code fences, pure rules, pipe-only lines
         if s.startswith("```") or s.startswith("+--") or (s and set(s) <= set("-+=_ ")):
             continue
         if s.startswith("|"):
@@ -455,7 +637,6 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
             if not inner or set(inner) <= set("-+=_ "):
                 continue
             s = inner
-
         if s.startswith("### "):
             if cur_name:
                 partners.append((cur_name, cur_sev, cur_findings))
@@ -483,86 +664,103 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
     # ══════════════════════════════════════════════════════════════════════════
     story = []
 
-    # ── 1. COVER PAGE ─────────────────────────────────────────────────────────
-    story.append(Spacer(1, 72))
+    # ────────────────────────────────────────────────────────────────────────
+    # PAGE 1 — COVER
+    # ────────────────────────────────────────────────────────────────────────
+    story.append(Spacer(1, 60))
 
     logo = _get_brand_logo()
     if logo:
         png_bytes, aspect = logo
-        lh = 38
+        lh = 42
         story.append(Image(io.BytesIO(png_bytes), width=lh * aspect, height=lh))
+        story.append(Spacer(1, 8))
     else:
         story.append(Paragraph("FUSION", cover_title))
 
-    story.append(Paragraph("VENTURE CAPITAL  ·  AI INVESTMENT COMMITTEE",
-                            _style("CVTag", fontName="Helvetica-Bold", fontSize=9.5,
-                                   leading=13, textColor=C_SLATE_600, spaceBefore=8)))
-    story.append(Spacer(1, 32))
+    story.append(Paragraph(
+        "VENTURE CAPITAL  ·  AI INVESTMENT COMMITTEE",
+        _style("CVTag", fontName="Helvetica-Bold", fontSize=9, leading=13,
+               textColor=C_SLATE_600, spaceBefore=6, spaceAfter=36)
+    ))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=C_SLATE_300,
+                             spaceBefore=0, spaceAfter=24))
     story.append(Paragraph("DUE DILIGENCE AUDIT REPORT", cover_title))
-    story.append(Paragraph(f"INVESTMENT INQUIRY: {company_clean.upper()}", cover_sub))
-    story.append(HRFlowable(width="100%", thickness=2, color=C_SLATE_900,
-                             spaceBefore=0, spaceAfter=130))
+    story.append(Paragraph(f"Investment Inquiry: {company_clean}",
+                            _style("CvCo", fontName="Helvetica-Bold", fontSize=13,
+                                   leading=17, textColor=C_SLATE_700, spaceAfter=28)))
 
-    # Verdict badge on cover
-    vbadge_style = _style("VBadge", fontName="Helvetica-Bold", fontSize=13,
-                           leading=17, textColor=verdict_color, alignment=1)
-    cover_badge = Table([[Paragraph(f"COMMITTEE VERDICT: {verdict}", vbadge_style)]],
-                        colWidths=[504])
+    # Verdict badge
+    vbadge_st = _style("VBadge", fontName="Helvetica-Bold", fontSize=16,
+                        leading=20, textColor=verdict_color, alignment=1)
+    cover_badge = Table(
+        [[Paragraph("INVESTMENT COMMITTEE VERDICT", _style("VBL", fontName="Helvetica-Bold",
+                                                            fontSize=7.5, leading=10,
+                                                            textColor=C_SLATE_600, alignment=1))],
+         [Paragraph(verdict, vbadge_st)]],
+        colWidths=[504]
+    )
     cover_badge.setStyle(TableStyle([
-        ("BACKGROUND",     (0, 0), (-1, -1), verdict_bg),
-        ("BOX",            (0, 0), (-1, -1), 1.5, verdict_border),
-        ("TOPPADDING",     (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING",  (0, 0), (-1, -1), 10),
-        ("ALIGN",          (0, 0), (-1, -1), "CENTER"),
+        ("BACKGROUND",    (0, 0), (-1, -1), verdict_bg),
+        ("BOX",           (0, 0), (-1, -1), 2, verdict_border),
+        ("TOPPADDING",    (0, 0), (-1, -1), 14),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 14),
+        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
     ]))
     story.append(cover_badge)
-    story.append(Spacer(1, 18))
+    story.append(Spacer(1, 24))
 
-    # Metadata table
+    # Cover metadata table
     meta_data = [
-        [Paragraph("DEAL RECORD",          meta_lbl), Paragraph(deal_record,    meta_val)],
-        [Paragraph("DATE EVALUATED",        meta_lbl), Paragraph(date_evaluated, meta_val)],
-        [Paragraph("COMMITTEE STATUS",      meta_lbl), Paragraph("COMPLETE &amp; VERIFIED",
-            _style("MBold", fontName="Helvetica-Bold", fontSize=9, leading=13, textColor=C_SLATE_900))],
+        [Paragraph("DEAL RECORD",     meta_lbl), Paragraph(deal_record,    meta_val)],
+        [Paragraph("DATE EVALUATED",  meta_lbl), Paragraph(date_evaluated, meta_val)],
+        [Paragraph("COMMITTEE",       meta_lbl), Paragraph("5 AI Partners  ·  Fully Automated",
+            _style("CMB", fontName="Helvetica", fontSize=8.5, leading=12, textColor=C_SLATE_900))],
+        [Paragraph("STATUS",          meta_lbl), Paragraph("COMPLETE & VERIFIED",
+            _style("CST", fontName="Helvetica-Bold", fontSize=8.5, leading=12, textColor=C_GREEN_700))],
     ]
-    meta_table = Table(meta_data, colWidths=[160, 344])
+    meta_table = Table(meta_data, colWidths=[150, 354])
     meta_table.setStyle(TableStyle([
-        ("LINEBELOW",      (0, 0), (-1, -2), 0.5, C_SLATE_300),
-        ("BOTTOMPADDING",  (0, 0), (-1, -1), 8),
-        ("TOPPADDING",     (0, 0), (-1, -1), 8),
-        ("VALIGN",         (0, 0), (-1, -1), "MIDDLE"),
+        ("LINEBELOW",     (0, 0), (-1, -2), 0.5, C_SLATE_200),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+        ("TOPPADDING",    (0, 0), (-1, -1), 9),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
     ]))
     story.append(meta_table)
+
+    story.append(Spacer(1, 24))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=C_SLATE_200,
+                             spaceBefore=0, spaceAfter=0))
     story.append(PageBreak())
 
-    # ── 2. EXECUTIVE VERDICT SUMMARY ──────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────
+    # PAGE 2 — EXECUTIVE VERDICT SUMMARY
+    # ────────────────────────────────────────────────────────────────────────
     story.append(Paragraph("Executive Verdict Summary", h1))
     story.append(HRFlowable(width="100%", thickness=1, color=C_SLATE_300,
                              spaceBefore=2, spaceAfter=14))
 
-    verdict_title_style = _style(
-        "VT", fontName="Helvetica-Bold", fontSize=26, leading=30,
-        textColor=verdict_color, alignment=1,
+    # Large verdict display
+    verdict_panel = Table(
+        [[Paragraph("INVESTMENT COMMITTEE DECISION",
+                    _style("VL", fontName="Helvetica-Bold", fontSize=7.5, leading=10,
+                           textColor=C_SLATE_600, alignment=1))],
+         [Paragraph(verdict,
+                    _style("VT", fontName="Helvetica-Bold", fontSize=30, leading=36,
+                           textColor=verdict_color, alignment=1))]],
+        colWidths=[504]
     )
-    vt_label_style = _style("VTL", fontName="Helvetica-Bold", fontSize=8,
-                             leading=11, textColor=C_SLATE_600, alignment=1)
-
-    verdict_panel = Table([
-        [Paragraph("INVESTMENT COMMITTEE DECISION", vt_label_style)],
-        [Paragraph(verdict, verdict_title_style)],
-    ], colWidths=[504])
     verdict_panel.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0), (-1, -1), verdict_bg),
         ("BOX",           (0, 0), (-1, -1), 2, verdict_border),
-        ("TOPPADDING",    (0, 0), (-1, -1), 16),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 16),
+        ("TOPPADDING",    (0, 0), (-1, -1), 18),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 18),
         ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
     ]))
     story.append(verdict_panel)
     story.append(Spacer(1, 16))
 
-    # Render verdict memo (investment memo body)
-    skip_next_fence = False
+    # Verdict memo body
     for line in verdict_memo:
         s = line.strip()
         if not s:
@@ -582,60 +780,61 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
         elif s.startswith("- ") or s.startswith("* "):
             txt = _fmt(s[2:].strip())
             if txt:
-                story.append(Paragraph(f"&bull; {txt}", bullet))
+                story.append(Paragraph(f"&bull;  {txt}", bullet))
         elif re.match(r"^\d+\.\s+", s):
             story.append(Paragraph(s_fmt, bullet))
         else:
             story.append(Paragraph(s_fmt, body))
 
-    story.append(Spacer(1, 8))
+    story.append(PageBreak())
 
-    # ── 3. RISK SCORECARD (visual) ────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────
+    # PAGE 3 — RISK ANALYSIS SCORECARD
+    # ────────────────────────────────────────────────────────────────────────
     story.append(Paragraph("Risk Analysis Scorecard", h1))
     story.append(HRFlowable(width="100%", thickness=1, color=C_SLATE_300,
                              spaceBefore=2, spaceAfter=14))
 
     if all(v is not None for v in [fin_score, leg_score, tech_score, mkt_score]):
+        story.extend(_scorecard_grid(
+            fin_score, leg_score, tech_score, mkt_score,
+            weighted, verdict_color, verdict_bg, body
+        ))
+        story.append(Spacer(1, 20))
+        story.append(Paragraph("Risk Level Breakdown", h2))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=C_SLATE_200,
+                                 spaceBefore=2, spaceAfter=10))
         drawing = _risk_bar_chart(fin_score, leg_score, tech_score, mkt_score, weighted)
         story.append(_DrawingFlowable(drawing))
-        story.append(Spacer(1, 6))
 
-        # Summary table below bars
-        w_label = f"{weighted:.2f}/10" if weighted is not None else "N/A"
-        score_rows = [
-            [Paragraph("<b>RISK DOMAIN</b>",   _style("TH1", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=C_WHITE)),
-             Paragraph("<b>SCORE</b>",         _style("TH2", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=C_WHITE, alignment=1)),
-             Paragraph("<b>WEIGHT</b>",        _style("TH3", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=C_WHITE, alignment=1))],
-            [Paragraph("Financial Risk",  body), Paragraph(f"{fin_score:.1f}/10",  _style("SV",  fontName="Helvetica", fontSize=9, leading=13, textColor=C_SLATE_900, alignment=1)), Paragraph("30%", _style("SW",  fontName="Helvetica", fontSize=9, leading=13, textColor=C_SLATE_900, alignment=1))],
-            [Paragraph("Legal Risk",      body), Paragraph(f"{leg_score:.1f}/10",  _style("SV2", fontName="Helvetica", fontSize=9, leading=13, textColor=C_SLATE_900, alignment=1)), Paragraph("25%", _style("SW2", fontName="Helvetica", fontSize=9, leading=13, textColor=C_SLATE_900, alignment=1))],
-            [Paragraph("Technical Risk",  body), Paragraph(f"{tech_score:.1f}/10", _style("SV3", fontName="Helvetica", fontSize=9, leading=13, textColor=C_SLATE_900, alignment=1)), Paragraph("25%", _style("SW3", fontName="Helvetica", fontSize=9, leading=13, textColor=C_SLATE_900, alignment=1))],
-            [Paragraph("Market Risk",     body), Paragraph(f"{mkt_score:.1f}/10",  _style("SV4", fontName="Helvetica", fontSize=9, leading=13, textColor=C_SLATE_900, alignment=1)), Paragraph("20%", _style("SW4", fontName="Helvetica", fontSize=9, leading=13, textColor=C_SLATE_900, alignment=1))],
-            [Paragraph("<b>WEIGHTED RISK SCORE</b>", _style("TWS", fontName="Helvetica-Bold", fontSize=9, leading=12, textColor=C_SLATE_900)),
-             Paragraph(f"<b>{w_label}</b>", _style("TWV", fontName="Helvetica-Bold", fontSize=9, leading=12, textColor=verdict_color, alignment=1)),
-             Paragraph("", body)],
-        ]
-        score_table = Table(score_rows, colWidths=[300, 112, 92])
-        score_table.setStyle(TableStyle([
-            ("BACKGROUND",    (0, 0), (-1, 0),  C_SLATE_700),
-            ("BACKGROUND",    (0, -1),(- 1, -1), verdict_bg),
-            ("ROWBACKGROUNDS",(0, 1), (-1, -2), [C_WHITE, C_SLATE_50]),
-            ("GRID",          (0, 0), (-1, -1), 0.5, C_SLATE_300),
-            ("TOPPADDING",    (0, 0), (-1, -1), 7),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ]))
-        story.append(score_table)
-    story.append(Spacer(1, 20))
+    story.append(PageBreak())
 
-    # ── 4. PARTNER AUDIT LOGS ─────────────────────────────────────────────────
-    story.append(Paragraph("Partner Audit Logs", h1))
-    story.append(HRFlowable(width="100%", thickness=1, color=C_SLATE_300,
-                             spaceBefore=2, spaceAfter=14))
+    # ────────────────────────────────────────────────────────────────────────
+    # PAGES 4+ — ONE PAGE PER PARTNER AGENT
+    # ────────────────────────────────────────────────────────────────────────
+    # Canonical partner order so Managing Partner always goes last
+    _ORDER = ["financial", "legal", "technical", "market", "managing"]
 
-    for pname, psev, pfindings in partners:
-        story.extend(_partner_card(pname, pfindings, body, bullet, psev))
+    def _sort_key(p):
+        name_low = p[0].lower()
+        for i, k in enumerate(_ORDER):
+            if k in name_low:
+                return i
+        return len(_ORDER)
 
-    # Build
+    for pname, psev, pfindings in sorted(partners, key=_sort_key):
+        meta = _partner_meta(pname)
+        story.extend(_partner_page_header(meta, company_clean, psev, body))
+        story.extend(_partner_findings(pfindings, body, bullet))
+        story.append(Spacer(1, 16))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=C_SLATE_200,
+                                 spaceBefore=4, spaceAfter=0))
+        story.append(PageBreak())
+
+    # Remove trailing page break
+    if story and isinstance(story[-1], PageBreak):
+        story.pop()
+
     doc.build(story, canvasmaker=BrandedCanvas)
     buffer.seek(0)
     return buffer.getvalue()
