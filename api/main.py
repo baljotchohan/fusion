@@ -24,6 +24,7 @@ from core.band_client import mock_bus, is_mock_mode
 from core.memory_graph import memory_graph
 from api.state import sim_state
 from api.v1 import router as v1_router
+from api.oauth import router as oauth_router
 from core.auth import get_uid_optional
 from core.pitch_loader import _load_pitch_file
 import mcp_tools
@@ -515,6 +516,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="FUSION API", version="1.0.0", lifespan=lifespan, redirect_slashes=False)
 app.include_router(v1_router)
+app.include_router(oauth_router)  # OAuth 2.0 at root: /.well-known/, /oauth/*
 
 
 @app.api_route("/mcp", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])

@@ -11,14 +11,14 @@ interface SettingsViewProps {
   isLoggedIn?: boolean
 }
 
-type McpTab = 'vscode' | 'cursor' | 'claude_code' | 'claude_desktop'
+type McpTab = 'claude_ai' | 'vscode' | 'cursor' | 'claude_code' | 'claude_desktop'
 
 export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false }: SettingsViewProps) {
   const [mockPace, setMockPace] = useState(0.6)
   const [, setLoading] = useState(true)
   const [confirmReset, setConfirmReset] = useState(false)
   const [resetting, setResetting] = useState(false)
-  const [mcpTab, setMcpTab] = useState<McpTab>('vscode')
+  const [mcpTab, setMcpTab] = useState<McpTab>('claude_ai')
   const [copied, setCopied] = useState(false)
   const [sessionUsage, setSessionUsage] = useState<{ used: number; limit: number; remaining: number } | null>(null)
   const [mcpKey, setMcpKey] = useState<string | null>(null)
@@ -48,24 +48,23 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
 
   const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${mcpUrl} --header "Authorization: Bearer ${keyDisplay}"`
 
-  const claudeDesktopMac = JSON.stringify({
+  // Native url field — works on Windows, Mac, Linux identically. No npx, no mcp-remote.
+  const claudeDesktopJson = JSON.stringify({
     mcpServers: {
       'fusion-vc': {
-        command: 'npx',
-        args: ['-y', 'mcp-remote', mcpUrl, '--header', `Authorization: Bearer ${keyDisplay}`],
+        url: mcpUrl,
+        headers: { Authorization: `Bearer ${keyDisplay}` },
       },
     },
   }, null, 2)
 
-  const proxyScriptUrl = 'https://raw.githubusercontent.com/baljotchohan/fusion/main/scripts/mcp_proxy.py'
-  const claudeDesktopWin = JSON.stringify({
-    mcpServers: {
-      'fusion-vc': {
-        command: 'python',
-        args: ['C:\\Users\\YOUR_USERNAME\\Downloads\\mcp_proxy.py', keyDisplay],
-      },
-    },
-  }, null, 2)
+  const claudeAiUrl = 'https://claude.ai/settings/integrations'
+
+  const openClaudeAi = async () => {
+    try { if (navigator.clipboard) await navigator.clipboard.writeText(mcpUrl) } catch { /* ok */ }
+    window.open(claudeAiUrl, '_blank', 'noopener')
+    logActivity('mcp_claude_ai_connect_click')
+  }
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -135,11 +134,12 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
   const sectionCls = 'rounded-2xl bg-bg-card border border-border shadow-sm p-6'
   const labelCls = 'text-[10px] font-semibold uppercase tracking-wider text-text-muted'
 
-  const MCP_TABS: { id: McpTab; label: string }[] = [
+  const MCP_TABS: { id: McpTab; label: string; badge?: string }[] = [
+    { id: 'claude_ai', label: 'Claude.ai', badge: '★ Best' },
     { id: 'vscode', label: 'VS Code' },
     { id: 'cursor', label: 'Cursor' },
     { id: 'claude_code', label: 'Claude Code' },
-    { id: 'claude_desktop', label: 'Claude Desktop' },
+    { id: 'claude_desktop', label: 'Desktop App' },
   ]
 
   return (
@@ -264,13 +264,53 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
 
             {/* Client tabs */}
             <div className="flex gap-1 mb-4 bg-bg-muted rounded-lg p-1 flex-wrap">
-              {MCP_TABS.map(({ id, label }) => (
+              {MCP_TABS.map(({ id, label, badge }) => (
                 <button key={id} onClick={() => { setMcpTab(id); logActivity('mcp_tab_changed', { tab: id }) }}
-                  className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${mcpTab === id ? 'bg-bg-card text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${mcpTab === id ? 'bg-bg-card text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'}`}>
                   {label}
+                  {badge && <span className="text-[9px] font-bold text-amber-500">{badge}</span>}
                 </button>
               ))}
             </div>
+
+            {mcpTab === 'claude_ai' && (
+              <div className="space-y-4">
+                <div className="rounded-xl bg-bg-subtle border border-border p-3.5">
+                  <p className="text-[12px] font-semibold text-text-primary mb-1">Works on every device — one connection</p>
+                  <p className="text-[11px] text-text-secondary">Connect via claude.ai and it automatically syncs to Claude Desktop (Mac/Win/Linux) and the Claude mobile app. No config files, no keys to paste.</p>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3 py-2.5 px-3 rounded-xl bg-bg-muted">
+                    <span className="text-[11px] font-bold text-text-muted w-4 shrink-0 mt-0.5">1</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11.5px] font-medium text-text-primary">Copy your server URL</p>
+                      <div className="flex items-center gap-2 mt-1.5 bg-bg-subtle rounded-lg px-2.5 py-1.5">
+                        <code className="text-[10.5px] font-mono text-text-secondary flex-1 truncate">{mcpUrl}</code>
+                        <button onClick={() => copyToClipboard(mcpUrl)} className="shrink-0 text-text-muted hover:text-text-primary transition cursor-pointer">
+                          {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 py-2.5 px-3 rounded-xl bg-bg-muted">
+                    <span className="text-[11px] font-bold text-text-muted w-4 shrink-0 mt-0.5">2</span>
+                    <div className="flex-1">
+                      <p className="text-[11.5px] font-medium text-text-primary mb-1.5">Open Claude.ai Connectors</p>
+                      <button onClick={openClaudeAi}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-text-primary text-bg-card text-[11px] font-semibold hover:opacity-90 transition cursor-pointer">
+                        <ExternalLink className="w-3 h-3" />
+                        Open Claude.ai Connectors →
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 py-2.5 px-3 rounded-xl bg-bg-muted">
+                    <span className="text-[11px] font-bold text-text-muted w-4 shrink-0 mt-0.5">3</span>
+                    <p className="text-[11.5px] text-text-secondary">Click <strong className="text-text-primary">Add custom connector</strong>, paste the URL, click Connect, and sign in to your FUSION account.</p>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-text-muted">Also works in ChatGPT: Settings → Apps → paste the same URL.</p>
+              </div>
+            )}
 
             {mcpTab === 'vscode' && (
               <div className="space-y-3">
@@ -317,39 +357,24 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
             )}
 
             {mcpTab === 'claude_desktop' && (
-              <div className="space-y-4">
-                <p className="text-[12px] text-text-secondary">Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">claude_desktop_config.json</code> (File → Settings → Developer):</p>
-
-                <div>
-                  <p className="text-[10.5px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">Mac / Linux</p>
-                  <div className="relative">
-                    <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopMac}</pre>
-                    <button onClick={() => copyToClipboard(claudeDesktopMac)}
-                      className="absolute top-2 right-2 text-text-muted hover:text-text-primary transition cursor-pointer">
-                      {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
+              <div className="space-y-3">
+                <p className="text-[12px] text-text-secondary">
+                  Works on <strong className="text-text-primary">Windows, Mac, and Linux</strong> — same config, no mcp-remote needed.
+                  Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">claude_desktop_config.json</code> (File → Settings → Developer):
+                </p>
+                <div className="relative">
+                  <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopJson}</pre>
+                  <button onClick={() => copyToClipboard(claudeDesktopJson)}
+                    className="absolute top-2 right-2 text-text-muted hover:text-text-primary transition cursor-pointer">
+                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
-
-                <div>
-                  <p className="text-[10.5px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">Windows (use Python proxy — mcp-remote has a quoting bug on Windows)</p>
-                  <div className="mb-2 flex items-center gap-2 py-2 px-3 rounded-lg bg-bg-subtle border border-border">
-                    <span className="text-[11px] text-text-secondary flex-1">Step 1 — download the proxy script:</span>
-                    <a href={proxyScriptUrl} download="mcp_proxy.py" target="_blank" rel="noreferrer"
-                      className="text-[11px] font-semibold text-text-primary border border-border rounded px-2 py-0.5 hover:bg-bg-muted transition cursor-pointer flex items-center gap-1">
-                      <ExternalLink className="w-3 h-3" /> mcp_proxy.py
-                    </a>
-                  </div>
-                  <p className="text-[10.5px] text-text-secondary mb-1.5">Step 2 — add to <code className="text-[10px] bg-bg-muted px-1 rounded">claude_desktop_config.json</code>, replacing the path with where you saved it:</p>
-                  <div className="relative">
-                    <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopWin}</pre>
-                    <button onClick={() => copyToClipboard(claudeDesktopWin)}
-                      className="absolute top-2 right-2 text-text-muted hover:text-text-primary transition cursor-pointer">
-                      {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                  <p className="text-[10.5px] text-text-muted mt-1.5">Your key is the second arg — the script connects directly to FUSION over HTTPS, no OAuth needed.</p>
+                <div className="text-[10.5px] text-text-muted space-y-0.5">
+                  <p>Mac: <code className="bg-bg-subtle px-1 rounded">~/Library/Application Support/Claude/claude_desktop_config.json</code></p>
+                  <p>Windows: <code className="bg-bg-subtle px-1 rounded">%APPDATA%\Claude\claude_desktop_config.json</code></p>
+                  <p>Linux: <code className="bg-bg-subtle px-1 rounded">~/.config/Claude/claude_desktop_config.json</code></p>
                 </div>
+                <p className="text-[10.5px] text-text-muted">Fully quit and reopen Claude Desktop after saving.</p>
               </div>
             )}
 
