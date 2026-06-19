@@ -422,6 +422,14 @@ async def lifespan(_app: FastAPI):
     # Register the event bus listener on application startup
     event_bus.register_listener(broadcast_event_to_websockets)
     logger.info("FastAPI: Event bus WebSocket listener registered.")
+
+    # Probe RTDB so any misconfiguration shows up immediately in HF Space logs
+    from core.rtdb import probe as rtdb_probe
+    _rtdb_status = rtdb_probe()
+    if _rtdb_status == "ok":
+        logger.info("Firebase RTDB probe ✓ — writes enabled")
+    else:
+        logger.warning("Firebase RTDB probe FAILED: %s", _rtdb_status)
     
     # The MCP session manager must run for the mounted /mcp app to serve requests.
     async with fusion_mcp.session_manager.run():

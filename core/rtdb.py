@@ -34,7 +34,7 @@ def _init() -> bool:
             logger.debug("RTDB init deferred: Firebase Admin not ready yet")
             return False
 
-        _fdb.reference("/")   # validates the URL without a network round-trip
+        _fdb.reference("/")   # creates a reference; actual connectivity is tested on first write
         _db = _fdb
         _ready = True
         logger.info("Firebase RTDB ready ✓  url=%s", url)
@@ -53,6 +53,18 @@ def _ref(path: str):
     except Exception as exc:
         logger.debug("RTDB _ref(%s) failed: %s", path, exc)
         return None
+
+
+def probe() -> str:
+    """Make a real network read to confirm RTDB is reachable. Returns 'ok', 'disabled', or an error string."""
+    if not _init():
+        url = os.environ.get("FIREBASE_DATABASE_URL", "").strip()
+        return "disabled — FIREBASE_DATABASE_URL not set" if not url else "disabled — Firebase Admin not initialized (check service account secret)"
+    try:
+        _db.reference("/.info/connected").get()
+        return "ok"
+    except Exception as exc:
+        return f"error — {exc}"
 
 
 def _now() -> str:
