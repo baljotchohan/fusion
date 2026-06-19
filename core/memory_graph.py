@@ -38,8 +38,16 @@ class MemoryGraph:
 
     @property
     def _resolved_uid(self) -> "str | None":
-        """The effective uid — explicit override, else sim_state.active_uid, else None."""
+        """The effective uid — explicit override, else current_uid ContextVar, else sim_state.active_uid, else None."""
         uid = self._explicit_uid
+        if uid is None:
+            try:
+                from core.auth import current_uid
+                val = current_uid.get(None)
+                if val and val not in ("__mcp_client__", "__public__"):
+                    uid = val
+            except Exception:
+                pass
         if uid is None:
             try:
                 from api.state import sim_state

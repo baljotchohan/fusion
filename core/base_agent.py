@@ -542,9 +542,12 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                 from api.state import sim_state
                 incident_id = sim_state.active_incident_id or memory_graph.get_latest_incident_id() or ""
                 
-            from core.auth import current_incident_id, current_pitch_file
+            from core.auth import current_uid, current_incident_id
+            from api.state import get_uid_for_incident
+            uid = get_uid_for_incident(incident_id) or "__public__"
+            token_uid = current_uid.set(uid)
             token_inc = current_incident_id.set(incident_id)
-            
+
             from core.pitch_loader import resolve_pitch_file_for_incident
             pitch_file = resolve_pitch_file_for_incident(incident_id)
             token_pitch = None
@@ -715,6 +718,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                     logger.error(f"[{self._argus_agent_name}] Error during on_message: {e}")
                     await event_bus.broadcast(self._argus_agent_name, "alert", {"error": err_str})
             finally:
+                current_uid.reset(token_uid)
                 current_incident_id.reset(token_inc)
                 if token_pitch:
                     current_pitch_file.reset(token_pitch)
@@ -924,11 +928,43 @@ class BaseAgent:
     def _make_local_llm(self):
         """LLM client pointed at this server's deterministic /mock-llm engine."""
         port = os.getenv("PORT", "8000")
+        import httpx
+        
+        class DynamicHeaderClient(httpx.Client):
+            def send(self, request, *args, **kwargs):
+                try:
+                    from core.auth import current_uid, current_incident_id
+                    uid = current_uid.get(None)
+                    inc_id = current_incident_id.get(None)
+                    if uid and uid not in ("__mcp_client__", "__public__"):
+                        request.headers["X-FUSION-UID"] = uid
+                    if inc_id:
+                        request.headers["X-FUSION-Incident-ID"] = inc_id
+                except Exception:
+                    pass
+                return super().send(request, *args, **kwargs)
+
+        class DynamicHeaderAsyncClient(httpx.AsyncClient):
+            async def send(self, request, *args, **kwargs):
+                try:
+                    from core.auth import current_uid, current_incident_id
+                    uid = current_uid.get(None)
+                    inc_id = current_incident_id.get(None)
+                    if uid and uid not in ("__mcp_client__", "__public__"):
+                        request.headers["X-FUSION-UID"] = uid
+                    if inc_id:
+                        request.headers["X-FUSION-Incident-ID"] = inc_id
+                except Exception:
+                    pass
+                return await super().send(request, *args, **kwargs)
+
         return ChatOpenAI(
             base_url=f"http://127.0.0.1:{port}/mock-llm",
             api_key="dummy",
             model=f"mock-{self.name}",
-            default_headers={"X-Agent-Name": self.name}
+            default_headers={"X-Agent-Name": self.name},
+            http_client=DynamicHeaderClient(),
+            http_async_client=DynamicHeaderAsyncClient()
         )
 
     def load_credentials(self) -> tuple[str, str]:
@@ -1258,10 +1294,12 @@ class BaseAgent:
         finally:
             self._is_busy = False
 
-    async def _log_to_memory(self, report: str):
+    async def _log_to_memory(self, report: str, incident_id: Optional[str] = None):
         """Persist this agent's final report into the active shared incident."""
         try:
-            incident_id = memory_graph.get_latest_incident_id()
+            if not incident_id:
+                from core.auth import current_incident_id
+                incident_id = current_incident_id.get(None) or memory_graph.get_latest_incident_id()
             if not incident_id:
                 return
             await memory_graph.log_finding(

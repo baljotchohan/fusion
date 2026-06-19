@@ -246,6 +246,7 @@ async def force_partial_verdict(incident_id: str):
         memory_graph.set_final_decision(incident_id, report_text)
         sim_state.final_verdict_card = report_text
         sim_state.completed_agents.add("managing_partner")
+        sim_state._mp_verdict_pending = True
 
         # Persist verdict to Firebase RTDB (fire-and-forget, non-fatal)
         try:
@@ -1081,6 +1082,14 @@ def _build_response(body: dict, content: str, tool_calls: list):
 @app.post("/mock-llm/chat/completions")
 async def mock_llm_completions(request: Request):
     """Offline mock OpenAI LLM server that simulates FUSION agent reasoning and boardroom handoffs."""
+    from core.auth import current_uid, current_incident_id
+    uid_header = request.headers.get("X-FUSION-UID")
+    inc_header = request.headers.get("X-FUSION-Incident-ID")
+    if uid_header:
+        current_uid.set(uid_header)
+    if inc_header:
+        current_incident_id.set(inc_header)
+
     body = await request.json()
     messages = body.get("messages", [])
     tools = body.get("tools", [])

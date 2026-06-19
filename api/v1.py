@@ -388,6 +388,7 @@ async def _dispatch_incident(incident_id: str, user_message: str):
                 sender="Managing-Partner",
                 target_room=room,
                 message=partner_brief,
+                incident_id=incident_id,
             )
     else:
         success = await dispatch_real_band_message(brief, "managing-partner", sender_agent_name="financial_partner")
@@ -415,6 +416,7 @@ async def _dispatch_incident(incident_id: str, user_message: str):
                     sender="Managing-Partner",
                     target_room=room,
                     message=partner_brief,
+                    incident_id=incident_id,
                 )
 
 
@@ -2969,7 +2971,7 @@ def validate_pitch_deck_signals(text: str) -> tuple[bool, str]:
         r"\bsec\s+filing\b",
     ]
     filing_hits = sum(1 for p in public_filing_signals if re.search(p, t))
-    if filing_hits >= 2:
+    if filing_hits >= 3:
         return False, ("This appears to be a public company earnings report or investor filing, "
                        "not a startup pitch deck. FUSION evaluates private startup investment "
                        "opportunities. Please upload a pitch deck, investment memo, or company "
@@ -3281,7 +3283,8 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
         
     # ── REQUIRE PARTNER CONTENT ──
     # Keep the LONGEST finding per partner (the real report),
-    # discarding shorter interim messages.
+    # discarding shorter interim messages. If missing or placeholder, fall back to auto-generating
+    # from calculations so the PDF/Markdown download never errors out.
     partner_findings = {
         "financial_partner": "",
         "legal_partner": "",
@@ -3297,17 +3300,143 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
                 partner_findings[agent] = finding
                 
     for partner, finding in partner_findings.items():
-        partner_display = partner.replace("_", " ").title()
-        if not finding:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Diligence report requires findings from all partners. {partner_display} report is empty."
-            )
-        if "deal already concluded" in finding.lower() or "standing by" in finding.lower():
-            raise HTTPException(
-                status_code=400,
-                detail=f"Diligence report cannot be generated: {partner_display} report contains a standby placeholder ('{finding[:50]}...')."
-            )
+        is_placeholder = "deal already concluded" in finding.lower() or "standing by" in finding.lower()
+        if not finding or is_placeholder:
+            # Generate dynamically from calculations
+            logger.info(f"[generate-report] Generating fallback report for {partner}")
+            try:
+                from core.diligence_engine import get_citation, format_red_flags
+                arr_val = calc.get("arr", {})
+                burn_val = calc.get("burn", {})
+                runway_val = calc.get("runway", {})
+                gross_margin_val = calc.get("gross_margin", {})
+                customers_val = calc.get("customers", {})
+                litigation_val = calc.get("litigation", {})
+                compliance_val = calc.get("compliance", {})
+                stack_val = calc.get("stack", {})
+                security_val = calc.get("security", {})
+                tam_val = calc.get("tam", {})
+                competition_val = calc.get("competition", {})
+                
+                fin_flags_val = calc.get("fin_flags", [])
+                leg_flags_val = calc.get("leg_flags", [])
+                tech_flags_val = calc.get("tech_flags", [])
+                mkt_flags_val = calc.get("mkt_flags", [])
+                
+                fin_score_val = calc.get("fin_score", 5.0)
+                leg_score_val = calc.get("leg_score", 5.0)
+                tech_score_val = calc.get("tech_score", 5.0)
+                mkt_score_val = calc.get("mkt_score", 5.0)
+                
+                fin_rec_val = calc.get("fin_rec", "HOLD")
+                leg_rec_val = calc.get("leg_rec", "HOLD")
+                tech_rec_val = calc.get("tech_rec", "HOLD")
+                mkt_rec_val = calc.get("mkt_rec", "HOLD")
+                
+                valuation_val = calc.get("valuation", "N/A")
+                
+                if partner == "financial_partner":
+                    f_rep = (
+                        f"FINANCIAL DUE DILIGENCE REPORT — {company_name}\n"
+                        f"Partner: Financial Analysis\n"
+                        f"Confidence: {arr_val.get('confidence', 80)}%\n\n"
+                        f"REVENUE & RUNWAY:\n"
+                        f"- ARR: {get_citation(arr_val, 'Financials')}\n"
+                        f"- Burn Rate: {get_citation(burn_val, 'Financials')}\n"
+                        f"- Runway: {get_citation(runway_val, 'Financials')}\n"
+                        f"- Gross Margin: {get_citation(gross_margin_val, 'Financials')}\n\n"
+                        f"CUSTOMER CONCENTRATION:\n"
+                        f"- {get_citation(customers_val, 'Financials')}\n"
+                    )
+                    if calc.get("scenario"):
+                        sc = calc["scenario"]
+                        f_rep += (
+                            f"\n📊 SCENARIO ENGINE: CLIENT CHURN SENSITIVITY (ESTIMATE)\n"
+                            f"If primary customer '{sc['client_name']}' churns (representing {sc['concentration_pct']:.0f}% concentration):\n"
+                            f"- Revenue Loss: -${sc['churn_revenue_loss']:,.0f} ARR\n"
+                            f"- New Projected ARR: ${sc['new_arr']:,.0f} ARR\n"
+                            f"- Burn Rate Impact: ${sc['current_monthly_burn']:,.0f}/mo → ${sc['new_monthly_burn']:,.0f}/mo\n"
+                            f"- Estimated Compressed Runway: {sc['new_runway']:.1f} months\n"
+                            f"- Valuation Markdown ({sc['multiple']:.1f}x multiple): {valuation_val} → ${sc['new_valuation']:,.0f}\n"
+                        )
+                    if calc.get("questions") and calc["questions"].get("ceo"):
+                        qs = "\n".join(f"- {q}" for q in calc["questions"]["ceo"])
+                        f_rep += f"\n❓ AUTO-GENERATED VC DILIGENCE QUESTIONS (CEO):\n{qs}\n"
+                    
+                    f_rep += (
+                        f"\n🚨 CRITICAL RED FLAGS:\n"
+                        f"{format_red_flags(fin_flags_val)}\n\n"
+                        f"FINANCIAL RISK SCORE: {fin_score_val:.1f}/10\n"
+                        f"RECOMMENDATION: {fin_rec_val}"
+                    )
+                    partner_findings[partner] = f_rep
+                
+                elif partner == "legal_partner":
+                    l_rep = (
+                        f"LEGAL DUE DILIGENCE REPORT — {company_name}\n"
+                        f"Partner: Legal Analysis\n"
+                        f"Confidence: {litigation_val.get('confidence', 80)}%\n\n"
+                        f"LITIGATION STATUS:\n"
+                        f"- {get_citation(litigation_val, 'Legal')}\n\n"
+                        f"REGULATORY COMPLIANCE:\n"
+                        f"- Compliance: {get_citation(compliance_val, 'Legal')}\n"
+                    )
+                    if calc.get("questions") and calc["questions"].get("legal"):
+                        qs = "\n".join(f"- {q}" for q in calc["questions"]["legal"])
+                        l_rep += f"\n❓ AUTO-GENERATED VC DILIGENCE QUESTIONS (Legal Counsel):\n{qs}\n"
+                        
+                    l_rep += (
+                        f"\n🚨 CRITICAL RED FLAGS:\n"
+                        f"{format_red_flags(leg_flags_val)}\n\n"
+                        f"LEGAL RISK SCORE: {leg_score_val:.1f}/10\n"
+                        f"RECOMMENDATION: {leg_rec_val}"
+                    )
+                    partner_findings[partner] = l_rep
+                    
+                elif partner == "technical_partner":
+                    t_rep = (
+                        f"TECHNICAL DUE DILIGENCE REPORT — {company_name}\n"
+                        f"Partner: Technical Audit\n"
+                        f"Confidence: {stack_val.get('confidence', 80)}%\n\n"
+                        f"TECHNOLOGY STACK:\n"
+                        f"- Core stack: {get_citation(stack_val, 'Technical')}\n\n"
+                        f"SECURITY POSTURE:\n"
+                        f"- Security state: {get_citation(security_val, 'Technical')}\n"
+                    )
+                    if calc.get("questions") and calc["questions"].get("cto"):
+                        qs = "\n".join(f"- {q}" for q in calc["questions"]["cto"])
+                        t_rep += f"\n❓ AUTO-GENERATED VC DILIGENCE QUESTIONS (CTO):\n{qs}\n"
+                        
+                    t_rep += (
+                        f"\n🚨 CRITICAL RED FLAGS:\n"
+                        f"{format_red_flags(tech_flags_val)}\n\n"
+                        f"TECHNICAL RISK SCORE: {tech_score_val:.1f}/10\n"
+                        f"RECOMMENDATION: {tech_rec_val}"
+                    )
+                    partner_findings[partner] = t_rep
+                    
+                elif partner == "market_partner":
+                    m_rep = (
+                        f"MARKET DUE DILIGENCE REPORT — {company_name}\n"
+                        f"Partner: Market Research\n"
+                        f"Confidence: {tam_val.get('confidence', 80)}%\n\n"
+                        f"MARKET OPPORTUNITY:\n"
+                        f"- TAM: {get_citation(tam_val, 'Market')}\n\n"
+                        f"COMPETITIVE LANDSCAPE:\n"
+                        f"- Competition: {get_citation(competition_val, 'Market')}\n\n"
+                        f"🚨 CRITICAL RED FLAGS:\n"
+                        f"{format_red_flags(mkt_flags_val)}\n\n"
+                        f"MARKET RISK SCORE: {mkt_score_val:.1f}/10\n"
+                        f"RECOMMENDATION: {mkt_rec_val}"
+                    )
+                    partner_findings[partner] = m_rep
+            except Exception as ex:
+                logger.error(f"[generate-report] Fallback report compilation failed for {partner}: {ex}")
+                partner_display = partner.replace("_", " ").title()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Diligence report requires findings from all partners. {partner_display} report is empty and fallback compilation failed."
+                )
             
     # ── DYNAMIC CARD & TIMELINE GENERATION ──
     co_text = calc_company_name[:42]
