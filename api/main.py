@@ -791,6 +791,21 @@ async def get_status(request: Request):
         "deal_concluded": sim_state.deal_concluded if is_my_session else False,
     }
 
+@app.get("/api/rtdb-test")
+async def rtdb_test():
+    """Write a timestamped test record to /diagnostics/probe_tests and return the result."""
+    from core.rtdb import probe, _ref, _now
+    status = probe()
+    if status != "ok":
+        return {"rtdb": "FAILED", "reason": status}
+    ref = _ref(f"/diagnostics/probe_tests")
+    try:
+        ref.push({"timestamp": _now(), "source": "api/rtdb-test", "message": "RTDB write confirmed ✓"})
+        return {"rtdb": "ok", "message": "Test record written to /diagnostics/probe_tests in Firebase"}
+    except Exception as e:
+        return {"rtdb": "FAILED", "reason": str(e)}
+
+
 @app.get("/mcp-connect")
 async def mcp_connect_info():
     """Returns copy-paste MCP connection instructions for every client type."""
