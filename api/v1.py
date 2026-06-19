@@ -3627,7 +3627,9 @@ async def get_mcp_key(request: Request):
     if not uid:
         raise HTTPException(status_code=401, detail="Sign in to get your personal MCP key.")
     mcp_base = os.getenv("FUSION_MCP_URL", "https://baljot07-fusion.hf.space/mcp/")
-    return {"key": f"fus_{uid}", "mcp_url": mcp_base}
+    from core.auth import sign_uid
+    signed_key = sign_uid(uid)
+    return {"key": signed_key, "mcp_url": mcp_base}
 
 
 @router.get("/session-usage")

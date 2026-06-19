@@ -615,8 +615,14 @@ async def set_request_context(request: Request, call_next):
     if token:
         if token.startswith("fus_"):
             # Per-user MCP API key: fus_<firebase_uid> — set by Settings page, passed in MCP client headers
-            uid = token[4:].strip() or "__public__"
-            username = uid
+            from core.auth import verify_uid_signature
+            verified_uid = verify_uid_signature(token)
+            if verified_uid:
+                uid = verified_uid
+                username = uid
+            else:
+                uid = "__public__"
+                username = "guest"
         elif MCP_API_KEY and token == MCP_API_KEY:
             uid = "global_mcp_user"
             username = "global_mcp_user"
@@ -657,7 +663,9 @@ async def mcp_security(request: Request, call_next):
 
     # Personal fus_<uid> key: signed-in users get unlimited MCP access, no auth gate
     if token.startswith("fus_") and len(token) > 4:
-        return await call_next(request)
+        from core.auth import verify_uid_signature
+        if verify_uid_signature(token):
+            return await call_next(request)
 
     # Global API key guard (when MCP_API_KEY is configured)
     if MCP_API_KEY and token != MCP_API_KEY:

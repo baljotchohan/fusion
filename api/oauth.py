@@ -180,8 +180,9 @@ async def token_endpoint(
         if challenge != entry["code_challenge"]:
             return JSONResponse({"error": "invalid_grant", "error_description": "PKCE verification failed"}, status_code=400)
 
+    from core.auth import sign_uid
     return {
-        "access_token": f"fus_{entry['uid']}",
+        "access_token": sign_uid(entry['uid']),
         "token_type": "bearer",
         "scope": "mcp",
     }
