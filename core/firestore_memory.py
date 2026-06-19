@@ -106,3 +106,54 @@ def fs_delete_incident(uid: Optional[str], incident_id: str) -> None:
     except Exception as e:
         logger.debug(f"[FS] delete_incident skipped: {e}")
 
+
+# ── Chat history ────────────────────────────────────────────────────────────────
+
+def _chat_turns(uid: Optional[str], session_id: Optional[str]):
+    from firebase_admin import firestore as _fs
+    db = _fs.client()
+    return (
+        db.collection("fusion_chats")
+          .document(_uid_key(uid))
+          .collection("sessions")
+          .document(session_id or "default")
+          .collection("turns")
+    )
+
+
+def fs_append_chat(uid: Optional[str], session_id: Optional[str], turn: dict) -> None:
+    """Mirror one chat turn to Firestore (best-effort)."""
+    try:
+        _chat_turns(uid, session_id).add(turn)
+        logger.debug(f"[FS] appended chat turn for uid={_uid_key(uid)} session={session_id or 'default'}")
+    except Exception as e:
+        logger.debug(f"[FS] append_chat skipped: {e}")
+
+
+def fs_get_chat_history(uid: Optional[str], session_id: Optional[str], limit: int = 100) -> list:
+    """Fetch chat turns for a session from Firestore, ordered by timestamp."""
+    try:
+        docs = _chat_turns(uid, session_id).order_by("timestamp").stream()
+        turns = [d.to_dict() for d in docs]
+        return turns[-limit:]
+    except Exception as e:
+        logger.debug(f"[FS] get_chat_history skipped: {e}")
+        return []
+
+
+def fs_list_chat_sessions(uid: Optional[str]) -> list:
+    """Return all session IDs for a user from Firestore."""
+    try:
+        from firebase_admin import firestore as _fs
+        db = _fs.client()
+        refs = (
+            db.collection("fusion_chats")
+              .document(_uid_key(uid))
+              .collection("sessions")
+              .list_documents()
+        )
+        return [r.id for r in refs]
+    except Exception as e:
+        logger.debug(f"[FS] list_chat_sessions skipped: {e}")
+        return []
+

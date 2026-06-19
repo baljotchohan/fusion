@@ -1257,46 +1257,48 @@ async def delete_incident_endpoint(incident_id: str, request: Request):
 
 @router.get("/chat/sessions")
 async def list_chat_sessions(request: Request):
-    """List all chat sessions for the authenticated user by reading files matching chat_history_*.json."""
+    """List all chat sessions for the authenticated user."""
     uid = await get_uid_optional(request)
     user_memory = memory_graph.__class__(uid=uid)
     base_path = user_memory.base_path
-    
+
+    def _session_meta(history: list, session_id: str, mtime: float | None = None) -> dict:
+        first_msg = next((m for m in history if m.get("role") == "user"), None)
+        title = first_msg.get("content", "")[:50] if first_msg else "New Chat Session"
+        timestamp = history[-1].get("timestamp") if history else (
+            datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat() if mtime else datetime.now(timezone.utc).isoformat()
+        )
+        incident_id = next((m.get("meta", {}).get("incident_id") for m in history if m.get("meta", {}).get("incident_id")), None)
+        return {"session_id": session_id, "title": title, "timestamp": timestamp, "incident_id": incident_id}
+
     sessions = []
-    # Find all files matching chat_history_*.json
+    local_ids: set[str] = set()
+
     for p in base_path.glob("chat_history_*.json"):
         session_id = p.stem.removeprefix("chat_history_")
         if not session_id:
             continue
         try:
-            with open(p, "r") as f:
-                history = json.load(f)
+            history = json.loads(p.read_text())
             if history and isinstance(history, list):
-                # Title can be the user's first message or a default string
-                first_msg = next((m for m in history if m.get("role") == "user"), None)
-                title = first_msg.get("content")[:50] if first_msg else "New Chat Session"
-                
-                # Timestamp can be from the last message or the file's modification time
-                timestamp = history[-1].get("timestamp") if history else datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
-                
-                # Let's check if there's any associated incident_id
-                incident_id = None
-                for m in history:
-                    meta = m.get("meta") or {}
-                    if meta.get("incident_id"):
-                        incident_id = meta.get("incident_id")
-                        break
-                
-                sessions.append({
-                    "session_id": session_id,
-                    "title": title,
-                    "timestamp": timestamp,
-                    "incident_id": incident_id
-                })
+                sessions.append(_session_meta(history, session_id, p.stat().st_mtime))
+                local_ids.add(session_id)
         except Exception as e:
             logger.warning(f"Error reading session file {p}: {e}")
-            
-    # Sort by timestamp descending
+
+    # Fallback: on a fresh container local files are gone — recover from Firestore
+    if not sessions:
+        try:
+            from core.firestore_memory import fs_list_chat_sessions, fs_get_chat_history
+            for sid in fs_list_chat_sessions(uid):
+                if sid in local_ids:
+                    continue
+                turns = fs_get_chat_history(uid, sid, limit=500)
+                if turns:
+                    sessions.append(_session_meta(turns, sid))
+        except Exception as e:
+            logger.debug(f"Firestore session fallback skipped: {e}")
+
     sessions.sort(key=lambda s: s["timestamp"], reverse=True)
     return sessions
 

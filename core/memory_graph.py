@@ -37,9 +37,8 @@ class MemoryGraph:
         self._explicit_uid = uid
 
     @property
-    def base_path(self) -> Path:
-        # If an explicit uid was passed (like in API requests), use it.
-        # Otherwise, check the active user uid in the running simulation (for background agents).
+    def _resolved_uid(self) -> "str | None":
+        """The effective uid — explicit override, else sim_state.active_uid, else None."""
         uid = self._explicit_uid
         if uid is None:
             try:
@@ -47,14 +46,12 @@ class MemoryGraph:
                 uid = getattr(sim_state, "active_uid", None)
             except ImportError:
                 pass
-        
-        # Normalise an unauthenticated/guest session to the "__public__" namespace so
-        # that WRITES (a deal triggered with active_uid=None lands here) and READS (every
-        # API endpoint queries uid or "__public__") resolve to the SAME folder. Without
-        # this, anonymous deals were written to the root dir but queried from __public__,
-        # so history and the verdict score vanished on refresh.
+        return uid
+
+    @property
+    def base_path(self) -> Path:
         base = Path(self.graphify_dir)
-        p = base / (uid or "__public__")
+        p = base / (self._resolved_uid or "__public__")
         p.mkdir(parents=True, exist_ok=True)
         return p
 
@@ -100,8 +97,20 @@ class MemoryGraph:
         incident_id: e.g. "INC-20260610-084500"
         metadata:    e.g. {"trigger": "phishing_email", "threat_level": 7}
         """
+        ruid = self._resolved_uid
         with _LOCK:
             incidents = self._read_file(self.incidents_file)
+            # If local is empty (e.g. after a server restart), seed from Firestore first
+            # so that creating a new deal doesn't erase prior history from the dashboard.
+            if not incidents:
+                try:
+                    from core.firestore_memory import fs_list_incidents
+                    remote = fs_list_incidents(ruid)
+                    if remote:
+                        incidents = remote
+                        logger.info("Memory: seeded local cache from Firestore (%d incidents)", len(remote))
+                except Exception:
+                    pass
             incidents[incident_id] = {
                 "metadata": metadata,
                 "timeline": [],
@@ -113,7 +122,7 @@ class MemoryGraph:
         # Mirror to Firestore so it survives server restarts
         try:
             from core.firestore_memory import fs_save_incident
-            fs_save_incident(self._explicit_uid, incident_id, incidents[incident_id])
+            fs_save_incident(ruid, incident_id, incidents[incident_id])
         except Exception:
             pass
         return incidents[incident_id]
@@ -129,7 +138,7 @@ class MemoryGraph:
         # Mirror deletion to Firestore
         try:
             from core.firestore_memory import fs_delete_incident
-            fs_delete_incident(self._explicit_uid, incident_id)
+            fs_delete_incident(self._resolved_uid, incident_id)
         except Exception as e:
             logger.debug(f"Failed to delete incident from Firestore: {e}")
 
@@ -140,7 +149,7 @@ class MemoryGraph:
         # Fallback: local file was wiped (server restart) — try Firestore
         try:
             from core.firestore_memory import fs_get_incident
-            fs_data = fs_get_incident(self._explicit_uid, incident_id)
+            fs_data = fs_get_incident(self._resolved_uid, incident_id)
             if fs_data:
                 logger.info(f"[Memory] Recovered incident {incident_id} from Firestore")
                 # Write back to local file so subsequent reads are fast
@@ -157,10 +166,15 @@ class MemoryGraph:
         local = self._read_file(self.incidents_file)
         if local:
             return local
-        # Fallback to Firestore if local is empty
+        # Fallback to Firestore on a fresh container (local wiped by restart)
         try:
             from core.firestore_memory import fs_list_incidents
-            return fs_list_incidents(self._explicit_uid)
+            remote = fs_list_incidents(self._resolved_uid)
+            if remote:
+                # Cache locally so subsequent reads don't hit Firestore every time
+                with _LOCK:
+                    self._write_file(self.incidents_file, remote)
+            return remote
         except Exception:
             return {}
 
@@ -170,7 +184,7 @@ class MemoryGraph:
             # Fallback to Firestore
             try:
                 from core.firestore_memory import fs_get_latest_incident_id
-                return fs_get_latest_incident_id(self._explicit_uid)
+                return fs_get_latest_incident_id(self._resolved_uid)
             except Exception:
                 return None
         return max(incidents, key=lambda k: incidents[k].get("created_at", ""))
@@ -210,7 +224,7 @@ class MemoryGraph:
         # Mirror updated incident to Firestore
         try:
             from core.firestore_memory import fs_save_incident
-            fs_save_incident(self._explicit_uid, incident_id, updated)
+            fs_save_incident(self._resolved_uid, incident_id, updated)
         except Exception:
             pass
         return True
@@ -226,7 +240,7 @@ class MemoryGraph:
         # Mirror to Firestore
         try:
             from core.firestore_memory import fs_save_incident
-            fs_save_incident(self._explicit_uid, incident_id, updated)
+            fs_save_incident(self._resolved_uid, incident_id, updated)
         except Exception:
             pass
         return True
@@ -308,11 +322,29 @@ class MemoryGraph:
             history.append(turn)
             # Keep the on-disk log bounded; the UI only needs recent context
             self._write_file(chat_file, history[-500:])
+        # Mirror to Firestore so chat survives server restarts
+        try:
+            from core.firestore_memory import fs_append_chat
+            fs_append_chat(self._resolved_uid, session_id, turn)
+        except Exception:
+            pass
         return turn
 
     def get_chat_history(self, limit: int = 100, session_id: Optional[str] = None) -> List[dict]:
         chat_file = self._get_chat_file_for_session(session_id)
-        return self._read_list(chat_file)[-limit:]
+        local = self._read_list(chat_file)
+        if local:
+            return local[-limit:]
+        # Fallback to Firestore on a fresh container
+        try:
+            from core.firestore_memory import fs_get_chat_history
+            remote = fs_get_chat_history(self._resolved_uid, session_id, limit)
+            if remote:
+                with _LOCK:
+                    self._write_file(chat_file, remote[-500:])
+            return remote
+        except Exception:
+            return []
 
     def clear_chat_history(self, session_id: Optional[str] = None):
         chat_file = self._get_chat_file_for_session(session_id)
