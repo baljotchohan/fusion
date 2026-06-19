@@ -48,11 +48,20 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
 
   const claudeCodeCmd = `claude mcp add fusion-vc --transport http ${mcpUrl} --header "Authorization: Bearer ${keyDisplay}"`
 
-  const claudeDesktopJson = JSON.stringify({
+  const claudeDesktopMac = JSON.stringify({
     mcpServers: {
       'fusion-vc': {
         command: 'npx',
         args: ['-y', 'mcp-remote', mcpUrl, '--header', `Authorization: Bearer ${keyDisplay}`],
+      },
+    },
+  }, null, 2)
+
+  const claudeDesktopWin = JSON.stringify({
+    mcpServers: {
+      'fusion-vc': {
+        command: 'cmd',
+        args: ['/c', `npx -y mcp-remote ${mcpUrl} --header "Authorization: Bearer ${keyDisplay}"`],
       },
     },
   }, null, 2)
@@ -307,14 +316,30 @@ export default function SettingsView({ theme, onToggleTheme, isLoggedIn = false 
             )}
 
             {mcpTab === 'claude_desktop' && (
-              <div className="space-y-3">
-                <p className="text-[12px] text-text-secondary">Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">claude_desktop_config.json</code>:</p>
-                <div className="relative">
-                  <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopJson}</pre>
-                  <button onClick={() => copyToClipboard(claudeDesktopJson)}
-                    className="absolute top-2 right-2 text-text-muted hover:text-accent transition cursor-pointer">
-                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
+              <div className="space-y-4">
+                <p className="text-[12px] text-text-secondary">Add to <code className="text-[11px] bg-bg-muted px-1 py-0.5 rounded">claude_desktop_config.json</code> (File → Settings → Developer):</p>
+
+                <div>
+                  <p className="text-[10.5px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">Mac / Linux</p>
+                  <div className="relative">
+                    <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopMac}</pre>
+                    <button onClick={() => copyToClipboard(claudeDesktopMac)}
+                      className="absolute top-2 right-2 text-text-muted hover:text-text-primary transition cursor-pointer">
+                      {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[10.5px] font-semibold text-text-muted uppercase tracking-wider mb-1.5">Windows</p>
+                  <div className="relative">
+                    <pre className="bg-bg-muted rounded-lg px-3 py-3 text-[10.5px] font-mono text-text-primary overflow-x-auto whitespace-pre">{claudeDesktopWin}</pre>
+                    <button onClick={() => copyToClipboard(claudeDesktopWin)}
+                      className="absolute top-2 right-2 text-text-muted hover:text-text-primary transition cursor-pointer">
+                      {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <p className="text-[10.5px] text-text-muted mt-1.5">Uses <code className="text-[10px] bg-bg-subtle px-1 rounded">cmd /c</code> to avoid the Windows path-with-spaces bug.</p>
                 </div>
               </div>
             )}
