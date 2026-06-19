@@ -28,6 +28,23 @@ import json
 import urllib.request
 import urllib.error
 
+# Ensure standard streams use UTF-8 encoding (especially critical on Windows)
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+if hasattr(sys.stdin, "reconfigure"):
+    try:
+        sys.stdin.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 MCP_URL = "https://baljot07-fusion.hf.space/mcp/"
 TOKEN = sys.argv[1].strip() if len(sys.argv) > 1 else ""
 
