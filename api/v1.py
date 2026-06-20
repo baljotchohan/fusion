@@ -1047,8 +1047,9 @@ async def chat_history(request: Request, limit: int = 100, session_id: Optional[
 @router.delete("/chat/history")
 async def clear_chat_history(request: Request, session_id: Optional[str] = None):
     """Clear the persisted Commander chat history."""
-    uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid or "__public__")
+    from core.auth import get_uid
+    uid = await get_uid(request)
+    user_memory = memory_graph.__class__(uid=uid)
     user_memory.clear_chat_history(session_id=session_id)
     return {"status": "cleared"}
 
@@ -1221,9 +1222,6 @@ def compute_deal_snapshot(uid: Optional[str], incident_id: Optional[str] = None)
     if not incident_id:
         return empty
     inc = user_memory.get_incident(incident_id)
-    # Fallback: incident may have been created under __public__ (unauthenticated run)
-    if not inc and uid and uid != "__public__":
-        inc = memory_graph.__class__(uid="__public__").get_incident(incident_id)
     if not inc:
         return empty
 
@@ -1337,8 +1335,9 @@ async def similar_deals(keyword: str, request: Request, limit: int = 5):
 @router.delete("/incident/{incident_id}")
 async def delete_incident_endpoint(incident_id: str, request: Request):
     """Delete a past deal from local memory files and Firestore."""
-    uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid or "__public__")
+    from core.auth import get_uid
+    uid = await get_uid(request)
+    user_memory = memory_graph.__class__(uid=uid)
     user_memory.delete_incident(incident_id)
     # Also clean up from RTDB
     try:
@@ -1628,14 +1627,15 @@ async def get_mcp_registry(request: Request):
 async def reset_all_history(request: Request):
     """Danger zone: wipe ALL deals, learned patterns, agent profiles, and chat history,
     then reset live simulation state. Powers the Settings 'Reset & Clear All History' button."""
-    uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid or "__public__")
+    from core.auth import get_uid
+    uid = await get_uid(request)
+    user_memory = memory_graph.__class__(uid=uid)
     user_memory.clear_all()
 
     # Wipe user data in Firebase RTDB as well
     try:
         from core.rtdb import clear_user_data
-        clear_user_data(uid or "__public__")
+        clear_user_data(uid)
     except Exception as e:
         logger.error(f"Failed to clear RTDB for user {uid}: {e}")
 
@@ -3122,14 +3122,13 @@ async def upload_pitch_document(
         if not isinstance(structured_data, dict) or "company" not in structured_data:
             raise HTTPException(status_code=400, detail="This is not a company-related doc: JSON structure is missing company schema.")
         
-    # Write structured pitch JSON file to data directory so pitch_loader can read it
-    data_dir = os.path.join(os.path.dirname(__file__), "../data")
-    os.makedirs(data_dir, exist_ok=True)
-    uploaded_path = os.path.join(data_dir, f"pitch_{incident_id}.json")
-    
+    # Write structured pitch JSON file to the uid-scoped memory directory so it
+    # cannot be read by other users.  pitch_loader handles absolute paths natively.
+    pitch_dir = user_memory.base_path
+    uploaded_path = str(pitch_dir / f"pitch_{incident_id}.json")
     with open(uploaded_path, "w") as f:
         json.dump(structured_data, f, indent=2)
-        
+
     co_obj = structured_data.get("company", {})
     company_name = "Unknown Startup"
     if isinstance(co_obj, dict):
@@ -3145,7 +3144,7 @@ async def upload_pitch_document(
         
     sim_state.active_company_name = company_name
     sim_state.active_incident_id = incident_id
-    sim_state.active_pitch_file = f"pitch_{incident_id}.json"
+    sim_state.active_pitch_file = uploaded_path  # absolute path; pitch_loader handles it
 
     # Bust the pitch cache so agents load the new file, and open the deal record
     from core.pitch_loader import clear_pitch_cache

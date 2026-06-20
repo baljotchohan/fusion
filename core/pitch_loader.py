@@ -42,9 +42,12 @@ def resolve_pitch_file_for_incident(incident_id: str) -> Optional[str]:
                 resolved = resolve_pitch_file(company)
                 if resolved:
                     return resolved
-        # Check if there is an uploaded file on disk
-        data_dir = os.path.join(os.path.dirname(__file__), "../data")
+        # Check uid-scoped memory dir first (uploaded files), then shared data/ (demo files)
         uploaded_filename = f"pitch_{incident_id}.json"
+        uid_path = m_graph.base_path / uploaded_filename
+        if uid_path.exists():
+            return str(uid_path)  # absolute path — pitch_loader handles it
+        data_dir = os.path.join(os.path.dirname(__file__), "../data")
         if os.path.exists(os.path.join(data_dir, uploaded_filename)):
             return uploaded_filename
     except Exception as e:

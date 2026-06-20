@@ -98,15 +98,17 @@ def verify_uid_signature(token: str) -> str | None:
     if not content:
         return None
     
-    parts = content.split(".")
+    parts = content.split(".", 1)  # split at most once so uids containing '.' don't fragment
     uid = parts[0].strip()
     if not uid:
         return None
         
+    # ponytail: _AUTH_DISABLED removed here — auth-disabled mode uses X-Dev-UID directly
+    # (get_uid line 129) and never routes through verify_uid_signature, so bypassing
+    # the HMAC check here was redundant and allowed token forgery on staging.
     is_test = (
         os.environ.get("PYTEST_CURRENT_TEST") is not None
         or os.environ.get("FUSION_TEST_MODE") == "true"
-        or _AUTH_DISABLED
     )
     if is_test:
         return uid

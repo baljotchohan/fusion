@@ -317,13 +317,17 @@ export default function FUSION() {
     loadChatSessions()
   }, [firebaseUser?.uid, loadChatSessions])
 
+  // Set to true while deleteSession is in flight so the auto-restore below
+  // doesn't immediately re-select the just-deleted session before loadChatSessions refreshes.
+  const isDeletingSessionRef = React.useRef(false)
+
   // After login the uid-scoped localStorage key is gone (cleared on sign-out for
   // shared-browser privacy), so fall back to the backend: auto-select the most
   // recent session (sessions arrive sorted newest-first) instead of dropping the
   // user into the empty default conversation. New Chat / explicit selection keep
   // activeSessionId non-null, so this never overrides a deliberate choice.
   useEffect(() => {
-    if (!firebaseUser?.uid || activeSessionId) return
+    if (!firebaseUser?.uid || activeSessionId || isDeletingSessionRef.current) return
     if (chatSessions.length > 0) setActiveSessionId(chatSessions[0].session_id)
   }, [chatSessions, firebaseUser?.uid, activeSessionId])
 
@@ -347,7 +351,11 @@ export default function FUSION() {
           setCeoDecision(null)
           setThreatScore(0)
         }
-      } else {
+      } else if (!incidentId) {
+        // Only clear deal state when called without a specific incidentId (i.e. not
+        // a cold-start restore). If we were called with an explicit incidentId and
+        // the backend returned nothing, the backend may just be warming up — keep
+        // the cached localStorage key so the next login can retry.
         setActiveIncidentId(null)
         setActiveCompany(null)
         setCeoDecision(null)
@@ -392,12 +400,19 @@ export default function FUSION() {
         const res = await apiFetch(`${API_BASE}/api/v1/chat/history?session_id=${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
         if (res.ok) {
           if (activeSessionId === sessionId) {
+            // Block auto-restore until the session list refresh completes so we
+            // don't immediately re-select the session we just deleted.
+            isDeletingSessionRef.current = true
             setActiveSessionId(null)
+            await loadChatSessions()
+            isDeletingSessionRef.current = false
+          } else {
+            loadChatSessions()
           }
-          loadChatSessions()
           logActivity('chat_session_deleted', { sessionId })
         }
       } catch (err: any) {
+        isDeletingSessionRef.current = false
         console.error('Failed to delete chat session:', err)
       }
     }
@@ -748,11 +763,15 @@ export default function FUSION() {
     logActivity('user_logged_out', { email: firebaseUser?.email, uid: firebaseUser?.uid })
     const uid = firebaseUser?.uid
     await firebaseSignOut()
-    // Remove user-scoped keys so next user on this browser starts clean
+    // Remove user-scoped and __public__ keys so next user on this browser starts clean.
+    // __public__ keys can accumulate from pre-login anonymous browsing and must be
+    // flushed on sign-out so they don't bleed into the next user's session on a shared browser.
     if (uid) {
       localStorage.removeItem(`fusion.activeIncidentId.${uid}`)
       localStorage.removeItem(`fusion.activeSessionId.${uid}`)
     }
+    localStorage.removeItem('fusion.activeIncidentId.__public__')
+    localStorage.removeItem('fusion.activeSessionId.__public__')
     localStorage.removeItem('fusion.activeIncidentId') // legacy unscoped key
     setChatHistory([])
     setChatSessions([])

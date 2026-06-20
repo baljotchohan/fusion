@@ -374,12 +374,12 @@ class WrappedTools:
                 elif isinstance(m, dict):
                     m_id = m.get("id")
                     m_handle = m.get("handle") or ""
-                    if m_id is not None and str(m_id) == str(self._agent_id) or clean_name in m_handle.lower():
+                    if (m_id is not None and str(m_id) == str(self._agent_id)) or clean_name in m_handle.lower():
                         continue
                 else:
                     m_id = getattr(m, "id", None)
                     m_handle = getattr(m, "handle", None) or ""
-                    if m_id is not None and str(m_id) == str(self._agent_id) or clean_name in str(m_handle).lower():
+                    if (m_id is not None and str(m_id) == str(self._agent_id)) or clean_name in str(m_handle).lower():
                         continue
                 filtered_mentions.append(m)
             logger.info(f"[{self._base_agent.name}] send_message filtered mentions to={filtered_mentions}")

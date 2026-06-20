@@ -11,6 +11,7 @@ Files:
   - attack_patterns.json:  learned checklists per risk category
   - agent_profiles.json:   per-partner learning stats (findings, deals seen)
 """
+import asyncio
 import json
 import logging
 import threading
@@ -20,9 +21,12 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger("fusion.memory_graph")
 
-# Single process-wide lock: the JSON namespace is small and write
-# contention only happens during agent fan-out, so coarse locking is fine.
+# Sync lock for all synchronous callers (create_incident, delete_incident, etc.)
+# ponytail: threading.Lock in async functions blocks the event loop thread; use
+# _ASYNC_LOCK for async methods instead.
 _LOCK = threading.Lock()
+# Async lock for log_finding (called concurrently by the five parallel agents).
+_ASYNC_LOCK = asyncio.Lock()
 
 
 def _utcnow() -> str:
@@ -52,10 +56,19 @@ class MemoryGraph:
                 pass
         return uid
 
+    @staticmethod
+    def _sanitize_uid(uid: str) -> str:
+        # Allow only characters safe for a directory component — same set as session_id.
+        # ponytail: Firebase UIDs are alphanumeric in practice, but a crafted or
+        # compromised token containing '..' or '/' would escape fusion_memory/ without this.
+        return "".join(c for c in uid if c.isalnum() or c in ("-", "_"))
+
     @property
     def base_path(self) -> Path:
         base = Path(self.graphify_dir)
-        p = base / (self._resolved_uid or "__public__")
+        raw = self._resolved_uid or "__public__"
+        safe = self._sanitize_uid(raw) or "__public__"
+        p = base / safe
         p.mkdir(parents=True, exist_ok=True)
         return p
 
@@ -147,10 +160,11 @@ class MemoryGraph:
                 del incidents[incident_id]
                 self._write_file(self.incidents_file, incidents)
                 logger.info(f"Memory: deleted incident {incident_id}")
-        # Mirror deletion to Firestore
+        # Mirror deletion to Firestore — use resolved uid with explicit fallback so
+        # a None uid doesn't silently target __public__ on behalf of a real user.
         try:
             from core.firestore_memory import fs_delete_incident
-            fs_delete_incident(self._resolved_uid, incident_id)
+            fs_delete_incident(self._resolved_uid or "__public__", incident_id)
         except Exception as e:
             logger.debug(f"Failed to delete incident from Firestore: {e}")
 
@@ -221,7 +235,7 @@ class MemoryGraph:
         tags: Optional[list] = None,
     ) -> bool:
         """Agent logs a finding. Shared across all agents."""
-        with _LOCK:
+        async with _ASYNC_LOCK:
             incidents = self._read_file(self.incidents_file)
             if incident_id not in incidents:
                 logger.warning(f"Memory: incident {incident_id} not found for finding")
@@ -380,6 +394,14 @@ class MemoryGraph:
                     logger.warning(f"Failed to delete session file {chat_file}: {e}")
             else:
                 self._write_file(chat_file, [])
+        # Mirror deletion to Firestore so deleted sessions don't resurrect on restart
+        try:
+            from core.firestore_memory import _chat_turns
+            for doc in _chat_turns(self._resolved_uid, session_id).stream():
+                doc.reference.delete()
+            logger.info(f"Memory: cleared Firestore chat turns for session={session_id or 'default'}")
+        except Exception as e:
+            logger.debug(f"Memory: Firestore chat clear skipped: {e}")
 
     def clear_all(self):
         """Wipe everything: all deals, learned patterns, agent profiles, and chat history.

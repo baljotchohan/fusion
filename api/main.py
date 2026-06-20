@@ -438,6 +438,11 @@ async def broadcast_event_to_websockets(event_data: dict):
     uid = event_data.get("uid")
     incident_id = event_data.get("incident_id")
 
+    # In real-Band mode agents broadcast without injecting incident_id into the event
+    # dict — fall back to the ContextVar so we can still resolve the real owner.
+    if not incident_id:
+        incident_id = current_incident_id.get(None)
+
     # If uid is a system default, resolve the real owner from the incident registry
     _system_defaults = (None, "", "__public__", "__mcp_client__")
     if uid in _system_defaults and incident_id:
@@ -1035,10 +1040,15 @@ async def mcp_connect_info():
 async def reset_simulation(request: Request):
     """Resets the simulation state so a new attack can be triggered."""
     uid = await get_uid_optional(request)
-    # Only the user who owns the current session (or any caller if no session is active) may reset.
-    if sim_state.active_uid and uid != sim_state.active_uid:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=403, detail="Only the session owner may reset the committee.")
+    # Require auth when a session is active so anonymous callers can't kill another user's run.
+    # If active_uid is None (no session running) anyone may reset — it's a no-op anyway.
+    if sim_state.active_uid:
+        if not uid:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=401, detail="Sign in to reset an active committee session.")
+        if uid != sim_state.active_uid:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Only the session owner may reset the committee.")
     sim_state.reset()
     # Clear all agent busy flags so they're ready for the next run
     if is_mock_mode():
