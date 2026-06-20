@@ -1185,7 +1185,7 @@ async def mock_llm_completions(request: Request):
     delay_range = (STAGE2_DELAYS if has_tool_messages else STAGE1_DELAYS).get(
         agent_name, (0.4, 0.8)
     )
-    pace = float(os.getenv("ARGUS_MOCK_PACE", "0.2"))
+    pace = float(os.getenv("ARGUS_MOCK_PACE", "1.5"))
     await asyncio.sleep(random.uniform(*delay_range) * pace)
     # ──────────────────────────────────────────────────────────────────────────
 

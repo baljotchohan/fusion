@@ -1946,263 +1946,320 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
           
           {/* Left column: Roundtable SVG Map */}
           <div className="lg:col-span-7 flex justify-center relative bg-bg-card dark:bg-[#0a0f0a] border border-border rounded-3xl p-6 sm:p-10 shadow-2xl min-h-[480px] overflow-hidden">
-            
-            <svg viewBox="0 0 400 400" className="w-full max-w-[380px] h-auto relative z-10 select-none">
-              <defs>
-                {/* SVG Glow Filters */}
-                <filter id="glow-accent" x="-30%" y="-30%" width="160%" height="160%">
-                  <feGaussianBlur stdDeviation="5" result="blur" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-                <filter id="glow-core" x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur stdDeviation="8" result="blur" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-              </defs>
+            {(() => {
+              const isMPActive = selectedSimNode === 'managing' || (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'managing' : (agentStates['managing_partner'] === 'working' || agentStates['managing_partner'] === 'done'))
+              const isMPWorking = (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'managing' : agentStates['managing_partner'] === 'working')
+              const mpColor = isMPWorking ? '#e0a335' : '#5bbf52'
 
-              {/* Event connection trails (glowing fiber-optic lines) */}
-              {simSteps.map((s, idx) => {
-                let coords = { x: 200, y: 200 }
-                if (s.activeNode === 'managing') coords = { x: 200, y: 70 }
-                if (s.activeNode === 'financial') coords = { x: 310, y: 150 }
-                if (s.activeNode === 'legal') coords = { x: 270, y: 280 }
-                if (s.activeNode === 'technical') coords = { x: 130, y: 280 }
-                if (s.activeNode === 'market') coords = { x: 90, y: 150 }
-                
-                const active = simStepIdx >= idx && simState === 'running'
-                
-                return (
-                  <g key={idx}>
-                    {/* Glowing underlay line */}
-                    {active && (
-                      <line 
-                        x1={coords.x} 
-                        y1={coords.y} 
-                        x2="200" 
-                        y2="200" 
-                        stroke="#5bbf52" 
-                        strokeWidth="3.5" 
-                        filter="url(#glow-accent)" 
-                        className="opacity-70"
-                      />
-                    )}
-                    {/* Solid connector line */}
-                    <line 
-                      x1={coords.x} 
-                      y1={coords.y} 
-                      x2="200" 
-                      y2="200" 
-                      stroke={active ? '#5bbf52' : 'rgba(255,255,255,0.04)'} 
-                      strokeWidth={active ? '2' : '1'} 
-                      strokeDasharray={active ? '5,5' : 'none'}
-                      className={active ? 'animate-pulse' : ''}
-                      style={active ? { animation: 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite' } : {}}
+              const isFPActive = selectedSimNode === 'financial' || (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'financial' : (agentStates['financial_partner'] === 'working' || agentStates['financial_partner'] === 'done'))
+              const isFPWorking = (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'financial' : agentStates['financial_partner'] === 'working')
+              const fpColor = isFPWorking ? '#e0a335' : '#5bbf52'
+
+              const isLPActive = selectedSimNode === 'legal' || (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'legal' : (agentStates['legal_partner'] === 'working' || agentStates['legal_partner'] === 'done'))
+              const isLPWorking = (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'legal' : agentStates['legal_partner'] === 'working')
+              const lpColor = isLPWorking ? '#e0a335' : '#5bbf52'
+
+              const isTPActive = selectedSimNode === 'technical' || (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'technical' : (agentStates['technical_partner'] === 'working' || agentStates['technical_partner'] === 'done'))
+              const isTPWorking = (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'technical' : agentStates['technical_partner'] === 'working')
+              const tpColor = isTPWorking ? '#e0a335' : '#5bbf52'
+
+              const isMKTActive = selectedSimNode === 'market' || (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'market' : (agentStates['market_partner'] === 'working' || agentStates['market_partner'] === 'done'))
+              const isMKTWorking = (simState === 'running' ? simSteps[simStepIdx]?.activeNode === 'market' : agentStates['market_partner'] === 'working')
+              const mktColor = isMKTWorking ? '#e0a335' : '#5bbf52'
+
+              return (
+                <svg viewBox="0 0 400 400" className="w-full max-w-[380px] h-auto relative z-10 select-none">
+                  <defs>
+                    {/* SVG Glow Filters */}
+                    <filter id="glow-accent" x="-30%" y="-30%" width="160%" height="160%">
+                      <feGaussianBlur stdDeviation="5" result="blur" />
+                      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                    <filter id="glow-core" x="-50%" y="-50%" width="200%" height="200%">
+                      <feGaussianBlur stdDeviation="8" result="blur" />
+                      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                  </defs>
+
+                  {/* Event connection trails (glowing fiber-optic lines) */}
+                  {simSteps.map((s, idx) => {
+                    let coords = { x: 200, y: 200 }
+                    let active = false
+                    let strokeColor = '#5bbf52'
+                    
+                    if (s.activeNode === 'managing') {
+                      coords = { x: 200, y: 70 }
+                      active = isMPActive
+                      strokeColor = mpColor
+                    }
+                    if (s.activeNode === 'financial') {
+                      coords = { x: 310, y: 150 }
+                      active = isFPActive
+                      strokeColor = fpColor
+                    }
+                    if (s.activeNode === 'legal') {
+                      coords = { x: 270, y: 280 }
+                      active = isLPActive
+                      strokeColor = lpColor
+                    }
+                    if (s.activeNode === 'technical') {
+                      coords = { x: 130, y: 280 }
+                      active = isTPActive
+                      strokeColor = tpColor
+                    }
+                    if (s.activeNode === 'market') {
+                      coords = { x: 90, y: 150 }
+                      active = isMKTActive
+                      strokeColor = mktColor
+                    }
+                    
+                    return (
+                      <g key={idx}>
+                        {/* Glowing underlay line */}
+                        {active && (
+                          <line 
+                            x1={coords.x} 
+                            y1={coords.y} 
+                            x2="200" 
+                            y2="200" 
+                            stroke={strokeColor} 
+                            strokeWidth="3.5" 
+                            filter="url(#glow-accent)" 
+                            className="opacity-70"
+                          />
+                        )}
+                        {/* Solid connector line */}
+                        <line 
+                          x1={coords.x} 
+                          y1={coords.y} 
+                          x2="200" 
+                          y2="200" 
+                          stroke={active ? strokeColor : 'rgba(255,255,255,0.04)'} 
+                          strokeWidth={active ? '2' : '1'} 
+                          strokeDasharray={active ? '5,5' : 'none'}
+                          className={active ? 'animate-pulse' : ''}
+                          style={active ? { animation: 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite' } : {}}
+                        />
+                      </g>
+                    )
+                  })}
+
+                  {/* Central Calculations Core (spinning gears, CPU paths) */}
+                  <g 
+                    onClick={() => setSelectedSimNode('core')}
+                    className="cursor-pointer group"
+                    transform="translate(200, 200)"
+                  >
+                    {/* Glow Core Underlay */}
+                    <circle 
+                      cx="0" 
+                      cy="0" 
+                      r="36" 
+                      fill="none" 
+                      stroke="#5bbf52" 
+                      strokeWidth="2" 
+                      filter="url(#glow-core)"
+                      className={`transition-opacity duration-500 ${selectedSimNode === 'core' || (simSteps[simStepIdx]?.activeNode === 'core' && simState === 'running') ? 'opacity-90' : 'opacity-10 group-hover:opacity-30'}`}
                     />
+                    
+                    {/* Main solid core circle */}
+                    <circle 
+                      cx="0" 
+                      cy="0" 
+                      r="34" 
+                      className={`transition-all duration-500 ${selectedSimNode === 'core' ? 'fill-black stroke-accent' : 'fill-black stroke-white/[0.15] group-hover:stroke-accent/50'}`}
+                      strokeWidth="2.5" 
+                    />
+
+                    {/* Central CPU Chip representation */}
+                    <g transform="translate(-13, -13)">
+                      <Cpu 
+                        size={26} 
+                        className={`h-[26px] w-[26px] text-accent ${simState === 'running' ? 'animate-pulse' : ''}`} 
+                      />
+                    </g>
                   </g>
-                )
-              })}
 
-              {/* Central Calculations Core (spinning gears, CPU paths) */}
-              <g 
-                onClick={() => setSelectedSimNode('core')}
-                className="cursor-pointer group"
-                transform="translate(200, 200)"
-              >
-                {/* Glow Core Underlay */}
-                <circle 
-                  cx="0" 
-                  cy="0" 
-                  r="36" 
-                  fill="none" 
-                  stroke="#5bbf52" 
-                  strokeWidth="2" 
-                  filter="url(#glow-core)"
-                  className={`transition-opacity duration-500 ${selectedSimNode === 'core' || (simSteps[simStepIdx]?.activeNode === 'core' && simState === 'running') ? 'opacity-90' : 'opacity-10 group-hover:opacity-30'}`}
-                />
-                
-                {/* Main solid core circle */}
-                <circle 
-                  cx="0" 
-                  cy="0" 
-                  r="34" 
-                  className={`transition-all duration-500 ${selectedSimNode === 'core' ? 'fill-black stroke-accent' : 'fill-black stroke-white/[0.15] group-hover:stroke-accent/50'}`}
-                  strokeWidth="2.5" 
-                />
+                  {/* Node: Managing Partner (MP) */}
+                  <g 
+                    onClick={() => setSelectedSimNode('managing')} 
+                    className="cursor-pointer group"
+                    transform="translate(200, 70)"
+                  >
+                    {/* Glow border on active */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      fill="none" 
+                      stroke={mpColor} 
+                      strokeWidth="2.5" 
+                      filter="url(#glow-accent)" 
+                      className={`transition-opacity duration-300 ${isMPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                    />
+                    {/* Solid Black card */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      className={`transition-all duration-300 ${isMPActive ? 'fill-black' : 'fill-black group-hover:stroke-white/[0.25]'}`} 
+                      stroke={isMPActive ? mpColor : 'rgba(255,255,255,0.12)'}
+                      strokeWidth="1.5" 
+                    />
+                    {/* Abbreviation Text */}
+                    <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">MP</text>
+                    {/* LED Status dot */}
+                    <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${isMPWorking ? 'animate-pulse' : ''}`} fill={isMPWorking ? '#e0a335' : isMPActive ? '#5bbf52' : '#4b5563'} />
+                    {/* Monospace section tag */}
+                    <text x="0" y="-25" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Managing</text>
+                  </g>
 
-                {/* Central CPU Chip representation */}
-                <g transform="translate(-13, -13)">
-                  <Cpu 
-                    size={26} 
-                    className={`h-[26px] w-[26px] text-accent ${simState === 'running' ? 'animate-pulse' : ''}`} 
-                  />
-                </g>
-              </g>
+                  {/* Node: Financial Partner (FP) */}
+                  <g 
+                    onClick={() => setSelectedSimNode('financial')} 
+                    className="cursor-pointer group"
+                    transform="translate(310, 150)"
+                  >
+                    {/* Glow border on active */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      fill="none" 
+                      stroke={fpColor} 
+                      strokeWidth="2.5" 
+                      filter="url(#glow-accent)" 
+                      className={`transition-opacity duration-300 ${isFPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                    />
+                    {/* Solid Black card */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      className={`transition-all duration-300 ${isFPActive ? 'fill-black' : 'fill-black group-hover:stroke-white/[0.25]'}`} 
+                      stroke={isFPActive ? fpColor : 'rgba(255,255,255,0.12)'}
+                      strokeWidth="1.5" 
+                    />
+                    <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">FP</text>
+                    <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${isFPWorking ? 'animate-pulse' : ''}`} fill={isFPWorking ? '#e0a335' : isFPActive ? '#5bbf52' : '#4b5563'} />
+                    <text x="0" y="-25" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Financial</text>
+                  </g>
 
-              {/* Node: Managing Partner (MP) */}
-              <g 
-                onClick={() => setSelectedSimNode('managing')} 
-                className="cursor-pointer group"
-                transform="translate(200, 70)"
-              >
-                {/* Glow border on active */}
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  fill="none" 
-                  stroke="#5bbf52" 
-                  strokeWidth="2.5" 
-                  filter="url(#glow-accent)" 
-                  className={`transition-opacity duration-300 ${selectedSimNode === 'managing' || (simSteps[simStepIdx]?.activeNode === 'managing' && simState === 'running') ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
-                />
-                {/* Solid Black card */}
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  className={`transition-all duration-300 ${selectedSimNode === 'managing' ? 'fill-black stroke-accent' : 'fill-black stroke-white/[0.12] group-hover:stroke-white/[0.25]'}`} 
-                  strokeWidth="1.5" 
-                />
-                {/* Abbreviation Text */}
-                <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">MP</text>
-                {/* LED Status dot */}
-                <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${(simSteps[simStepIdx]?.activeNode === 'managing' && simState === 'running') ? 'fill-accent animate-pulse' : 'fill-neutral-600'}`} />
-                {/* Monospace section tag */}
-                <text x="0" y="-25" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Managing</text>
-              </g>
+                  {/* Node: Legal Partner (LP) */}
+                  <g 
+                    onClick={() => setSelectedSimNode('legal')} 
+                    className="cursor-pointer group"
+                    transform="translate(270, 280)"
+                  >
+                    {/* Glow border on active */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      fill="none" 
+                      stroke={lpColor} 
+                      strokeWidth="2.5" 
+                      filter="url(#glow-accent)" 
+                      className={`transition-opacity duration-300 ${isLPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                    />
+                    {/* Solid Black card */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      className={`transition-all duration-300 ${isLPActive ? 'fill-black' : 'fill-black group-hover:stroke-white/[0.25]'}`} 
+                      stroke={isLPActive ? lpColor : 'rgba(255,255,255,0.12)'}
+                      strokeWidth="1.5" 
+                    />
+                    <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">LP</text>
+                    <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${isLPWorking ? 'animate-pulse' : ''}`} fill={isLPWorking ? '#e0a335' : isLPActive ? '#5bbf52' : '#4b5563'} />
+                    <text x="0" y="30" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Legal</text>
+                  </g>
 
-              {/* Node: Financial Partner (FP) */}
-              <g 
-                onClick={() => setSelectedSimNode('financial')} 
-                className="cursor-pointer group"
-                transform="translate(310, 150)"
-              >
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  fill="none" 
-                  stroke="#5bbf52" 
-                  strokeWidth="2.5" 
-                  filter="url(#glow-accent)" 
-                  className={`transition-opacity duration-300 ${selectedSimNode === 'financial' || (simSteps[simStepIdx]?.activeNode === 'financial' && simState === 'running') ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
-                />
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  className={`transition-all duration-300 ${selectedSimNode === 'financial' ? 'fill-black stroke-accent' : 'fill-black stroke-white/[0.12] group-hover:stroke-white/[0.25]'}`} 
-                  strokeWidth="1.5" 
-                />
-                <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">FP</text>
-                <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${(simSteps[simStepIdx]?.activeNode === 'financial' && simState === 'running') ? 'fill-accent animate-pulse' : 'fill-neutral-600'}`} />
-                <text x="0" y="-25" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Financial</text>
-              </g>
+                  {/* Node: Technical Partner (TP) */}
+                  <g 
+                    onClick={() => setSelectedSimNode('technical')} 
+                    className="cursor-pointer group"
+                    transform="translate(130, 280)"
+                  >
+                    {/* Glow border on active */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      fill="none" 
+                      stroke={tpColor} 
+                      strokeWidth="2.5" 
+                      filter="url(#glow-accent)" 
+                      className={`transition-opacity duration-300 ${isTPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                    />
+                    {/* Solid Black card */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      className={`transition-all duration-300 ${isTPActive ? 'fill-black' : 'fill-black group-hover:stroke-white/[0.25]'}`} 
+                      stroke={isTPActive ? tpColor : 'rgba(255,255,255,0.12)'}
+                      strokeWidth="1.5" 
+                    />
+                    <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">TP</text>
+                    <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${isTPWorking ? 'animate-pulse' : ''}`} fill={isTPWorking ? '#e0a335' : isTPActive ? '#5bbf52' : '#4b5563'} />
+                    <text x="0" y="30" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Technical</text>
+                  </g>
 
-              {/* Node: Legal Partner (LP) */}
-              <g 
-                onClick={() => setSelectedSimNode('legal')} 
-                className="cursor-pointer group"
-                transform="translate(270, 280)"
-              >
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  fill="none" 
-                  stroke="#5bbf52" 
-                  strokeWidth="2.5" 
-                  filter="url(#glow-accent)" 
-                  className={`transition-opacity duration-300 ${selectedSimNode === 'legal' || (simSteps[simStepIdx]?.activeNode === 'legal' && simState === 'running') ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
-                />
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  className={`transition-all duration-300 ${selectedSimNode === 'legal' ? 'fill-black stroke-accent' : 'fill-black stroke-white/[0.12] group-hover:stroke-white/[0.25]'}`} 
-                  strokeWidth="1.5" 
-                />
-                <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">LP</text>
-                <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${(simSteps[simStepIdx]?.activeNode === 'legal' && simState === 'running') ? 'fill-accent animate-pulse' : 'fill-neutral-600'}`} />
-                <text x="0" y="30" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Legal</text>
-              </g>
-
-              {/* Node: Technical Partner (TP) */}
-              <g 
-                onClick={() => setSelectedSimNode('technical')} 
-                className="cursor-pointer group"
-                transform="translate(130, 280)"
-              >
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  fill="none" 
-                  stroke="#5bbf52" 
-                  strokeWidth="2.5" 
-                  filter="url(#glow-accent)" 
-                  className={`transition-opacity duration-300 ${selectedSimNode === 'technical' || (simSteps[simStepIdx]?.activeNode === 'technical' && simState === 'running') ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
-                />
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  className={`transition-all duration-300 ${selectedSimNode === 'technical' ? 'fill-black stroke-accent' : 'fill-black stroke-white/[0.12] group-hover:stroke-white/[0.25]'}`} 
-                  strokeWidth="1.5" 
-                />
-                <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">TP</text>
-                <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${(simSteps[simStepIdx]?.activeNode === 'technical' && simState === 'running') ? 'fill-accent animate-pulse' : 'fill-neutral-600'}`} />
-                <text x="0" y="30" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Technical</text>
-              </g>
-
-              {/* Node: Market Partner (MKT) */}
-              <g 
-                onClick={() => setSelectedSimNode('market')} 
-                className="cursor-pointer group"
-                transform="translate(90, 150)"
-              >
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  fill="none" 
-                  stroke="#5bbf52" 
-                  strokeWidth="2.5" 
-                  filter="url(#glow-accent)" 
-                  className={`transition-opacity duration-300 ${selectedSimNode === 'market' || (simSteps[simStepIdx]?.activeNode === 'market' && simState === 'running') ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
-                />
-                <rect 
-                  x="-28" 
-                  y="-18" 
-                  width="56" 
-                  height="36" 
-                  rx="8" 
-                  className={`transition-all duration-300 ${selectedSimNode === 'market' ? 'fill-black stroke-accent' : 'fill-black stroke-white/[0.12] group-hover:stroke-white/[0.25]'}`} 
-                  strokeWidth="1.5" 
-                />
-                <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">MKT</text>
-                <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${(simSteps[simStepIdx]?.activeNode === 'market' && simState === 'running') ? 'fill-accent animate-pulse' : 'fill-neutral-600'}`} />
-                <text x="0" y="-25" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Market</text>
-              </g>
-            </svg>
+                  {/* Node: Market Partner (MKT) */}
+                  <g 
+                    onClick={() => setSelectedSimNode('market')} 
+                    className="cursor-pointer group"
+                    transform="translate(90, 150)"
+                  >
+                    {/* Glow border on active */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      fill="none" 
+                      stroke={mktColor} 
+                      strokeWidth="2.5" 
+                      filter="url(#glow-accent)" 
+                      className={`transition-opacity duration-300 ${isMKTActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                    />
+                    {/* Solid Black card */}
+                    <rect 
+                      x="-28" 
+                      y="-18" 
+                      width="56" 
+                      height="36" 
+                      rx="8" 
+                      className={`transition-all duration-300 ${isMKTActive ? 'fill-black' : 'fill-black group-hover:stroke-white/[0.25]'}`} 
+                      stroke={isMKTActive ? mktColor : 'rgba(255,255,255,0.12)'}
+                      strokeWidth="1.5" 
+                    />
+                    <text x="0" y="1" textAnchor="middle" className="text-[11px] font-mono font-bold fill-white tracking-wider">MKT</text>
+                    <circle cx="0" cy="9" r="2.5" className={`transition-all duration-300 ${isMKTWorking ? 'animate-pulse' : ''}`} fill={isMKTWorking ? '#e0a335' : isMKTActive ? '#5bbf52' : '#4b5563'} />
+                    <text x="0" y="-25" textAnchor="middle" className="text-[8px] font-mono tracking-widest fill-neutral-400 font-bold uppercase">Market</text>
+                  </g>
+                </svg>
+              )
+            })()}
           </div>
 
           {/* Right column: Interactive controls and results */}
