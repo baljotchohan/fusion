@@ -317,6 +317,16 @@ export default function FUSION() {
     loadChatSessions()
   }, [firebaseUser?.uid, loadChatSessions])
 
+  // After login the uid-scoped localStorage key is gone (cleared on sign-out for
+  // shared-browser privacy), so fall back to the backend: auto-select the most
+  // recent session (sessions arrive sorted newest-first) instead of dropping the
+  // user into the empty default conversation. New Chat / explicit selection keep
+  // activeSessionId non-null, so this never overrides a deliberate choice.
+  useEffect(() => {
+    if (!firebaseUser?.uid || activeSessionId) return
+    if (chatSessions.length > 0) setActiveSessionId(chatSessions[0].session_id)
+  }, [chatSessions, firebaseUser?.uid, activeSessionId])
+
   const restoreDealState = useCallback(async (incidentId?: string | null) => {
     if (!firebaseUser?.uid) return
     const idParam = incidentId ? `?incident_id=${encodeURIComponent(incidentId)}` : ''
@@ -406,6 +416,11 @@ export default function FUSION() {
     const cached = localStorage.getItem(`fusion.activeIncidentId.${firebaseUser.uid}`)
     if (cached) setActiveIncidentId(cached)
     restoreDealState(cached)
+    // Restore the chat session the user was last in, so re-login doesn't drop
+    // them back to the empty default conversation while their named session
+    // sits unread in the sidebar.
+    const cachedSession = localStorage.getItem(`fusion.activeSessionId.${firebaseUser.uid}`)
+    if (cachedSession) setActiveSessionId(cachedSession)
   }, [firebaseUser?.uid, restoreDealState])
 
   // Keep the active incident id durable across refreshes — scoped by uid.
@@ -414,6 +429,13 @@ export default function FUSION() {
     if (activeIncidentId) localStorage.setItem(key, activeIncidentId)
     else localStorage.removeItem(key)
   }, [activeIncidentId, firebaseUser?.uid])
+
+  // Keep the active chat session durable across refreshes — scoped by uid.
+  useEffect(() => {
+    const key = `fusion.activeSessionId.${firebaseUser?.uid || '__public__'}`
+    if (activeSessionId) localStorage.setItem(key, activeSessionId)
+    else localStorage.removeItem(key)
+  }, [activeSessionId, firebaseUser?.uid])
 
   // Fetch client IP and Geo-location details on mount & log connection telemetry
   useEffect(() => {
@@ -726,8 +748,11 @@ export default function FUSION() {
     logActivity('user_logged_out', { email: firebaseUser?.email, uid: firebaseUser?.uid })
     const uid = firebaseUser?.uid
     await firebaseSignOut()
-    // Remove user-scoped key so next user on this browser starts clean
-    if (uid) localStorage.removeItem(`fusion.activeIncidentId.${uid}`)
+    // Remove user-scoped keys so next user on this browser starts clean
+    if (uid) {
+      localStorage.removeItem(`fusion.activeIncidentId.${uid}`)
+      localStorage.removeItem(`fusion.activeSessionId.${uid}`)
+    }
     localStorage.removeItem('fusion.activeIncidentId') // legacy unscoped key
     setChatHistory([])
     setChatSessions([])
