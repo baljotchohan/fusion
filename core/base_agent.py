@@ -1255,6 +1255,10 @@ class BaseAgent:
         # Broadcast "working" state to event bus/dashboard
         await event_bus.broadcast(self.name, "working", {"current_action": f"Analyzing input from {sender}"})
 
+        # ponytail: add a small artificial delay so the yellow edge glow animation is visible on the UI,
+        # otherwise in mock mode the agent completes in milliseconds and the animation never shows.
+        await asyncio.sleep(1.5)
+
         inputs = {"messages": [("user", f"Message from {sender}: {message}")]}
         try:
             from core.auth import current_uid as _cuid, current_incident_id as _cinc

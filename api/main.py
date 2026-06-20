@@ -1899,7 +1899,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
         except Exception:
             pass  # invalid/expired token → public bucket
 
-    from core.auth import current_uid, current_username
+    from core.auth import _AUTH_DISABLED, current_uid, current_username
+    if uid == "__public__" and _AUTH_DISABLED:
+        uid = websocket.headers.get("X-Dev-UID", "dev-user")
+        username = uid
+
     current_uid.set(uid)
     current_username.set(username)
 

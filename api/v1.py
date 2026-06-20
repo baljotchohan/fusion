@@ -1070,7 +1070,11 @@ async def websocket_chat(websocket: WebSocket, session_id: Optional[str] = None,
                 uid = decoded["uid"]
             except Exception:
                 pass
-    from core.auth import current_uid as _ws_uid
+
+    from core.auth import _AUTH_DISABLED, current_uid as _ws_uid
+    if uid == "__public__" and _AUTH_DISABLED:
+        uid = websocket.headers.get("X-Dev-UID", "dev-user")
+
     _ws_uid.set(uid)
 
     await websocket.accept()
