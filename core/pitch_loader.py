@@ -16,6 +16,16 @@ _PITCH_CACHE: dict = {}
 _DEFAULT_PITCH = "novapay_pitch.json"
 
 
+def _cache_key(filename: str) -> str:
+    """Return a uid-scoped cache key so User A's uploaded pitch never leaks to User B."""
+    try:
+        from core.auth import current_uid
+        uid = current_uid.get("__public__")
+    except Exception:
+        uid = "__public__"
+    return f"{uid}:{filename}"
+
+
 def resolve_pitch_file_for_incident(incident_id: str) -> Optional[str]:
     """Resolve the pitch filename for a specific incident_id."""
     if not incident_id:
@@ -93,8 +103,9 @@ def _load_pitch_file(filename: str = None) -> dict:
         except Exception:
             filename = _DEFAULT_PITCH
 
-    if filename in _PITCH_CACHE:
-        return _PITCH_CACHE[filename]
+    ck = _cache_key(filename)
+    if ck in _PITCH_CACHE:
+        return _PITCH_CACHE[ck]
 
     # Try loading from MemoryGraph first if the filename points to an uploaded incident pitch
     incident_id = None
@@ -111,7 +122,7 @@ def _load_pitch_file(filename: str = None) -> dict:
             if inc:
                 pitch_data = inc.get("pitch_data") or inc.get("metadata", {}).get("pitch_data")
                 if pitch_data:
-                    _PITCH_CACHE[filename] = pitch_data
+                    _PITCH_CACHE[ck] = pitch_data
                     logger.info(f"[PitchLoader] Loaded pitch data from memory graph incident {incident_id}")
                     return pitch_data
         except Exception as e:
@@ -126,7 +137,7 @@ def _load_pitch_file(filename: str = None) -> dict:
     try:
         with open(path, "r") as f:
             data = json.load(f)
-        _PITCH_CACHE[filename] = data
+        _PITCH_CACHE[ck] = data
         logger.info(f"[PitchLoader] Loaded pitch: {filename}")
         return data
     except FileNotFoundError:

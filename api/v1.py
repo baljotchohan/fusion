@@ -880,12 +880,22 @@ def _build_thinking_steps(intent: str, dispatched: bool, incident_id: str) -> Li
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_with_commander(msg: ChatMessage, request: Request):
-    """Chat with the FUSION Managing Partner or mentioned specialist partners."""
-    uid = await get_uid_optional(request)
+async def chat_with_commander(msg: ChatMessage, request: Request = None):
+    """Chat with the FUSION Managing Partner or mentioned specialist partners.
 
-    # Signed-in users: unlimited chat. Anonymous: 100 messages/hour.
-    if not uid:
+    `request` is optional: the /ws/chat socket calls this after it has already
+    authenticated the token and set the current_uid ContextVar, so when there is
+    no HTTP request we read the uid from that ContextVar instead (and skip the
+    HTTP-only rate limiter)."""
+    if request is not None:
+        uid = await get_uid_optional(request)
+    else:
+        from core.auth import current_uid as _cuid
+        _ctx_uid = _cuid.get()
+        uid = None if _ctx_uid in (None, "__public__", "__mcp_client__") else _ctx_uid
+
+    # Signed-in users: unlimited chat. Anonymous: 100 messages/hour (HTTP only).
+    if not uid and request is not None:
         _now = time.time()
         _ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
         _bucket = f"ip:{_ip}"
@@ -929,21 +939,35 @@ async def chat_with_commander(msg: ChatMessage, request: Request):
         
         dispatched = False
         if not mentioned_agent and intent == "trigger_evaluation" and not sim_state.running:
-            # Reset simulation state and clear agent busy flags for a fresh run
+            # Reset simulation state and claim the run slot before any await —
+            # setting running=True here (no await between check and set) prevents
+            # a second concurrent request from also seeing running=False and dispatching.
             sim_state.reset()
+            sim_state.running = True
             sim_state.active_uid = uid
             if is_mock_mode():
                 for room_agents in mock_bus.rooms.values():
                     for agent in room_agents:
                         agent._is_busy = False
 
-            user_memory.create_incident(incident_id, {
-                "trigger": "commander_chat",
-                "user_message": msg.user_message[:300],
-                "threat_level": 5,
-            })
-            await _dispatch_incident(incident_id, msg.user_message)
-            dispatched = True
+            try:
+                user_memory.create_incident(incident_id, {
+                    "trigger": "commander_chat",
+                    "user_message": msg.user_message[:300],
+                    "threat_level": 5,
+                })
+                await _dispatch_incident(incident_id, msg.user_message)
+                dispatched = True
+            except Exception:
+                # Release the run-lock so a failed dispatch doesn't wedge this user's
+                # namespace until the 300s staleness watchdog trips. (This chat path
+                # never starts the pipeline watchdog, so nothing else would free it.)
+                sim_state.running = False
+                if is_mock_mode():
+                    for room_agents in mock_bus.rooms.values():
+                        for agent in room_agents:
+                            agent._is_busy = False
+                raise
         elif msg.incident_id is None and not sim_state.active_incident_id and user_memory.get_latest_incident_id():
             incident_id = user_memory.get_latest_incident_id()
             
@@ -1034,20 +1058,27 @@ async def websocket_chat(websocket: WebSocket, session_id: Optional[str] = None,
     """Live chat with the Commander — streams agent updates while the swarm works."""
     uid = "__public__"
     if token:
-        try:
-            from firebase_admin import auth as fb_auth
-            decoded = fb_auth.verify_id_token(token)
-            uid = decoded["uid"]
-        except Exception:
-            pass
+        if token.startswith("fus_"):
+            from core.auth import verify_uid_signature
+            verified = verify_uid_signature(token)
+            if verified:
+                uid = verified
+        else:
+            try:
+                from firebase_admin import auth as fb_auth
+                decoded = fb_auth.verify_id_token(token)
+                uid = decoded["uid"]
+            except Exception:
+                pass
     from core.auth import current_uid as _ws_uid
     _ws_uid.set(uid)
 
     await websocket.accept()
 
     async def forward_agent_event(event_data: dict):
-        # Only forward events belonging to this user's session — prevents cross-user leaking
-        event_uid = getattr(sim_state, "active_uid", None) or "__public__"
+        # Use the uid embedded in the event itself — avoids reading global sim_state
+        # which carries the last active uid and can route events to the wrong user.
+        event_uid = event_data.get("uid") or "__public__"
         if event_uid != uid:
             return
         try:
@@ -1303,7 +1334,7 @@ async def similar_deals(keyword: str, request: Request, limit: int = 5):
 async def delete_incident_endpoint(incident_id: str, request: Request):
     """Delete a past deal from local memory files and Firestore."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid)
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     user_memory.delete_incident(incident_id)
     # Also clean up from RTDB
     try:
@@ -1324,7 +1355,7 @@ async def delete_incident_endpoint(incident_id: str, request: Request):
 async def list_chat_sessions(request: Request):
     """List all chat sessions for the authenticated user."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid)
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     base_path = user_memory.base_path
 
     def _session_meta(history: list, session_id: str, mtime: float | None = None) -> dict:
@@ -1355,10 +1386,11 @@ async def list_chat_sessions(request: Request):
     if not sessions:
         try:
             from core.firestore_memory import fs_list_chat_sessions, fs_get_chat_history
-            for sid in fs_list_chat_sessions(uid):
+            fs_uid = uid or "__public__"
+            for sid in fs_list_chat_sessions(fs_uid):
                 if sid in local_ids:
                     continue
-                turns = fs_get_chat_history(uid, sid, limit=500)
+                turns = fs_get_chat_history(fs_uid, sid, limit=500)
                 if turns:
                     sessions.append(_session_meta(turns, sid))
         except Exception as e:
@@ -1378,7 +1410,7 @@ class PatternPayload(BaseModel):
 async def learn_pattern(payload: PatternPayload, request: Request):
     """Teach the committee a due-diligence checklist or risk pattern."""
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid)
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     await user_memory.record_attack_pattern(
         payload.keyword,
         "observation",

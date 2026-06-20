@@ -10,6 +10,7 @@ export interface AgentUpdate {
   status: EventStatus
   output: Record<string, any>
   timestamp: string
+  uid?: string
 }
 
 export interface StoryBeat {
@@ -120,6 +121,12 @@ export function useAgentWebSocket(uid?: string | null) {
         if (cancelled) return
         try {
           const update: AgentUpdate = JSON.parse(event.data)
+
+          // Defense-in-depth: drop events that belong to a different authenticated user.
+          // The backend already scopes events by uid; this is a frontend safety net.
+          if (uid && update.uid && update.uid !== uid && update.uid !== '__public__') {
+            return
+          }
 
           // Handle memory match — surface it but don't change agent status
           if (update.status === 'memory_match') {

@@ -430,6 +430,11 @@ async def broadcast_event_to_websockets(event_data: dict):
     """Callback registered with event_bus to forward agent updates to the dashboard."""
     from core.auth import current_uid, current_incident_id
     from api.state import get_uid_for_incident
+
+    # ponytail: guard output=None in event_data to prevent TypeError
+    if event_data.get("output") is None:
+        event_data["output"] = {}
+
     uid = event_data.get("uid")
     incident_id = event_data.get("incident_id")
 
@@ -839,7 +844,7 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
                 _best = max(_completed, key=lambda x: x[1].get("created_at", ""))
                 _past_co = _best[1].get("metadata", {}).get("company", "a prior evaluation")
                 async def _emit_mm(_co=_past_co, _did=_best[0]):
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(0.3)
                     await event_bus.broadcast("managing_partner", "memory_match", {
                         "current_action": f"⚡ Memory match — risk patterns from {_co} evaluation loaded. Cross-referencing learned committee patterns...",
                         "matched_deal": _did,
@@ -965,7 +970,7 @@ async def get_status(request: Request):
     from core.auth import current_uid as _cuid
     _token = _cuid.set(uid or "__public__")
     try:
-        user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+        user_memory = memory_graph.__class__(uid=uid or "__public__")
         # Only expose live sim state to the user who triggered the current session
         is_my_session = (sim_state.active_uid == uid) if uid else (sim_state.active_uid is None)
         return {
@@ -1048,7 +1053,7 @@ async def api_force_verdict(request: Request, incident_id: Optional[str] = None)
     """Force rendering a partial verdict for a stalled deal."""
     from fastapi import HTTPException
     uid = await get_uid_optional(request)
-    user_memory = memory_graph.__class__(uid=uid) if uid else memory_graph
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
     target_id = incident_id or sim_state.active_incident_id or user_memory.get_latest_incident_id()
     if not target_id:
         raise HTTPException(status_code=400, detail="No active or past incident found to force verdict.")
@@ -1922,7 +1927,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
     # Replay completed agent findings for THIS user's active deal
     try:
-        user_memory = memory_graph.__class__(uid=uid)
+        user_memory = memory_graph.__class__(uid=uid or "__public__")
         deal_id = sim_state.active_incident_id if sim_state.active_uid == uid else None
         deal_id = deal_id or user_memory.get_latest_incident_id()
         if deal_id:

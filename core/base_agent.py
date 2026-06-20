@@ -529,6 +529,10 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
             is_session_bootstrap = True
             self._bootstrapped_rooms.add(room_id)
 
+        # True when the message carries @-mentions but none target THIS agent — i.e. the
+        # user addressed a different partner, so the orchestrator (IC) should stay out.
+        # Was referenced below but never defined → NameError on un-mentioned user messages.
+        is_other_agent_mentioned = bool(raw_mentions) and not is_mentioned
         if is_mentioned or (is_ic and is_from_user and not is_other_agent_mentioned):
             logger.info(f"[{self._argus_agent_name}] Triggered! Processing message: '{msg.content[:100]}'")
             # Broadcast "working" to the dashboard
@@ -542,7 +546,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                 from api.state import sim_state
                 incident_id = sim_state.active_incident_id or memory_graph.get_latest_incident_id() or ""
                 
-            from core.auth import current_uid, current_incident_id
+            from core.auth import current_uid, current_incident_id, current_pitch_file
             from api.state import get_uid_for_incident
             uid = get_uid_for_incident(incident_id) or "__public__"
             token_uid = current_uid.set(uid)
@@ -1253,9 +1257,9 @@ class BaseAgent:
 
         inputs = {"messages": [("user", f"Message from {sender}: {message}")]}
         try:
-            from api.state import sim_state
-            _tid_uid = getattr(sim_state, "active_uid", None) or "__public__"
-            _tid_inc = getattr(sim_state, "active_incident_id", None) or "default"
+            from core.auth import current_uid as _cuid, current_incident_id as _cinc
+            _tid_uid = _cuid.get("__public__")
+            _tid_inc = _cinc.get("") or "default"
         except Exception:
             _tid_uid, _tid_inc = "__public__", "default"
         config = {"configurable": {"thread_id": f"{self.name}:{_tid_uid}:{_tid_inc}"}}

@@ -125,7 +125,7 @@ export default function FUSION() {
   const isLoggedIn = firebaseUser !== null
 
   const {
-    agentStates, agentOutputs, logEvents, threatScore, ceoDecision, isConnected, resetAll,
+    agentStates, setAgentStates, agentOutputs, logEvents, threatScore, ceoDecision, isConnected, resetAll,
     setCeoDecision, setThreatScore, showRecoveryPrompt, setShowRecoveryPrompt,
     partialConfidence, memoryMatch,
   } = useAgentWebSocket(firebaseUser?.uid)
@@ -402,16 +402,18 @@ export default function FUSION() {
       setThreatScore(0)
       return
     }
-    const cached = localStorage.getItem('fusion.activeIncidentId')
+    // Scoped by uid so User B never restores User A's deal after login
+    const cached = localStorage.getItem(`fusion.activeIncidentId.${firebaseUser.uid}`)
     if (cached) setActiveIncidentId(cached)
     restoreDealState(cached)
   }, [firebaseUser?.uid, restoreDealState])
 
-  // Keep the active incident id durable across refreshes.
+  // Keep the active incident id durable across refreshes — scoped by uid.
   useEffect(() => {
-    if (activeIncidentId) localStorage.setItem('fusion.activeIncidentId', activeIncidentId)
-    else localStorage.removeItem('fusion.activeIncidentId')
-  }, [activeIncidentId])
+    const key = `fusion.activeIncidentId.${firebaseUser?.uid || '__public__'}`
+    if (activeIncidentId) localStorage.setItem(key, activeIncidentId)
+    else localStorage.removeItem(key)
+  }, [activeIncidentId, firebaseUser?.uid])
 
   // Fetch client IP and Geo-location details on mount & log connection telemetry
   useEffect(() => {
@@ -489,6 +491,9 @@ export default function FUSION() {
         return
       }
       resetAll()
+      // Immediately show managing partner as active so the animation starts the moment
+      // the user clicks — eliminates the blank gap while waiting for the first WS event.
+      setAgentStates({ managing_partner: 'working', financial_partner: 'idle', legal_partner: 'idle', technical_partner: 'idle', market_partner: 'idle' })
       setIsSimulating(true); setActiveCompany(companyName); setTab('overview'); setOverviewTab('roundtable')
       logActivity('deal_simulated', { company: companyName })
       if (data.deal_id) setActiveIncidentId(data.deal_id)
@@ -719,8 +724,11 @@ export default function FUSION() {
 
   const handleSignOut = async () => {
     logActivity('user_logged_out', { email: firebaseUser?.email, uid: firebaseUser?.uid })
+    const uid = firebaseUser?.uid
     await firebaseSignOut()
-    localStorage.removeItem('fusion.activeIncidentId')
+    // Remove user-scoped key so next user on this browser starts clean
+    if (uid) localStorage.removeItem(`fusion.activeIncidentId.${uid}`)
+    localStorage.removeItem('fusion.activeIncidentId') // legacy unscoped key
     setChatHistory([])
     setChatSessions([])
     setActiveSessionId(null)

@@ -4,6 +4,7 @@ Request-aware isolated API state to prevent data leakage between different users
 Uses the current_uid ContextVar to partition state data per user dynamically.
 """
 import time
+import threading
 from collections import defaultdict
 from typing import Dict, Optional, Set, Any
 
@@ -23,13 +24,16 @@ def record_session(key: str) -> None:
 
 # Global incident to uid registry
 _incident_to_uid: Dict[str, str] = {}
+_incident_registry_lock = threading.Lock()
 
 def register_incident_uid(incident_id: str, uid: str):
     if incident_id and uid:
-        _incident_to_uid[incident_id] = uid
+        with _incident_registry_lock:
+            _incident_to_uid[incident_id] = uid
 
 def get_uid_for_incident(incident_id: str) -> Optional[str]:
-    return _incident_to_uid.get(incident_id)
+    with _incident_registry_lock:
+        return _incident_to_uid.get(incident_id)
 
 
 class SimulationState:
@@ -68,15 +72,12 @@ class SimulationState:
 
             incident_id = "default"
 
-        # Look up uid using incident_id if we have incident_id but no authenticated uid
-        if uid in ("__public__", "__mcp_client__") and incident_id and incident_id != "default":
-            mapped_uid = _incident_to_uid.get(incident_id)
-            if mapped_uid:
-                uid = mapped_uid
-
         # Register mapping if we have both
+        # ponytail: removed the unauthenticated→authenticated namespace escalation that was here.
+        # That block allowed any caller who knew an incident_id to be silently remapped to the
+        # owner's namespace. Background tasks (watchdog) explicitly set current_uid themselves.
         if uid and incident_id and incident_id != "default" and uid not in ("__public__", "__mcp_client__"):
-            _incident_to_uid[incident_id] = uid
+            register_incident_uid(incident_id, uid)
 
         state_key = f"{uid}:{incident_id}"
         if state_key not in self._states:

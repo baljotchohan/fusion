@@ -38,7 +38,9 @@ class MemoryGraph:
 
     @property
     def _resolved_uid(self) -> "str | None":
-        """The effective uid — explicit override, else current_uid ContextVar, else sim_state.active_uid, else None."""
+        """The effective uid — explicit override, else current_uid ContextVar, else None.
+        ponytail: sim_state.active_uid fallback removed — it caused cross-session namespace leakage
+        because the global sim_state carries the last active uid, not the requesting user's uid."""
         uid = self._explicit_uid
         if uid is None:
             try:
@@ -47,12 +49,6 @@ class MemoryGraph:
                 if val and val not in ("__mcp_client__", "__public__"):
                     uid = val
             except Exception:
-                pass
-        if uid is None:
-            try:
-                from api.state import sim_state
-                uid = getattr(sim_state, "active_uid", None)
-            except ImportError:
                 pass
         return uid
 
@@ -106,11 +102,14 @@ class MemoryGraph:
         metadata:    e.g. {"trigger": "phishing_email", "threat_level": 7}
         """
         ruid = self._resolved_uid
-        try:
-            from api.state import register_incident_uid
-            register_incident_uid(incident_id, ruid)
-        except Exception:
-            pass
+        fs_uid = ruid or "__public__"
+        # Only register real authenticated uids — prevents None → None poisoning the registry
+        if ruid:
+            try:
+                from api.state import register_incident_uid
+                register_incident_uid(incident_id, ruid)
+            except Exception:
+                pass
         with _LOCK:
             incidents = self._read_file(self.incidents_file)
             # If local is empty (e.g. after a server restart), seed from Firestore first
@@ -118,7 +117,7 @@ class MemoryGraph:
             if not incidents:
                 try:
                     from core.firestore_memory import fs_list_incidents
-                    remote = fs_list_incidents(ruid)
+                    remote = fs_list_incidents(fs_uid)
                     if remote:
                         incidents = remote
                         logger.info("Memory: seeded local cache from Firestore (%d incidents)", len(remote))
@@ -135,7 +134,7 @@ class MemoryGraph:
         # Mirror to Firestore so it survives server restarts
         try:
             from core.firestore_memory import fs_save_incident
-            fs_save_incident(ruid, incident_id, incidents[incident_id])
+            fs_save_incident(fs_uid, incident_id, incidents[incident_id])
         except Exception:
             pass
         return incidents[incident_id]
@@ -173,7 +172,7 @@ class MemoryGraph:
         # Fallback: local file was wiped (server restart) — try Firestore
         try:
             from core.firestore_memory import fs_get_incident
-            fs_data = fs_get_incident(self._resolved_uid, incident_id)
+            fs_data = fs_get_incident(self._resolved_uid or "__public__", incident_id)
             if fs_data:
                 logger.info(f"[Memory] Recovered incident {incident_id} from Firestore")
                 # Write back to local file so subsequent reads are fast
@@ -193,7 +192,7 @@ class MemoryGraph:
         # Fallback to Firestore on a fresh container (local wiped by restart)
         try:
             from core.firestore_memory import fs_list_incidents
-            remote = fs_list_incidents(self._resolved_uid)
+            remote = fs_list_incidents(self._resolved_uid or "__public__")
             if remote:
                 # Cache locally so subsequent reads don't hit Firestore every time
                 with _LOCK:

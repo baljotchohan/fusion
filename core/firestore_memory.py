@@ -34,12 +34,35 @@ def _inflate_pitch_data(data: dict) -> dict:
     return data
 
 
+def _prune_dict(obj, max_string_len=1000, max_list_len=10):
+    # ponytail: recursively prune dictionary elements to fit Firestore limit without invalidating JSON
+    if isinstance(obj, dict):
+        return {k: _prune_dict(v, max_string_len, max_list_len) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_prune_dict(x, max_string_len, max_list_len) for x in obj[:max_list_len]]
+    elif isinstance(obj, str):
+        if len(obj) > max_string_len:
+            return obj[:max_string_len] + "... [truncated]"
+        return obj
+    return obj
+
+
 def _deflate_pitch_data(data: dict) -> dict:
     """Convert pitch_data dict → JSON string to stay under Firestore 1 MB limit."""
     meta = data.get("metadata", {})
     if "pitch_data" in meta and isinstance(meta["pitch_data"], dict):
         meta = dict(meta)
-        meta["pitch_data"] = json.dumps(meta["pitch_data"], default=str)[:900_000]
+        serialized = json.dumps(meta["pitch_data"], default=str)
+        if len(serialized) > 900_000:
+            pruned = _prune_dict(meta["pitch_data"])
+            serialized = json.dumps(pruned, default=str)
+            if len(serialized) > 900_000:
+                # ultimate fallback: just save basic company info
+                serialized = json.dumps({
+                    "company": meta["pitch_data"].get("company", {}),
+                    "note": "Pitch data too large, details omitted to stay under Firestore limit"
+                }, default=str)
+        meta["pitch_data"] = serialized
         data = dict(data)
         data["metadata"] = meta
     return data

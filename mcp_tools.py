@@ -104,7 +104,7 @@ async def dispatch(name: str, arguments: dict) -> dict:
     arguments = arguments or {}
     try:
         from core.auth import current_uid
-        uid = current_uid.get() or "__mcp_client__"
+        uid = current_uid.get() or "__public__"
         # Log MCP tool usage to RTDB mcp_usage section
         from core.rtdb import write_mcp_usage
         write_mcp_usage(uid, name, arguments)

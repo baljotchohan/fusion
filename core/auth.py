@@ -17,7 +17,7 @@ from fastapi import Request, HTTPException
 logger = logging.getLogger("fusion.auth")
 
 # ContextVar to track the authenticated user uid for the current request (e.g. MCP tool calls)
-current_uid: ContextVar[str] = ContextVar("current_uid", default="__mcp_client__")
+current_uid: ContextVar[str] = ContextVar("current_uid", default="__public__")
 current_token: ContextVar[str] = ContextVar("current_token", default="")
 current_username: ContextVar[str] = ContextVar("current_username", default="guest")
 current_incident_id: ContextVar[str] = ContextVar("current_incident_id", default="")
@@ -76,7 +76,16 @@ if _AUTH_DISABLED:
 import hmac
 import hashlib
 
-SECRET_KEY = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "default_secure_secret_key_12345")
+_raw_key = os.environ.get("MCP_SIGNING_KEY") or os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+if _raw_key:
+    SECRET_KEY = _raw_key
+else:
+    import secrets as _sec_module
+    SECRET_KEY = _sec_module.token_hex(32)
+    logger.warning(
+        "MCP_SIGNING_KEY not set — generated ephemeral signing key. "
+        "Set MCP_SIGNING_KEY in HF Spaces secrets to persist fus_ tokens across restarts."
+    )
 
 def sign_uid(uid: str) -> str:
     sig = hmac.new(SECRET_KEY.encode(), uid.encode(), hashlib.sha256).hexdigest()
