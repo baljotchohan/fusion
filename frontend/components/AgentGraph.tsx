@@ -150,6 +150,7 @@ export function AgentGraph({ agentStates, theme, heightClass }: AgentGraphProps)
           transition-all duration-500
           ${chairCfg.ring} ${chairCfg.glow}
           ${chairCfg.dimmed ? 'opacity-60' : ''}
+          ${chairStatus === 'working' ? 'animate-glow-amber' : ''}
         `}
       >
         <div className="flex items-center gap-3">
@@ -204,6 +205,7 @@ export function AgentGraph({ agentStates, theme, heightClass }: AgentGraphProps)
                 hover:border-accent/30 hover:shadow-sm
                 ${cfg.ring} ${cfg.glow}
                 ${cfg.dimmed ? 'opacity-50 hover:opacity-80' : ''}
+                ${status === 'working' ? 'animate-glow-amber' : ''}
               `}
             >
               <div className="flex items-start gap-3">

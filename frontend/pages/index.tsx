@@ -772,6 +772,7 @@ export default function FUSION() {
         onLogin={() => {}}
         isLoggedIn={isLoggedIn}
         onEnterBoardroom={() => setShowLanding(false)}
+        agentStates={agentStates}
       />
     )
   }
@@ -1513,9 +1514,10 @@ interface LandingPageProps {
   onLogin: () => void
   isLoggedIn?: boolean
   onEnterBoardroom?: () => void
+  agentStates?: Record<string, any>
 }
 
-function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps) {
+function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom, agentStates = {} }: LandingPageProps) {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [codeTab, setCodeTab] = useState<'python' | 'json'>('python')
   const [isLoginOpen, setIsLoginOpen] = useState(false)
@@ -2097,7 +2099,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
                       stroke={mpColor} 
                       strokeWidth="2.5" 
                       filter="url(#glow-accent)" 
-                      className={`transition-opacity duration-300 ${isMPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                      className={`transition-opacity duration-300 ${isMPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'} ${isMPWorking ? 'animate-pulse' : ''}`} 
                     />
                     {/* Solid Black card */}
                     <rect 
@@ -2135,7 +2137,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
                       stroke={fpColor} 
                       strokeWidth="2.5" 
                       filter="url(#glow-accent)" 
-                      className={`transition-opacity duration-300 ${isFPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                      className={`transition-opacity duration-300 ${isFPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'} ${isFPWorking ? 'animate-pulse' : ''}`} 
                     />
                     {/* Solid Black card */}
                     <rect 
@@ -2170,7 +2172,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
                       stroke={lpColor} 
                       strokeWidth="2.5" 
                       filter="url(#glow-accent)" 
-                      className={`transition-opacity duration-300 ${isLPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                      className={`transition-opacity duration-300 ${isLPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'} ${isLPWorking ? 'animate-pulse' : ''}`} 
                     />
                     {/* Solid Black card */}
                     <rect 
@@ -2205,7 +2207,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
                       stroke={tpColor} 
                       strokeWidth="2.5" 
                       filter="url(#glow-accent)" 
-                      className={`transition-opacity duration-300 ${isTPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                      className={`transition-opacity duration-300 ${isTPActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'} ${isTPWorking ? 'animate-pulse' : ''}`} 
                     />
                     {/* Solid Black card */}
                     <rect 
@@ -2240,7 +2242,7 @@ function LandingPage({ onLogin, isLoggedIn, onEnterBoardroom }: LandingPageProps
                       stroke={mktColor} 
                       strokeWidth="2.5" 
                       filter="url(#glow-accent)" 
-                      className={`transition-opacity duration-300 ${isMKTActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} 
+                      className={`transition-opacity duration-300 ${isMKTActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'} ${isMKTWorking ? 'animate-pulse' : ''}`} 
                     />
                     {/* Solid Black card */}
                     <rect 
