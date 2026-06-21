@@ -1752,7 +1752,11 @@ async def mock_llm_completions(request: Request):
             else:
                 reasons.append(str(f))
         if not reasons:
-            reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", "Compliance and technical audits resolved successfully."]
+            gaps = calc.get("missing_gaps", [])
+            if gaps:
+                reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", f"Note: {len(gaps)} diligence field(s) lacked sufficient evidence ({', '.join(gaps[:3])})."]
+            else:
+                reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", "Compliance and technical audits passed review."]
             
     reasons_str = "\n".join(f"{i+1}. {r}" for i, r in enumerate(reasons))
     

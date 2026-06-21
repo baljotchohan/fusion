@@ -2253,7 +2253,8 @@ def extract_facts_regex(text: str, filename: str) -> dict:
         # which otherwise grabs a sales *quota* like "$9.8M ARR for FY2026".
         [r"annuali[sz]ed\)?[^\n|]*\|[\s\*]*(\$[0-9][0-9.,]*\s*(?:million|billion|[mMbBkK])?)",
          r"\barr\b[^\n|]*\|[\s\*]*(\$[0-9][0-9.,]*\s*(?:million|billion|[mMbBkK])?)",
-         r"(?:arr|annual recurring revenue|revenue)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
+         r"(?:arr|annual recurring revenue)\s*(?::|is|of|at|-|\b)\s*(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
+         r"arr\s+(?:is\s+)?(?:reported|currently|now)\s+(?:at\s+)?(\$[0-9\.,]+[mMkK]?|\$[0-9\.,]+\s*(?:million|billion|k|thousand)?)",
          r"(\$[0-9\.,]+\s*(?:million|m|billion|b)?)\s*arr"],
         text
     )
@@ -2293,7 +2294,9 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     
     customer_concentration = find_pattern(
         "Customer Concentration", "current", "Financials",
-        [r"top\s*\d+\s*customers?[^\n]*?([0-9]{1,3}\s*%)",
+        [r"top\s+customer\s+contributes?\s+([0-9]{1,3}\s*%)",
+         r"([0-9]{1,3}%)\s+(?:of\s+)?(?:total\s+)?(?:revenue|arr\b)[^\n]*(?:top|single|one|customer)",
+         r"top\s*\d+\s*customers?[^\n]*?([0-9]{1,3}\s*%)",
          r"top\s*\d+\s*customer\s*concentration[^\n|]*[:|=][\s\*]*([0-9]{1,3}\s*%)",
          r"([0-9]+%)[ \t]*(?:revenue|customer)?[ \t]*concentration",
          r"concentration[ \t]*(?:of|is)?[ \t]*([0-9]+%)",
@@ -2316,6 +2319,9 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     for m in re.finditer(r"[^\n]+", text):
         seg = m.group(0).replace("**", "").replace("`", "").strip().strip("-*|# ").strip()
         sl = seg.lower()
+        # Skip boilerplate appendix/template sections that mention "investigation" generically
+        if re.match(r"this section contains additional\b", sl) or re.match(r"due diligence section \d+\b", sl):
+            continue
         if not any(k in sl for k in lit_priority):
             continue
         if any(n in sl for n in no_lit_words):
@@ -3548,11 +3554,11 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     elif calc.get("override_reasons"):
         reasons = calc["override_reasons"]
     else:
-        reasons = [
-            "Target company metrics align with investment thesis.",
-            "TAM and sector timing support the deal.",
-            "Compliance and technical audits resolved successfully."
-        ]
+        gaps = calc.get("missing_gaps", [])
+        if gaps:
+            reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", f"Note: {len(gaps)} diligence field(s) lacked sufficient evidence ({', '.join(gaps[:3])})."]
+        else:
+            reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", "Compliance and technical audits passed review."]
             
     reasons_str = "\n".join(f"{i+1}. {r}" for i, r in enumerate(reasons))
     

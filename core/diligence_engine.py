@@ -676,11 +676,25 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
         or bool(re.search(r"(funding|vc|venture|investment)[^.]{0,80}down\s*\d{1,3}\s*%", pitch_str_lower))
     if is_funding_down:
         mkt_score += 2.0
-    comp_val_lower = (str(competition.get("value", "")) + " " + str(competition.get("evidence", ""))).lower()
-    is_heavy_comp = any(w in comp_val_lower for w in ["affirm", "klarna", "afterpay", "block", "intense competition", "epic", "viz.ai", "aidoc", "google health", "med-palm", "microsoft", "nuance", "fda clearance", "fda-cleared", "bundling free", "bundled free", "no additional cost", "existential"])
+    comp_val_lower = (str(competition.get("value", "")) + " " + str(competition.get("evidence", "")) + " " + doc_text).lower()
+    is_heavy_comp = any(w in comp_val_lower for w in ["affirm", "klarna", "afterpay", "block", "intense competition", "epic", "viz.ai", "aidoc", "google health", "med-palm", "microsoft", "nuance", "fda clearance", "fda-cleared", "bundling free", "bundled free", "no additional cost", "existential", "openai enterprise", "anthropic team", "microsoft copilot", "databricks ai"])
     if is_heavy_comp:
         mkt_score += 3.0
     mkt_score = min(10.0, mkt_score)
+
+    # Direct doc_text risk signal scan for uploaded pitches.
+    # Structured extraction misses these generic risk categories; scan raw text instead.
+    if doc_text:
+        if any(w in doc_text for w in ["no granted patents", "no patents granted", "no issued patents", "lacks patent"]):
+            leg_score = max(leg_score, 2.5)
+            if not any("patent" in str(f).lower() for f in leg_flags):
+                leg_flags.append({"claim": "No granted patents — IP moat unproven", "evidence": "Stated in pitch: no granted patents", "confidence": 80, "source_section": "Technical/Legal", "severity": 5})
+        if any(w in doc_text for w in ["third-party model dependence", "model dependence", "vendor dependence", "heavy reliance on third", "dependent on third-party"]):
+            tech_score = max(tech_score, 2.5)
+        if any(w in doc_text for w in ["operating loss", "net loss", "significant operating loss", "pre-revenue"]):
+            fin_score = max(fin_score, 2.5)
+        if any(w in doc_text for w in ["aggressive growth assumption", "aggressive assumption", "aggressive projection", "highly optimistic"]):
+            fin_score = max(fin_score, 2.0)
 
     # ── Evidence-aware scoring (uploaded documents only) ─────────────────────
     # The keyword heuristics above are tuned to the curated demo deals. For a
