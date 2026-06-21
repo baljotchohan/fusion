@@ -9,9 +9,12 @@ import time
 import logging
 import asyncio
 import random
+import subprocess
+import re as _re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from collections import defaultdict
+from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
@@ -1069,6 +1072,228 @@ async def api_force_verdict(request: Request, incident_id: Optional[str] = None)
         raise HTTPException(status_code=400, detail="No active or past incident found to force verdict.")
     await force_partial_verdict(target_id)
     return {"status": "success", "message": f"Partial verdict forced successfully for incident {target_id}."}
+
+
+# ─── ADMIN ENDPOINTS ──────────────────────────────────────────
+
+def _extract_verdict_from_card(text: str) -> str:
+    if not text:
+        return "PENDING"
+    m = _re.search(r"DECISION:\s*(INVEST|CONDITIONAL|PASS|REJECT)", text, _re.I)
+    if m:
+        v = m.group(1).upper()
+        return "REJECT" if v == "PASS" else v
+    return "PENDING"
+
+
+@app.get("/api/admin/users")
+async def admin_list_users():
+    """Return all users from RTDB + fusion_memory/, merged by username."""
+    from core.rtdb import read_all_users, read_mcp_usage_for
+
+    def _load(p: Path, default):
+        try:
+            return json.loads(p.read_text()) if p.exists() else default
+        except Exception:
+            return default
+
+    # ── 1. Local fusion_memory users ────────────────────────────────────────
+    local: dict[str, dict] = {}
+    base = Path("fusion_memory")
+    if base.exists():
+        for uid_dir in sorted(base.iterdir()):
+            if not uid_dir.is_dir():
+                continue
+            uid = uid_dir.name
+            incidents: dict = _load(uid_dir / "incidents.json", {})
+            profiles: dict = _load(uid_dir / "agent_profiles.json", {})
+            patterns: dict = _load(uid_dir / "attack_patterns.json", {})
+            mcp_key_data: dict = _load(uid_dir / "mcp_key.json", {})
+            mcp_log: list = _load(uid_dir / "mcp_log.json", [])
+
+            sessions = []
+            for sess_file in sorted(uid_dir.glob("chat_history*.json")):
+                hist = _load(sess_file, [])
+                if not isinstance(hist, list):
+                    continue
+                stem = sess_file.stem
+                sid = stem.replace("chat_history_", "") if stem != "chat_history" else "default"
+                title = next((m["content"][:60] for m in hist if m.get("role") == "user"), "Session")
+                sessions.append({
+                    "session_id": sid, "message_count": len(hist), "title": title,
+                    "timestamp": hist[-1].get("timestamp") if hist else None,
+                    "messages": hist[-30:],
+                })
+
+            incident_list = []
+            for inc_id, inc in incidents.items():
+                meta = inc.get("metadata", {})
+                fd = inc.get("final_decision", "")
+                timeline = inc.get("timeline", [])
+                incident_list.append({
+                    "incident_id": inc_id, "company": meta.get("company", "Unknown"),
+                    "verdict": _extract_verdict_from_card(fd), "findings": len(timeline),
+                    "created_at": inc.get("created_at") or meta.get("created_at"),
+                    "final_decision": fd[:5000] if fd else None, "timeline": timeline,
+                })
+            incident_list.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+
+            last_active = max(
+                (p.get("last_active") or "" for p in profiles.values()), default=None,
+            ) or (incident_list[0].get("created_at") if incident_list else None)
+
+            local[uid] = {
+                "uid": uid, "email": None, "display_name": None, "source": "local",
+                "deal_count": len(incidents), "session_count": len(sessions),
+                "finding_count": sum(len(inc.get("timeline", [])) for inc in incidents.values()),
+                "pattern_count": len(patterns), "last_active": last_active,
+                "agent_profiles": profiles, "incidents": incident_list, "sessions": sessions,
+                "patterns": patterns, "mcp_log": mcp_log[-200:],
+                "mcp_key": mcp_key_data.get("key"), "mcp_key_created": mcp_key_data.get("created_at"),
+            }
+
+    # ── 2. RTDB users — real Firebase accounts ───────────────────────────────
+    rtdb_users = read_all_users()  # {username: {profile, deals, chats, sessions, activity}}
+    merged: dict[str, dict] = {**local}
+
+    for username, node in rtdb_users.items():
+        if not isinstance(node, dict):
+            continue
+        profile = node.get("profile") or {}
+        deals = node.get("deals") or {}
+        chats_raw = node.get("chats") or {}
+        sessions_raw = node.get("sessions") or {}
+
+        # Build chat sessions from RTDB chats (push-keyed dict → list)
+        rtdb_sessions = []
+        if isinstance(chats_raw, dict):
+            msgs = sorted(chats_raw.values(), key=lambda m: m.get("timestamp", ""))
+            if msgs:
+                title = next((m.get("message", "")[:60] for m in msgs), "Chat")
+                rtdb_sessions.append({
+                    "session_id": "rtdb_chat", "message_count": len(msgs), "title": title,
+                    "timestamp": msgs[-1].get("timestamp") if msgs else None,
+                    "messages": [{"role": "user" if i % 2 == 0 else "assistant",
+                                  "content": m.get("message") or m.get("response") or "",
+                                  "timestamp": m.get("timestamp")}
+                                 for i, m in enumerate(msgs[-30:])],
+                })
+        if isinstance(sessions_raw, dict):
+            for sid, sdata in sessions_raw.items():
+                if isinstance(sdata, dict):
+                    rtdb_sessions.append({
+                        "session_id": sid, "message_count": sdata.get("messageCount", 0),
+                        "title": sdata.get("title", sid)[:60],
+                        "timestamp": sdata.get("updatedAt") or sdata.get("createdAt"),
+                        "messages": [],
+                    })
+
+        # Build incident list from RTDB deals
+        rtdb_incidents = []
+        if isinstance(deals, dict):
+            for deal_id, deal in deals.items():
+                if not isinstance(deal, dict):
+                    continue
+                fd = deal.get("final_decision") or deal.get("verdict") or ""
+                rtdb_incidents.append({
+                    "incident_id": deal_id,
+                    "company": deal.get("company") or deal.get("metadata", {}).get("company", "Unknown"),
+                    "verdict": _extract_verdict_from_card(fd) if fd else deal.get("verdict", "PENDING"),
+                    "findings": deal.get("findings_count") or len(deal.get("timeline", [])),
+                    "created_at": deal.get("createdAt") or deal.get("updatedAt"),
+                    "final_decision": fd[:5000] if fd else None,
+                    "timeline": deal.get("timeline") or [],
+                })
+            rtdb_incidents.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+
+        mcp_log = read_mcp_usage_for(username)
+        last_seen = profile.get("lastSeen") or (rtdb_incidents[0].get("created_at") if rtdb_incidents else None)
+
+        entry = {
+            "uid": username,
+            "email": profile.get("email"),
+            "display_name": profile.get("displayName"),
+            "photo_url": profile.get("photoURL"),
+            "ip": profile.get("ip"),
+            "device": profile.get("device"),
+            "source": "rtdb",
+            "deal_count": len(rtdb_incidents),
+            "session_count": len(rtdb_sessions),
+            "finding_count": sum(i.get("findings", 0) for i in rtdb_incidents),
+            "pattern_count": 0,
+            "last_active": last_seen,
+            "agent_profiles": {},
+            "incidents": rtdb_incidents,
+            "sessions": rtdb_sessions,
+            "patterns": {},
+            "mcp_log": mcp_log[-200:],
+            "mcp_key": None, "mcp_key_created": None,
+        }
+        # Prefer RTDB over local if both exist for the same username
+        if username in merged:
+            merged[username].update({k: v for k, v in entry.items() if v})
+            merged[username]["source"] = "both"
+        else:
+            merged[username] = entry
+
+    users = sorted(merged.values(), key=lambda u: u.get("last_active") or "", reverse=True)
+    return {
+        "users": users,
+        "active_uid": sim_state.active_uid,
+        "simulation_running": sim_state.running,
+        "active_incident_id": sim_state.active_incident_id,
+    }
+
+
+@app.get("/api/admin/git-log")
+async def admin_git_log():
+    """Return recent git commits."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "--format=%H|%s|%an|%ar|%ai", "-20"],
+            capture_output=True, text=True,
+            cwd=Path(__file__).parent.parent,
+        )
+        commits = []
+        for line in result.stdout.strip().splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("|", 4)
+            if len(parts) >= 4:
+                commits.append({
+                    "hash": parts[0][:8],
+                    "full_hash": parts[0],
+                    "subject": parts[1],
+                    "author": parts[2],
+                    "relative": parts[3],
+                    "date": parts[4].strip() if len(parts) > 4 else None,
+                })
+        return {"commits": commits}
+    except Exception as e:
+        return {"commits": [], "error": str(e)}
+
+
+@app.get("/api/admin/vercel-deployments")
+async def admin_vercel_deployments():
+    """Proxy Vercel deployments list."""
+    token = os.getenv("VERCEL_TOKEN")
+    project_id = os.getenv("VERCEL_PROJECT_ID")
+    if not token or not project_id:
+        return {"deployments": [], "error": "VERCEL_TOKEN or VERCEL_PROJECT_ID not configured"}
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://api.vercel.com/v6/deployments",
+                params={"projectId": project_id, "limit": 15},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return {"deployments": data.get("deployments", [])}
+    except Exception as e:
+        return {"deployments": [], "error": str(e)}
+
 
 # ─── MOCK LLM ENDPOINT ───────────────────────────────────────
 

@@ -96,12 +96,33 @@ async def _api(method: str, path: str, payload: dict = None) -> dict:
         return resp.json()
 
 
+def _append_mcp_log(uid: str, tool: str, success: bool, latency_ms: int) -> None:
+    try:
+        import json as _j
+        from pathlib import Path as _P
+        from datetime import datetime, timezone
+        safe = "".join(c for c in uid if c.isalnum() or c in ("-", "_")) or "__public__"
+        d = _P("fusion_memory") / safe
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / "mcp_log.json"
+        log = _j.loads(f.read_text()) if f.exists() else []
+        log.append({"tool": tool, "timestamp": datetime.now(timezone.utc).isoformat(), "success": success, "latency_ms": latency_ms})
+        if len(log) > 1000:
+            log = log[-1000:]
+        f.write_text(_j.dumps(log))
+    except Exception:
+        pass
+
+
 async def dispatch(name: str, arguments: dict) -> dict:
     """Execute a FUSION MCP tool by name. Returns a JSON-serializable dict.
 
     Transport-agnostic: both the stdio server and the mounted HTTP app call this.
     """
+    import time as _t
+    _start = _t.time()
     arguments = arguments or {}
+    uid = "__public__"
     try:
         from core.auth import current_uid
         uid = current_uid.get() or "__public__"
@@ -111,6 +132,7 @@ async def dispatch(name: str, arguments: dict) -> dict:
     except Exception:
         pass
 
+    _success = True
     try:
         if name == "chat_with_managing_partner":
             return await _api("POST", "/api/v1/chat", {"user_message": arguments["message"]})
@@ -144,12 +166,17 @@ async def dispatch(name: str, arguments: dict) -> dict:
         return {"error": f"Unknown tool: {name}"}
 
     except httpx.ConnectError:
+        _success = False
         return {
             "error": f"FUSION API not reachable at {FUSION_API_URL}. "
                      "Start it with `python run.py` or set FUSION_API_URL."
         }
     except KeyError as e:
+        _success = False
         return {"error": f"Missing required argument: {e}"}
     except Exception as e:
+        _success = False
         return {"error": str(e)}
+    finally:
+        _append_mcp_log(uid, name, _success, round((_t.time() - _start) * 1000))
 

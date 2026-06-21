@@ -269,6 +269,35 @@ def write_mcp_usage(uid: str, tool_name: str, arguments: dict) -> bool:
         return False
 
 
+def read_all_users() -> dict:
+    """Read all user nodes from RTDB /users. Returns {} if RTDB disabled."""
+    ref = _ref("/users")
+    if ref is None:
+        return {}
+    try:
+        return ref.get() or {}
+    except Exception as exc:
+        logger.error("RTDB read_all_users: %s", exc)
+        return {}
+
+
+def read_mcp_usage_for(username: str) -> list:
+    """Read MCP usage list for a username from /mcp_usage/{username}."""
+    ref = _ref(f"/mcp_usage/{username}")
+    if ref is None:
+        return []
+    try:
+        data = ref.get()
+        if not data:
+            return []
+        entries = list(data.values()) if isinstance(data, dict) else []
+        entries.sort(key=lambda e: e.get("timestamp", ""))
+        return entries
+    except Exception as exc:
+        logger.error("RTDB read_mcp_usage_for %s: %s", username, exc)
+        return []
+
+
 def clear_user_data(uid: str) -> bool:
     """Clear all data for the user in the Realtime Database under /users/{username}."""
     username = get_user_folder(uid)

@@ -1059,6 +1059,11 @@ export default function FUSION() {
             <Settings className={`w-[18px] h-[18px] shrink-0 ${isActive('settings') ? 'text-accent' : 'text-text-muted'}`} />
             {!sidebarCollapsed && <span>Settings</span>}
           </button>
+          <a href="/admin"
+            className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg transition-colors text-[13px] text-text-secondary hover:bg-bg-muted hover:text-text-primary">
+            <Shield className="w-[18px] h-[18px] shrink-0 text-text-muted" />
+            {!sidebarCollapsed && <span>Admin</span>}
+          </a>
           <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             className="w-full p-2 flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-bg-muted rounded-lg transition-colors">
             <ChevronLeft className={`w-[18px] h-[18px] transition-transform duration-300 ${sidebarCollapsed ? 'rotate-180' : ''}`} />
