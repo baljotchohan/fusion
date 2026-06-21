@@ -1338,7 +1338,25 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
     verdict_confidence = (coverage_score * 0.35) + (evidence_quality_score * 0.35) + (consistency_score * 0.2)
     # Apply penalty for validation warnings and review flags to reflect extraction uncertainty
     penalty = (review_flags_count * 2.0) + (len(validation_warnings) * 1.5)
-    verdict_confidence = max(0.0, min(80.0, verdict_confidence - penalty - (gov_penalty * 0.5)))
+    base_confidence = verdict_confidence - penalty - (gov_penalty * 0.5)
+    
+    # Calculate domain-specific coverages to drag down confidence if any domain is 100% empty
+    fin_present = sum(1 for f in [arr, burn, runway, gross_margin, customers, customer_concentration] if not is_field_missing(f))
+    fin_cov = fin_present / 6.0
+    
+    leg_present = sum(1 for f in [litigation, compliance] if not is_field_missing(f))
+    leg_cov = leg_present / 2.0
+    
+    tech_present = sum(1 for f in [security] if not is_field_missing(f))
+    tech_cov = tech_present / 1.0
+    
+    mkt_present = sum(1 for f in [tam] if not is_field_missing(f))
+    mkt_cov = mkt_present / 1.0
+    
+    zero_coverage_domains = sum(1 for cov in [fin_cov, leg_cov, tech_cov, mkt_cov] if cov == 0.0)
+    drag_down_multiplier = 0.5 ** zero_coverage_domains if zero_coverage_domains > 0 else 1.0
+    
+    verdict_confidence = max(0.0, min(80.0, base_confidence * drag_down_multiplier))
 
     # 1. Document Credibility Score
     document_credibility_score = 100.0

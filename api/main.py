@@ -1770,7 +1770,11 @@ async def mock_llm_completions(request: Request):
     reasons_str = "\n".join(f"{i+1}. {r}" for i, r in enumerate(reasons))
     
     co_text = company_name[:42]
-    deal_text = f"{raise_amount} at {valuation} post"[:42]
+    if raise_amount == "Insufficient Evidence" or valuation == "Insufficient Evidence":
+        deal_text = "Undisclosed Round (Insufficient Evidence)"[:42]
+    else:
+        deal_text = f"{raise_amount} at {valuation} post"[:42]
+        
     decision_text = ("REJECT" if verdict == "PASS" else verdict)[:42]
     
     confidence_val_pct = calc.get("verdict_confidence", coverage_score)
@@ -1783,16 +1787,16 @@ async def mock_llm_completions(request: Request):
     readiness_status = calc.get("deal_readiness_status", "Ready for IC Review")
     readiness_text = f"{readiness_score:.1f}/100 ({readiness_status})"[:42]
     
-    fin_val_str = f"{fin_score:>2.0f}/10" if fin_score is not None else " N/A "
+    fin_val_str = f"{fin_score:>4.1f}/10" if fin_score is not None else " N/A  "
     fin_w_str = f"{0.3*fin_score:>4.2f}" if fin_score is not None else " N/A"
     
-    leg_val_str = f"{leg_score:>2.0f}/10" if leg_score is not None else " N/A "
+    leg_val_str = f"{leg_score:>4.1f}/10" if leg_score is not None else " N/A  "
     leg_w_str = f"{0.25*leg_score:>4.2f}" if leg_score is not None else " N/A"
     
-    tech_val_str = f"{tech_score:>2.0f}/10" if tech_score is not None else " N/A "
+    tech_val_str = f"{tech_score:>4.1f}/10" if tech_score is not None else " N/A  "
     tech_w_str = f"{0.25*tech_score:>4.2f}" if tech_score is not None else " N/A"
     
-    mkt_val_str = f"{mkt_score:>2.0f}/10" if mkt_score is not None else " N/A "
+    mkt_val_str = f"{mkt_score:>4.1f}/10" if mkt_score is not None else " N/A  "
     mkt_w_str = f"{0.2*mkt_score:>4.2f}" if mkt_score is not None else " N/A"
     
     weighted_val_str = f"{weighted_score:>4.1f}/10" if weighted_score is not None else " N/A  "

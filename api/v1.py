@@ -2089,6 +2089,7 @@ _TECH_TOKEN_RE = re.compile(
     r"Django|Flask|FastAPI|Express|React|Angular|Vue|Rails|Spring|"
     r"Java\s*\d+|Golang|Kubernetes|Docker|Terraform|"
     r"AWS|GCP|Azure|EC2|S3|RDS|Aurora|DynamoDB|Lambda|Snowflake|Databricks|"
+    r"OpenAI|Anthropic|DeepSeek|Gemini|Vector Search|Knowledge Graph|Multi-Agent Orchestration|Multi-Agent|"
     r"scikit-learn|XGBoost|PyTorch|TensorFlow|Datadog|GraphQL|Elasticsearch|JWT|Auth0|Cognito|Plaid)\b",
     re.IGNORECASE,
 )
@@ -2142,7 +2143,7 @@ def _extract_competitors(text: str):
                 start = text.find(line)
                 value = ", ".join(names[:10])
                 return {"value": value, "start": start, "end": start + len(value)}
-    m = re.search(r"competitors?\s*(?:include[s]?|:|are)\s+([A-Z][^\n]{3,})", text, re.IGNORECASE)
+    m = re.search(r"(?:competitors?\s*(?:include[s]?|:|are)|competes?\s*against)\s+([A-Z][^\n]{3,})", text, re.IGNORECASE)
     if m:
         return {"value": m.group(1).strip().rstrip("."), "start": m.start(1), "end": m.end(1)}
     return None
@@ -3535,7 +3536,11 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     co_text = calc_company_name[:42]
     raise_amount = calc.get("raise_amount", "N/A")
     valuation = calc.get("valuation", "N/A")
-    deal_text = f"{raise_amount} at {valuation} post"[:42]
+    if raise_amount == "Insufficient Evidence" or valuation == "Insufficient Evidence":
+        deal_text = "Undisclosed Round (Insufficient Evidence)"[:42]
+    else:
+        deal_text = f"{raise_amount} at {valuation} post"[:42]
+        
     # Engine uses "PASS" to mean "pass on this deal" (i.e. reject); surface the real label
     _verdict_label_map = {"PASS": "PASS (DO NOT INVEST)", "INVEST": "INVEST", "CONDITIONAL": "CONDITIONAL", "INSUFFICIENT EVIDENCE": "INSUFFICIENT EVIDENCE", "NEEDS_MORE_DILIGENCE": "NEEDS_MORE_DILIGENCE"}
     decision_text = _verdict_label_map.get(calc_verdict, calc_verdict)[:42]
@@ -3552,19 +3557,19 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     readiness_text = f"{readiness_score:.1f}/100 ({readiness_status})"[:42]
     
     fin_score = calc.get("fin_score")
-    fin_val_str = f"{fin_score:>2.0f}/10" if fin_score is not None else " N/A "
+    fin_val_str = f"{fin_score:>4.1f}/10" if fin_score is not None else " N/A  "
     fin_w_str = f"{0.3*fin_score:>4.2f}" if fin_score is not None else " N/A"
     
     leg_score = calc.get("leg_score")
-    leg_val_str = f"{leg_score:>2.0f}/10" if leg_score is not None else " N/A "
+    leg_val_str = f"{leg_score:>4.1f}/10" if leg_score is not None else " N/A  "
     leg_w_str = f"{0.25*leg_score:>4.2f}" if leg_score is not None else " N/A"
     
     tech_score = calc.get("tech_score")
-    tech_val_str = f"{tech_score:>2.0f}/10" if tech_score is not None else " N/A "
+    tech_val_str = f"{tech_score:>4.1f}/10" if tech_score is not None else " N/A  "
     tech_w_str = f"{0.25*tech_score:>4.2f}" if tech_score is not None else " N/A"
     
     mkt_score = calc.get("mkt_score")
-    mkt_val_str = f"{mkt_score:>2.0f}/10" if mkt_score is not None else " N/A "
+    mkt_val_str = f"{mkt_score:>4.1f}/10" if mkt_score is not None else " N/A  "
     mkt_w_str = f"{0.2*mkt_score:>4.2f}" if mkt_score is not None else " N/A"
     
     weighted_val_str = f"{calc_weighted_score:>4.1f}/10" if calc_weighted_score is not None else " N/A  "
