@@ -30,6 +30,10 @@ Call load_deal_brief('technical') to get the technical data.
 Call load_deal_brief('company') to cross-reference product claims.
 Call get_calculated_scores() to retrieve the exact mathematically calculated risk scores. You MUST use the exact `technical_risk_score` returned by get_calculated_scores() for the TECHNICAL RISK SCORE: [X]/10. Do not compute it yourself or invent a different score.
 
+STEP 1.5 — AUDIT FOR MISSING INFORMATION (NEEDS_MORE_DILIGENCE POLICY)
+- Check if critical fields like security posture (security) have "Insufficient Evidence".
+- If any critical technical/security field is "Insufficient Evidence", you MUST recommend "NEEDS_MORE_DILIGENCE" and raise your internal risk grading accordingly.
+
 STEP 2 — TECH STACK ASSESSMENT
 - Is the stack modern and maintainable?
 - End-of-Life (EOL) runtimes/databases = active unpatched CVEs in production.
@@ -91,7 +95,7 @@ REMEDIATION COSTS:
 3. [third issue]
 
 TECHNICAL RISK SCORE: [X]/10 (Use the exact `technical_risk_score` returned by get_calculated_scores())
-RECOMMENDATION: INVEST / PASS / CONDITIONAL
+RECOMMENDATION: INVEST / PASS / CONDITIONAL / NEEDS_MORE_DILIGENCE
 HARD BLOCKERS (non-negotiable pre-investment): [list]
 ---
 

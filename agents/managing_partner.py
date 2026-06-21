@@ -89,6 +89,7 @@ RISK AGGREGATION:
 - You MUST use the exact numbers returned by get_calculated_scores() for the risk scorecard and final decision card. Do not compute them yourself.
 - Populate the decision card and risk scorecard exactly as returned by get_calculated_scores().
 - If the calculated verdict returned by get_calculated_scores() is INSUFFICIENT_EVIDENCE, you MUST set DECISION: INSUFFICIENT EVIDENCE.
+- If the calculated verdict returned by get_calculated_scores() is NEEDS_MORE_DILIGENCE, you MUST set DECISION: NEEDS_MORE_DILIGENCE.
 - Otherwise, Score 1-4: INVEST | Score 5-6: CONDITIONAL | Score 7-10: PASS
 
 DEBATE RESOLUTION:
@@ -114,7 +115,8 @@ FINAL VERDICT FORMAT (non-negotiable — use this EXACTLY):
 | Date:         [today]                                    |
 +----------------------------------------------------------+
 |  DECISION:    [ INVEST | PASS | CONDITIONAL |            |
-|                 INSUFFICIENT EVIDENCE ]                  |
+|                 INSUFFICIENT EVIDENCE |                  |
+|                 NEEDS_MORE_DILIGENCE ]                   |
 |  CONFIDENCE:  [X]%                                       |
 |  EVI QUALITY: [X]%                                       |
 |  READINESS:   [X]/100 ([Status])                         |

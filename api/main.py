@@ -1483,6 +1483,7 @@ async def mock_llm_completions(request: Request):
     runway = calc["runway"]
     gross_margin = calc["gross_margin"]
     customers = calc["customers"]
+    customer_concentration = calc["customer_concentration"]
     
     litigation = calc["litigation"]
     compliance = calc["compliance"]
@@ -1653,7 +1654,7 @@ async def mock_llm_completions(request: Request):
             f"- Runway: {get_citation(runway, 'Financials')}\n"
             f"- Gross Margin: {get_citation(gross_margin, 'Financials')}\n\n"
             f"CUSTOMER CONCENTRATION:\n"
-            f"- {get_citation(customers, 'Financials')}\n"
+            f"- {get_citation(customer_concentration, 'Financials')}\n"
         )
         if calc.get("scenario"):
             sc = calc["scenario"]
@@ -1756,7 +1757,15 @@ async def mock_llm_completions(request: Request):
             if gaps:
                 reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", f"Note: {len(gaps)} diligence field(s) lacked sufficient evidence ({', '.join(gaps[:3])})."]
             else:
-                reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", "Compliance and technical audits passed review."]
+                reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal."]
+                has_comp_gap = "Compliance" in gaps or any("compliance" in g.lower() for g in gaps)
+                has_tech_gap = "Security" in gaps or "Tech Stack" in gaps or any(w in g.lower() for g in gaps for w in ["security", "stack"])
+                if not has_comp_gap and not has_tech_gap:
+                    reasons.append("Compliance and technical audits passed review.")
+                elif not has_comp_gap:
+                    reasons.append("Compliance audits passed review.")
+                elif not has_tech_gap:
+                    reasons.append("Technical audits passed review.")
             
     reasons_str = "\n".join(f"{i+1}. {r}" for i, r in enumerate(reasons))
     

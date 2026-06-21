@@ -31,6 +31,10 @@ Call load_deal_brief('company') to cross-reference
 the company's market size and growth claims against actual sector data.
 Call get_calculated_scores() to retrieve the exact mathematically calculated risk scores. You MUST use the exact `market_risk_score` returned by get_calculated_scores() for the MARKET RISK SCORE: [X]/10. Do not compute it yourself or invent a different score.
 
+STEP 1.5 — AUDIT FOR MISSING INFORMATION (NEEDS_MORE_DILIGENCE POLICY)
+- Check if critical fields like competitive landscape (competition) have "Insufficient Evidence".
+- If any critical market field is "Insufficient Evidence", you MUST recommend "NEEDS_MORE_DILIGENCE" and raise your internal risk grading accordingly.
+
 STEP 2 — MARKET SIZE REALITY CHECK
 - Is the TAM claim credible? Bottom-up vs top-down analysis.
 - What is the SERVICEABLE addressable market (SAM) for THIS product?
@@ -91,7 +95,7 @@ DEFENSIBILITY: [X]/25
 3. [third concern]
 
 MARKET RISK SCORE: [X]/10 (Use the exact `market_risk_score` returned by get_calculated_scores())
-RECOMMENDATION: INVEST / PASS / CONDITIONAL
+RECOMMENDATION: INVEST / PASS / CONDITIONAL / NEEDS_MORE_DILIGENCE
 KEY THESIS QUESTION: [the single most important question this deal hinges on]
 ---
 

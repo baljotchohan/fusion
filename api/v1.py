@@ -2320,7 +2320,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
         seg = m.group(0).replace("**", "").replace("`", "").strip().strip("-*|# ").strip()
         sl = seg.lower()
         # Skip boilerplate appendix/template sections that mention "investigation" generically
-        if re.match(r"this section contains additional\b", sl) or re.match(r"due diligence section \d+\b", sl):
+        if "this section contains additional" in sl or re.search(r"due diligence section \d+", sl):
             continue
         if not any(k in sl for k in lit_priority):
             continue
@@ -2492,7 +2492,7 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     if not is_field_missing(customer_concentration):
         try:
             c_val = float(re.search(r"([0-9\.]+)%", str(customer_concentration.get("value"))).group(1))
-            if c_val > 50:
+            if c_val > 20:
                 fin_flags.append({
                     "claim": f"High customer concentration of {c_val}%",
                     "evidence": customer_concentration.get("evidence"),
@@ -2518,6 +2518,24 @@ def extract_facts_regex(text: str, filename: str) -> dict:
                 })
         except Exception:
             pass
+
+    # General financials/operations scan for operating losses and concentration
+    _fin_scans = [
+        (r"(?:operating losses|operating loss|net loss|net losses|unprofitable|losing money|negative cash flow)", "Financial risk: significant operating losses (high burn and profitability path uncertainty)", 6),
+        (r"(?:customer concentration|revenue concentration|concentration risk|concentration of revenue|concentration of customer)", "Financial risk: material customer/revenue concentration risk", 6),
+    ]
+    for _pat, _claim, _sev in _fin_scans:
+        _fm = re.search(rf"[^\n]*(?:{_pat})[^\n]*", text, re.IGNORECASE)
+        if _fm:
+            fin_flags.append({
+                "claim": _claim,
+                "evidence": _fm.group(0).strip().strip("-*|# ")[:220],
+                "confidence": 88,
+                "severity": _sev,
+                "source_section": "Financials",
+                "source_start": _fm.start(),
+                "source_end": _fm.end(),
+            })
 
     # Revenue-recognition quality flag (one-time / prepaid revenue inflating ARR — ASC 606)
     for _m in re.finditer(r"[^\n]+", text):
@@ -2562,13 +2580,14 @@ def extract_facts_regex(text: str, filename: str) -> dict:
     # Targeted legal/regulatory flags — surface distinct material matters that a
     # single litigation field would otherwise miss.
     _legal_scans = [
-        (r"unlicensed", "Lending in one or more states without required licenses", 8),
+        (r"unlicensed", "Compliance issue: operating without required licenses (regulatory and enforcement risk)", 8),
         (r"misclassif", "Contractor misclassification risk (1099 workers operating as employees)", 6),
-        (r"(?:ip dispute|patent[^\n]*dispute|infringement|ownership of[^\n]*architecture|cease and desist|c&d|co-inventor|chancery court)", "Active patent and inventorship dispute (35-40% adverse probability)", 7),
-        (r"(?:civil investigative demand|\bcid\b|ftc (?:investigation|act|cid))", "Active FTC investigation (Civil Investigative Demand)", 8),
-        (r"(?:off-label|not cleared[^\n]*market|marketed[^\n]*not cleared|without[^\n]*510\(k\)|uncleared|warning letter)", "Actively marketed uncleared SaMD indications (warning-letter / enforcement risk)", 9),
-        (r"(?:hipaa[^\n]*(?:breach|violation|gap)|baa[^\n]*(?:gap|not signed)|ocr (?:investigation|penalt)|breach notification)", "Potential HIPAA exposure (Datadog BAA gap and North Memorial Health PACS integration incident)", 8),
+        (r"(?:ip dispute|patent[^\n]*dispute|infringement|ownership of[^\n]*architecture|cease and desist|c&d|co-inventor|chancery court)", "Active intellectual property or patent inventorship litigation", 7),
+        (r"(?:civil investigative demand|\bcid\b|ftc (?:investigation|act|cid))", "Active regulatory investigation / Civil Investigative Demand", 8),
+        (r"(?:off-label|not cleared[^\n]*market|marketed[^\n]*not cleared|without[^\n]*510\(k\)|uncleared|warning letter)", "Regulatory compliance risk: commercializing or marketing uncleared/unlicensed products", 9),
+        (r"(?:hipaa[^\n]*(?:breach|violation|gap)|baa[^\n]*(?:gap|not signed)|ocr (?:investigation|penalt)|breach notification)", "Potential HIPAA/privacy exposure: data breach history or BAA/compliance gap", 8),
         (r"(?:restatement|emphasis-of-matter|emphasis of matter|revenue recognition[^\n]*(?:risk|may require))", "Revenue-recognition / potential restatement risk (auditor emphasis-of-matter)", 7),
+        (r"(?:no granted patent|no patents granted|no patent granted|lack of patent|without any granted patent|no patents|zero granted patents)", "Defensibility risk: no granted patents (patent-pending or provisional only)", 7),
     ]
     _existing_claims = {f["claim"] for f in leg_flags}
     for _pat, _claim, _sev in _legal_scans:
@@ -2646,13 +2665,14 @@ def extract_facts_regex(text: str, filename: str) -> dict:
 
     # Targeted technical/security scans — surface distinct material technical risks.
     _tech_scans = [
-        (r"(?:orthanc|cve-2023-33466|unpatched cve|unauthenticated remote read)", "Unpatched critical CVE on DICOM server (CVE-2023-33466) allowing remote read of patient metadata", 8),
-        (r"(?:datadog baa|datadog[^\n]*hipaa|monitoring tool[^\n]*phi)", "Potential HIPAA breach: PHI sent to Datadog without signed BAA", 8),
+        (r"(?:orthanc|cve-2023-33466|unpatched cve|unauthenticated remote read)", "Security vulnerability: unpatched critical CVE (allowing unauthenticated remote read of metadata)", 8),
+        (r"(?:datadog baa|datadog[^\n]*hipaa|monitoring tool[^\n]*phi)", "Security/compliance risk: transmission of sensitive PII/PHI to third-party without BAA", 8),
         (r"(?:drift monitoring|model drift|detect[^\n]*drift)", "No model drift monitoring or system to detect data distribution changes", 6),
-        (r"(?:static api key|keys[^\n]*not rotated|credential hygiene)", "Insecure credential hygiene: PACS integration uses static API keys not rotated in 18+ months", 7),
+        (r"(?:static api key|keys[^\n]*not rotated|credential hygiene)", "Security risk: insecure credential hygiene (static API keys not rotated regularly)", 7),
         (r"(?:single region|single-region|no multi-region|no disaster recovery|no dr plan|failover)", "Infrastructure risk: single-region AWS deployment with no disaster recovery or failover plan", 7),
-        (r"(?:training data bias|demographics|caucasian|minority|disparate performance|bias analysis)", "Model demographic bias: training dataset is 89% Caucasian with 8.8% sensitivity gap for Black patients", 7),
-        (r"(?:unpatched critical|critical findings|remediation status[^\n]*critical|bishop fox)", "Unpatched critical penetration test findings (unauthenticated DICOM endpoint)", 8),
+        (r"(?:training data bias|demographics|caucasian|minority|disparate performance|bias analysis)", "Model bias risk: significant performance gap across demographic subgroups in training data", 7),
+        (r"(?:unpatched critical|critical findings|remediation status[^\n]*critical|bishop fox)", "Security risk: unpatched critical findings from external penetration testing", 8),
+        (r"(?:heavy third-party model|dependence on foundation model|foundation model vendor|dependent on third-party model|dependence on open-source model|api model dependence|dependency on large language model|third-party model dependence|third-party model dependency)", "Technical risk: heavy dependence on third-party foundation model vendors (commercial API lock-in and pricing risk)", 7),
     ]
     _existing_tech_claims = {f["claim"] for f in tech_flags}
     for _pat, _claim, _sev in _tech_scans:
@@ -2925,6 +2945,9 @@ RULES (NEVER VIOLATE):
 2. "evidence" MUST be a verbatim substring quoted from the document — never paraphrase a number. Keep each evidence quote UNDER 160 characters.
 3. For each domain, list ALL material red flags you can justify from the text (financial fragility, litigation/regulatory exposure, EOL/insecure tech, undisclosed breaches, customer concentration, weak/declining market, competitive threats, governance issues). severity: 1-3 minor, 4-6 moderate, 7-8 serious, 9-10 dealbreaker. Be thorough — these drive the risk score.
 4. For "stack" capture the actual technologies/versions; for "security" capture the security posture; for "competition" capture named competitors. Do not capture unrelated prose.
+5. EXPLICITLY distinguish ARR (Annual Recurring Revenue) from historical or general revenue. If the document has a specific "ARR" figure and a "revenue" figure (e.g. FY2025 revenue), extract the "ARR" figure as ARR. Never output historical revenue as ARR.
+6. EXPLICITLY distinguish Customer Concentration (percentage of revenue/ARR from top customers, e.g. "Top customer contributes 22% revenue") from Customer Count (total number of customers, e.g. "127 customers"). Never output the total number of customers (customer count) as Customer Concentration.
+7. IGNORE appendix filler text or placeholder due-diligence templates (e.g. lines containing "This section contains additional investigation area #1..."). Do NOT extract them as actual litigation, compliance, or security findings. Set Litigation and Compliance to "Insufficient Evidence" if there is no real diligence data in the document.
 
 DOCUMENT:
 {text[:24000]}
@@ -3514,7 +3537,7 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     valuation = calc.get("valuation", "N/A")
     deal_text = f"{raise_amount} at {valuation} post"[:42]
     # Engine uses "PASS" to mean "pass on this deal" (i.e. reject); surface the real label
-    _verdict_label_map = {"PASS": "PASS (DO NOT INVEST)", "INVEST": "INVEST", "CONDITIONAL": "CONDITIONAL", "INSUFFICIENT EVIDENCE": "INSUFFICIENT EVIDENCE"}
+    _verdict_label_map = {"PASS": "PASS (DO NOT INVEST)", "INVEST": "INVEST", "CONDITIONAL": "CONDITIONAL", "INSUFFICIENT EVIDENCE": "INSUFFICIENT EVIDENCE", "NEEDS_MORE_DILIGENCE": "NEEDS_MORE_DILIGENCE"}
     decision_text = _verdict_label_map.get(calc_verdict, calc_verdict)[:42]
     
     coverage_score = calc.get("coverage_score", 0.0)
@@ -3558,7 +3581,15 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
         if gaps:
             reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", f"Note: {len(gaps)} diligence field(s) lacked sufficient evidence ({', '.join(gaps[:3])})."]
         else:
-            reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal.", "Compliance and technical audits passed review."]
+            reasons = ["Target company metrics align with investment thesis.", "TAM and sector timing support the deal."]
+            has_comp_gap = "Compliance" in gaps or any("compliance" in g.lower() for g in gaps)
+            has_tech_gap = "Security" in gaps or "Tech Stack" in gaps or any(w in g.lower() for g in gaps for w in ["security", "stack"])
+            if not has_comp_gap and not has_tech_gap:
+                reasons.append("Compliance and technical audits passed review.")
+            elif not has_comp_gap:
+                reasons.append("Compliance audits passed review.")
+            elif not has_tech_gap:
+                reasons.append("Technical audits passed review.")
             
     reasons_str = "\n".join(f"{i+1}. {r}" for i, r in enumerate(reasons))
     

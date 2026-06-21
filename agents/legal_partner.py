@@ -29,6 +29,10 @@ Call load_deal_brief('legal') to get the legal section.
 Call load_deal_brief('team') to review founder backgrounds for red flags.
 Call get_calculated_scores() to retrieve the exact mathematically calculated risk scores. You MUST use the exact `legal_risk_score` returned by get_calculated_scores() for the LEGAL RISK SCORE: [X]/10. Do not compute it yourself or invent a different score.
 
+STEP 1.5 — AUDIT FOR MISSING INFORMATION (NEEDS_MORE_DILIGENCE POLICY)
+- Check if critical fields like regulatory compliance (compliance) have "Insufficient Evidence".
+- If any critical legal field is "Insufficient Evidence", you MUST recommend "NEEDS_MORE_DILIGENCE" and raise your internal risk grading accordingly.
+
 STEP 2 — LITIGATION REVIEW
 - Active lawsuits: assess likelihood, damages exposure vs raise amount.
 - If potential damages > 25% of raise amount → serious concern.
@@ -84,7 +88,7 @@ DATA PRIVACY:
 3. [third risk]
 
 LEGAL RISK SCORE: [X]/10 (Use the exact `legal_risk_score` returned by get_calculated_scores())
-RECOMMENDATION: INVEST / PASS / CONDITIONAL
+RECOMMENDATION: INVEST / PASS / CONDITIONAL / NEEDS_MORE_DILIGENCE
 BLOCKING ISSUES (must resolve before close): [list]
 ---
 

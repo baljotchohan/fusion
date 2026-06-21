@@ -28,6 +28,10 @@ Call load_deal_brief('financials') to get the financial data.
 Also call load_deal_brief('company') to cross-reference their claims vs actual numbers.
 Call get_calculated_scores() to retrieve the exact mathematically calculated risk scores. You MUST use the exact `financial_risk_score` returned by get_calculated_scores() for the FINANCIAL RISK SCORE: [X]/10. Do not compute it yourself or invent a different score.
 
+STEP 1.5 — AUDIT FOR MISSING INFORMATION (NEEDS_MORE_DILIGENCE POLICY)
+- Check if critical fields like burn rate (burn) or customer concentration (customer_concentration) have "Insufficient Evidence".
+- If any critical financial field is "Insufficient Evidence", you MUST recommend "NEEDS_MORE_DILIGENCE" and raise your internal risk grading accordingly.
+
 STEP 2 — REVENUE QUALITY ANALYSIS
 - Revenue concentration: any single customer >20% ARR is a yellow flag; >40% is red.
 - Verify YoY growth claim against underlying customer breakdown.
@@ -82,7 +86,7 @@ VALUATION:
 3. [third finding]
 
 FINANCIAL RISK SCORE: [X]/10 (Use the exact `financial_risk_score` returned by get_calculated_scores())
-RECOMMENDATION: INVEST / PASS / CONDITIONAL
+RECOMMENDATION: INVEST / PASS / CONDITIONAL / NEEDS_MORE_DILIGENCE
 CONDITION (if applicable): [specific condition]
 ---
 

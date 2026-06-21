@@ -148,8 +148,8 @@ def parse_arrs_with_timeframes_from_text(text: str) -> List[Dict[str, Any]]:
         return []
     patterns = [
         # Allow common filler between the keyword and the figure: "ARR run rate is $X",
-        # "ARR of approximately $X", "revenue ~ $X", etc.
-        r"(?:arr|annual recurring revenue|revenue)\b\s*(?:run[\s-]?rate\s*)?(?::|is|of|at|=|-|—|\b)\s*(?:approximately\s*|approx\.?\s*|about\s*|around\s*|~\s*)?(\$[0-9\.,]+\s*(?:million|billion|m|b|k|thousand)?)",
+        # "ARR of approximately $X", "revenue ~ $X", "ARR is reported at $X", etc.
+        r"(?:arr|annual recurring revenue|revenue)\b\s*(?:run[\s-]?rate\s*)?(?::|is|of|at|=|-|—|\b)\s*(?:reported\s+at\s+|currently\s+|now\s+|approximately\s*|approx\.?\s*|about\s*|around\s*|~\s*)?(\$[0-9\.,]+\s*(?:million|billion|m|b|k|thousand)?)",
         r"(\$[0-9\.,]+\s*(?:million|m|billion|b)?)\s*arr"
     ]
     results = []
@@ -1037,6 +1037,12 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
         else: verdict = "PASS"
         if verdict == "INVEST" and (fin_score >= 7.0 or leg_score >= 7.0 or tech_score >= 7.0 or mkt_score >= 7.0):
             verdict = "CONDITIONAL"
+
+        # Demote INVEST and CONDITIONAL to NEEDS_MORE_DILIGENCE if any critical field has Insufficient Evidence
+        critical_fields = [burn, customer_concentration, security, compliance, competition]
+        has_insufficient_critical = any(f.get("value") == "Insufficient Evidence" for f in critical_fields)
+        if verdict in ("INVEST", "CONDITIONAL") and has_insufficient_critical:
+            verdict = "NEEDS_MORE_DILIGENCE"
 
     # Canonicalize to 1 decimal so the value MATCHES its ".1f" display everywhere
     # (the decision card + the report-generation integrity check). Without this a
