@@ -828,7 +828,11 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
     sim_state.active_uid = uid
     sim_state.running = True
     sim_state.touch()
-    sim_state.active_pitch_file = resolved_pitch
+    # Only update active_pitch_file when we have a real path — a None here would
+    # reset it to the post-reset default (novapay_pitch.json) and contaminate
+    # subsequent pitch loads for the entire run.
+    if resolved_pitch is not None:
+        sim_state.active_pitch_file = resolved_pitch
     sim_state.active_company_name = resolved_company
     sim_state.active_incident_id = deal_id
 
@@ -1453,7 +1457,21 @@ async def mock_llm_completions(request: Request):
         run_diligence_calculations, get_citation, format_red_flags
     )
     
-    pitch_data = _load_pitch_file()
+    # Load pitch from the incident record first — this is always correct for
+    # uploaded pitches and prevents the mock-LLM from drifting back to NovaPay
+    # when sim_state.active_pitch_file is stale or lost across task boundaries.
+    pitch_data = None
+    if inc_header:
+        try:
+            from core.memory_graph import MemoryGraph as _MG
+            _mg = _MG(uid=uid_header or "__public__")
+            _inc_rec = _mg.get_incident(inc_header)
+            if _inc_rec:
+                pitch_data = (_inc_rec.get("metadata") or {}).get("pitch_data") or _inc_rec.get("pitch_data")
+        except Exception:
+            pass
+    if not pitch_data:
+        pitch_data = _load_pitch_file()
     calc = run_diligence_calculations(pitch_data)
     
     company_name = calc["company_name"]

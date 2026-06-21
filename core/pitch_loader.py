@@ -188,37 +188,45 @@ def resolve_uploaded_pitch(company_name: str = None) -> tuple:
     import glob
     data_dir = os.path.join(os.path.dirname(__file__), "../data")
 
-    # 1. Search memory graph first (since it is the single source of truth for incidents)
+    # 1. Search memory graph first (single source of truth for incidents).
+    #    Check uid-scoped graph first so authenticated uploads are found before
+    #    falling back to the public graph. Return absolute paths so _load_pitch_file
+    #    can locate the file regardless of which directory it lives in.
     try:
         from core.memory_graph import MemoryGraph
-        m_graph = MemoryGraph()
-        incidents = m_graph.list_incidents()
-        
-        # Filter and sort incidents by created_at descending
-        matching_incidents = []
-        for inc_id, inc in incidents.items():
-            meta = inc.get("metadata") or {}
-            # We only care about uploads/submissions that have pitch_data
-            p_data = inc.get("pitch_data") or meta.get("pitch_data")
-            if p_data:
-                # Resolve company name
-                co = _company_name_of(p_data).lower()
-                created_at = inc.get("created_at", "")
-                matching_incidents.append((inc_id, co, created_at))
-                
-        # Sort by created_at desc
-        matching_incidents.sort(key=lambda x: x[2], reverse=True)
-        
-        if company_name:
-            key = str(company_name).strip().lower()
-            for inc_id, co, _ in matching_incidents:
-                if co and (key == co or key in co):
-                    return f"pitch_{inc_id}.json", inc_id
-        elif matching_incidents:
-            # Return the latest one
-            latest_inc_id = matching_incidents[0][0]
-            return f"pitch_{latest_inc_id}.json", latest_inc_id
-            
+        from core.auth import current_uid as _cuid
+        _uid = _cuid.get(None)
+        graphs = []
+        if _uid and _uid not in ("__public__", "__mcp_client__"):
+            graphs.append(MemoryGraph(uid=_uid))
+        graphs.append(MemoryGraph())  # public / default fallback
+
+        for m_graph in graphs:
+            incidents = m_graph.list_incidents()
+            matching_incidents = []
+            for inc_id, inc in incidents.items():
+                meta = inc.get("metadata") or {}
+                p_data = inc.get("pitch_data") or meta.get("pitch_data")
+                if p_data:
+                    co = _company_name_of(p_data).lower()
+                    created_at = inc.get("created_at", "")
+                    matching_incidents.append((inc_id, co, created_at, m_graph))
+            matching_incidents.sort(key=lambda x: x[2], reverse=True)
+
+            if company_name:
+                key = str(company_name).strip().lower()
+                for inc_id, co, _, mg in matching_incidents:
+                    if co and (key == co or key in co):
+                        # Return absolute path so pitch_loader finds it in any directory
+                        abs_path = str(mg.base_path / f"pitch_{inc_id}.json")
+                        if os.path.exists(abs_path):
+                            return abs_path, inc_id
+            elif matching_incidents:
+                inc_id, _, _, mg = matching_incidents[0]
+                abs_path = str(mg.base_path / f"pitch_{inc_id}.json")
+                if os.path.exists(abs_path):
+                    return abs_path, inc_id
+
     except Exception as e:
         logger.warning(f"[PitchLoader] Failed to resolve from memory graph: {e}")
 

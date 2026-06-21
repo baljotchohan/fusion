@@ -3352,7 +3352,20 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
                 
     for partner, finding in partner_findings.items():
         is_placeholder = "deal already concluded" in finding.lower() or "standing by" in finding.lower()
-        if not finding or is_placeholder:
+        # Last-resort contamination guard: if the stored finding explicitly names a
+        # different demo company, discard it so the PDF doesn't mix two deals.
+        is_contaminated = bool(
+            finding and company_name
+            and company_name.lower() not in finding.lower()
+            and any(
+                demo in finding.lower()
+                for demo in ["novapay", "neuraldx", "snaphire", "snapscore"]
+                if demo not in company_name.lower()
+            )
+        )
+        if is_contaminated:
+            logger.warning(f"[generate-report] Discarding contaminated {partner} finding (wrong company). Regenerating.")
+        if not finding or is_placeholder or is_contaminated:
             # Generate dynamically from calculations
             logger.info(f"[generate-report] Generating fallback report for {partner}")
             try:
