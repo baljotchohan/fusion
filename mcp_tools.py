@@ -135,7 +135,7 @@ async def dispatch(name: str, arguments: dict) -> dict:
     _success = True
     try:
         if name == "chat_with_managing_partner":
-            return await _api("POST", "/api/v1/chat", {"user_message": arguments["message"]})
+            return await _api("POST", "/api/v1/chat", {"user_message": arguments["message"][:8000]})
 
         if name == "get_deal_record":
             return await _api("GET", f"/api/v1/incident/{arguments['incident_id']}")
@@ -149,7 +149,7 @@ async def dispatch(name: str, arguments: dict) -> dict:
             }
 
         if name == "query_deal_vault":
-            limit = arguments.get("limit", 5)
+            limit = max(1, min(int(arguments.get("limit", 5)), 50))
             return await _api("GET", f"/api/v1/memory/similar/{arguments['keyword']}?limit={limit}")
 
         if name == "learn_risk_pattern":
@@ -171,6 +171,13 @@ async def dispatch(name: str, arguments: dict) -> dict:
             "error": f"FUSION API not reachable at {FUSION_API_URL}. "
                      "Start it with `python run.py` or set FUSION_API_URL."
         }
+    except httpx.HTTPStatusError as e:
+        _success = False
+        try:
+            detail = e.response.json().get("detail") or e.response.text
+        except Exception:
+            detail = e.response.text
+        return {"error": f"API error {e.response.status_code}: {detail}"}
     except KeyError as e:
         _success = False
         return {"error": f"Missing required argument: {e}"}

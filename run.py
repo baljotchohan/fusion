@@ -74,7 +74,8 @@ async def main():
 
     logger.info(f"Starting FUSION backend on port {port} and all 5 partner agents...")
 
-    tasks = [server.serve()] + [run_agent_with_delay(agent, i * 4.0) for i, agent in enumerate(agents)]
+    # 2s minimum gives FastAPI time to register event-bus listeners before agents start
+    tasks = [server.serve()] + [run_agent_with_delay(agent, 2.0 + i * 4.0) for i, agent in enumerate(agents)]
 
     try:
         await asyncio.gather(*tasks)

@@ -150,13 +150,16 @@ class MockBandBus:
                 if attempt < max_retries:
                     await asyncio.sleep(0.5 * (attempt + 1))
                 else:
-                    try:
-                        from core.event_bus import event_bus
-                        await event_bus.broadcast(agent.name, "alert", {
-                            "error": f"Failed to process message from {sender}: {str(e)[:200]}"
-                        })
-                    except Exception:
-                        pass
+                    # Don't emit "alert" for transient errors (TimeoutError, busy) —
+                    # those would prematurely clear the run lock.
+                    if not isinstance(e, (asyncio.TimeoutError, TimeoutError)):
+                        try:
+                            from core.event_bus import event_bus
+                            await event_bus.broadcast(agent.name, "alert", {
+                                "error": f"Failed to process message from {sender}: {str(e)[:200]}"
+                            })
+                        except Exception:
+                            pass
 
 
 # Global singleton mock bus

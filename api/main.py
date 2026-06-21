@@ -113,7 +113,9 @@ async def run_pipeline_watchdog(incident_id: str):
         while True:
             await asyncio.sleep(2)
             # If the simulation finished, or was reset, or a different deal is running, stop watchdog
-            if not sim_state.running or sim_state.active_incident_id != incident_id:
+            # Treat active_incident_id=None as transient state; only exit if a
+            # different (non-None) deal has taken over, or running went False.
+            if not sim_state.running or (sim_state.active_incident_id and sim_state.active_incident_id != incident_id):
                 logger.info(f"Watchdog: Finished for incident {incident_id}")
                 break
                 
@@ -183,11 +185,11 @@ async def force_partial_verdict(incident_id: str):
         readiness = calc.get("deal_readiness_score", 70)
         readiness_status = calc.get("deal_readiness_status", "AUDITING")
         
-        fin_risk = calc.get("fin_score", 5)
-        leg_risk = calc.get("leg_score", 5)
-        tech_risk = calc.get("tech_score", 5)
-        mkt_risk = calc.get("mkt_score", 5)
-        weighted_score = calc.get("weighted_score", 5.0)
+        fin_risk = calc.get("fin_score") or 5
+        leg_risk = calc.get("leg_score") or 5
+        tech_risk = calc.get("tech_score") or 5
+        mkt_risk = calc.get("mkt_score") or 5
+        weighted_score = calc.get("weighted_score") or 5.0
 
         # Gather whatever findings we have from the timeline
         findings = {}
@@ -418,10 +420,10 @@ async def _mp_verdict_safety_net(incident_id: str):
     token_uid = current_uid.set(uid)
     token_inc = current_incident_id.set(incident_id)
     try:
-        await asyncio.sleep(20)
+        await asyncio.sleep(45)
         if sim_state.active_incident_id == incident_id and not sim_state.deal_concluded:
             logger.warning(
-                f"Orchestrator: MP verdict not rendered within 20s for {incident_id} — forcing clean verdict."
+                f"Orchestrator: MP verdict not rendered within 45s for {incident_id} — forcing clean verdict."
             )
             await force_partial_verdict(incident_id)
     finally:
@@ -497,7 +499,7 @@ async def broadcast_event_to_websockets(event_data: dict):
                 # notice on its own (that under-fired and stalled deals).
                 sim_state._mp_verdict_triggered = True
                 logger.info("FastAPI: All 4 specialists done — triggering Managing Partner verdict synthesis.")
-                asyncio.create_task(_trigger_mp_verdict(sim_state.active_incident_id))
+                asyncio.create_task(_trigger_mp_verdict(incident_id))
 
         if event_data.get("agent") == "managing_partner" and event_data.get("status") == "done":
             output_data = event_data.get("output") or {}
@@ -535,9 +537,15 @@ async def broadcast_event_to_websockets(event_data: dict):
         # trigger lock so the next Simulate click starts a fresh run instead of
         # being ignored forever.
         if event_data.get("status") == "alert" and sim_state.running:
-            sim_state.running = False
-            _clear_agent_busy_flags()
-            logger.warning("FastAPI: Agent error broke the chain — simulation lock released.")
+            # Delay the lock release so other in-flight agents can still complete normally.
+            # If the deal concludes on its own in this window, the task is a no-op.
+            async def _delayed_alert_release(_iid=incident_id):
+                await asyncio.sleep(8)
+                if sim_state.running and not sim_state.deal_concluded:
+                    sim_state.running = False
+                    _clear_agent_busy_flags()
+                    logger.warning("FastAPI: Agent alert — simulation lock released after grace period.")
+            asyncio.create_task(_delayed_alert_release())
 
         targets = active_websockets.get(uid, set())
         if not targets:
@@ -602,10 +610,10 @@ async def _mcp_slash_redirect(request: Request):
 app.mount("/mcp", _mcp_http_app)
 
 # Enable CORS for the Next.js War Room dashboard
-ALLOWED_ORIGINS = os.getenv(
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv(
     "ALLOWED_ORIGINS",
     "http://localhost:3000"
-).split(",")
+).split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
@@ -661,10 +669,13 @@ async def set_request_context(request: Request, call_next):
             username = uid
 
     from core.auth import current_uid, current_username
-    current_uid.set(uid)
-    current_username.set(username)
-
-    return await call_next(request)
+    token_uid = current_uid.set(uid)
+    token_usr = current_username.set(username)
+    try:
+        return await call_next(request)
+    finally:
+        current_uid.reset(token_uid)
+        current_username.reset(token_usr)
 
 
 @app.middleware("http")
@@ -761,13 +772,14 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
     # Signed-in users: no cooldown, no session limit — full access
     # Anonymous demo users: 2 committee sessions per week
     from api.state import count_sessions_this_week, record_session as _record_session
+    _sess_key = None
     if not uid:
         _client_ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
         _sess_key = f"anon:{_client_ip}"
         _sess_used = count_sessions_this_week(_sess_key)
         if _sess_used >= 14:
             return {"status": "session_limit", "message": "Demo limit reached (14 sessions/week). Sign in for unlimited access.", "used": _sess_used, "limit": 14, "mode": "mock" if is_mock_mode() else "real"}
-        _record_session(_sess_key)
+        # Session is recorded only after the deal actually starts (below).
 
     try:
         from core.demo_registry import resolve_pitch_file
@@ -839,7 +851,18 @@ async def trigger_deal(request: Request, company: Optional[str] = None, raise_am
     try:
         from core.pitch_loader import clear_pitch_cache
         company = sim_state.active_company_name
-        memory_graph.create_incident(deal_id, {"trigger": "pitch_submission", "company": company})
+        # Preserve pitch_data if reusing an upload incident (create_incident overwrites metadata)
+        _meta = {"trigger": "pitch_submission", "company": company}
+        _existing = memory_graph.get_incident(deal_id)
+        if _existing:
+            _pd = _existing.get("metadata", {}).get("pitch_data")
+            if _pd:
+                _meta["pitch_data"] = _pd
+        memory_graph.create_incident(deal_id, _meta)
+        # Record anon session only after deal actually starts — not before, so a
+        # failed create_incident doesn't burn the user's weekly quota.
+        if _sess_key:
+            _record_session(_sess_key)
         sim_state.dispatched_deals.clear()   # fresh run — nothing dispatched yet
         clear_pitch_cache()
 

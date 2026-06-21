@@ -261,7 +261,7 @@ class MemoryGraph:
         # Mirror updated incident to Firestore
         try:
             from core.firestore_memory import fs_save_incident
-            fs_save_incident(self._resolved_uid, incident_id, updated)
+            fs_save_incident(self._resolved_uid or "__public__", incident_id, updated)
         except Exception:
             pass
         return True
@@ -277,7 +277,7 @@ class MemoryGraph:
         # Mirror to Firestore
         try:
             from core.firestore_memory import fs_save_incident
-            fs_save_incident(self._resolved_uid, incident_id, updated)
+            fs_save_incident(self._resolved_uid or "__public__", incident_id, updated)
         except Exception:
             pass
         return True
@@ -316,7 +316,7 @@ class MemoryGraph:
         success_rate: float = 0.8,
     ):
         """Team learns: this MITRE technique is best blocked by X."""
-        with _LOCK:
+        async with _ASYNC_LOCK:
             patterns = self._read_file(self.patterns_file)
             patterns.setdefault(mitre_id, []).append({
                 "detection": detection_method,

@@ -27,7 +27,7 @@ ANALYSIS FRAMEWORK:
 
 STEP 1 — LOAD AND CALCULATE DATA
 Call load_deal_brief('market') to get market data.
-Call load_deal_brief('pitch_claims') and load_deal_brief('company') to cross-reference
+Call load_deal_brief('company') to cross-reference
 the company's market size and growth claims against actual sector data.
 Call get_calculated_scores() to retrieve the exact mathematically calculated risk scores. You MUST use the exact `market_risk_score` returned by get_calculated_scores() for the MARKET RISK SCORE: [X]/10. Do not compute it yourself or invent a different score.
 

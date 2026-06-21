@@ -588,7 +588,13 @@ def _run_diligence_calculations_impl(pitch_data: Dict[str, Any]) -> Dict[str, An
         if concentration_val > 50.0: fin_score += 2.0
         if concentration_val > 70.0:
             fin_score += 1.0
-            cliff_check_str = (str(customer_concentration.get("evidence", "")) + str(pitch_data)).lower()
+            # Check concentration evidence + the pitch's own red_flags + customer breakdown
+            # (the keywords appear in red_flags, not in the synthesized evidence string).
+            cliff_check_str = (
+                str(customer_concentration.get("evidence", "")) +
+                str(pitch_data.get("financials", {}).get("red_flags", [])) +
+                str(pitch_data.get("financials", {}).get("customer_revenue_breakdown", []))
+            ).lower()
             if any(w in cliff_check_str for w in ["termination-for-convenience", "vendor consolidation", "expires in 3 months", "contract expires sept 30, 2026", "renewal in 3 months", "3 months after close"]):
                 fin_score += 1.0
     fin_score = min(10.0, fin_score)

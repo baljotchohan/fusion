@@ -75,7 +75,10 @@ def _load_pitch_file(filename: str = None) -> dict:
             from api.state import sim_state
             data_dir = os.path.join(os.path.dirname(__file__), "../data")
             active = getattr(sim_state, "active_pitch_file", None)
-            if active and os.path.exists(os.path.join(data_dir, active)):
+            # active_pitch_file may be an absolute path (uploaded pitch in uid-scoped dir)
+            if active and (os.path.isabs(active) and os.path.exists(active)):
+                filename = active
+            elif active and os.path.exists(os.path.join(data_dir, active)):
                 filename = active
             elif sim_state.active_incident_id:
                 uploaded_filename = f"pitch_{sim_state.active_incident_id}.json"
@@ -209,7 +212,7 @@ def resolve_uploaded_pitch(company_name: str = None) -> tuple:
         if company_name:
             key = str(company_name).strip().lower()
             for inc_id, co, _ in matching_incidents:
-                if co and (key == co or key in co or co in key):
+                if co and (key == co or key in co):
                     return f"pitch_{inc_id}.json", inc_id
         elif matching_incidents:
             # Return the latest one

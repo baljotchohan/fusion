@@ -520,10 +520,13 @@ export default function FUSION() {
   }
 
   const triggerDealSimulation = async (companyName: string = 'NovaPay Inc') => {
+    if (isSimulating) return
+    setIsSimulating(true)
     try {
       const res = await apiFetch(`${API_BASE}/api/trigger-deal?company=${encodeURIComponent(companyName)}`, { method: 'POST' })
       const data = await res.json()
       if (data.status === 'already_running') {
+        setIsSimulating(false)
         alert(data.message || 'Another committee session is currently active. Please wait or reset the simulation.')
         return
       }
@@ -531,7 +534,7 @@ export default function FUSION() {
       // Immediately show managing partner as active so the animation starts the moment
       // the user clicks — eliminates the blank gap while waiting for the first WS event.
       setAgentStates({ managing_partner: 'working', financial_partner: 'idle', legal_partner: 'idle', technical_partner: 'idle', market_partner: 'idle' })
-      setIsSimulating(true); setActiveCompany(companyName); setTab('overview'); setOverviewTab('roundtable')
+      setActiveCompany(companyName); setTab('overview'); setOverviewTab('roundtable')
       logActivity('deal_simulated', { company: companyName })
       if (data.deal_id) setActiveIncidentId(data.deal_id)
     } catch {
@@ -1302,10 +1305,11 @@ export default function FUSION() {
                         isSimulating={isSimulating}
                         partialConfidence={partialConfidence}
                         onDownloadPdf={async () => {
+                          if (!activeIncidentId) { alert('No active deal — run an evaluation first.'); return }
                           logActivity('report_download', { format: 'pdf', incidentId: activeIncidentId })
                           const token = await getCurrentIdToken().catch(() => null)
                           const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
-                          const url = `${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=pdf${tokenParam}`
+                          const url = `${API_BASE}/api/v1/generate-report?incident_id=${activeIncidentId}&format=pdf${tokenParam}`
                           try {
                             const res = await fetch(url)
                             if (!res.ok) {
@@ -1326,10 +1330,11 @@ export default function FUSION() {
                           }
                         }}
                         onDownloadMd={async () => {
+                          if (!activeIncidentId) { alert('No active deal — run an evaluation first.'); return }
                           logActivity('report_download', { format: 'md', incidentId: activeIncidentId })
                           const token = await getCurrentIdToken().catch(() => null)
                           const tokenParam = token ? `&token=${encodeURIComponent(token)}` : ''
-                          const url = `${API_BASE}/api/v1/generate-report?${activeIncidentId ? `incident_id=${activeIncidentId}&` : ''}format=md${tokenParam}`
+                          const url = `${API_BASE}/api/v1/generate-report?incident_id=${activeIncidentId}&format=md${tokenParam}`
                           try {
                             const res = await fetch(url)
                             if (!res.ok) {

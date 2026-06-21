@@ -49,17 +49,18 @@ class EventBus:
         
         logger.info(f"Broadcasting event: Agent={agent_name}, Status={status}")
         
-        # Snapshot the list so register/unregister during broadcast is safe
-        for listener in list(self._listeners):
+        # Fan out to all listeners concurrently so a slow WebSocket client
+        # (back-pressure) doesn't delay the broadcasting agent coroutine.
+        import asyncio as _asyncio, inspect as _inspect
+        async def _call(listener):
             try:
-                # If listener is a coroutine function, await it, otherwise run it
-                import inspect
-                if inspect.iscoroutinefunction(listener):
+                if _inspect.iscoroutinefunction(listener):
                     await listener(event_data)
                 else:
                     listener(event_data)
             except Exception as e:
                 logger.error(f"Error calling event bus listener: {e}")
+        await _asyncio.gather(*[_call(l) for l in list(self._listeners)], return_exceptions=True)
 
 # Global singleton event bus
 event_bus = EventBus()

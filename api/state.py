@@ -58,14 +58,14 @@ class SimulationState:
         # If incident_id is not in context, try to look up or find an active one for the uid
         if not incident_id:
             active_state = None
-            for key, state in self._states.items():
+            for key, state in list(self._states.items()):
                 if key.startswith(f"{uid}:") and state.get("running"):
                     active_state = state
                     break
             if active_state:
                 return active_state
 
-            user_keys = [k for k in self._states.keys() if k.startswith(f"{uid}:")]
+            user_keys = [k for k in list(self._states.keys()) if k.startswith(f"{uid}:")]
             if user_keys:
                 user_keys.sort(key=lambda k: self._states[k].get("last_event_at", 0), reverse=True)
                 return self._states[user_keys[0]]

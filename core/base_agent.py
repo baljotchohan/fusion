@@ -457,7 +457,7 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
         if not is_mentioned and msg.content and ("@" + agent_name_clean) in msg.content.lower():
             is_mentioned = True
 
-        is_ic = self._argus_agent_name in ("incident_commander", "managing_partner")
+        is_ic = self._argus_agent_name == "managing_partner"
         is_from_user = msg.sender_type == "User"
 
         # A human directly @-mentioning this agent is a live question, NOT part of the
@@ -1233,13 +1233,23 @@ class BaseAgent:
         try:
             queue = self._message_queues.get(queue_key)
             if queue:
-                while not queue.empty():
-                    sender, message = await queue.get()
-                    await self._handle_single_message(sender, message)
-        except Exception as e:
-            logger.error(f"[{self.display_name}] Queue drain error for {uid}:{incident_id}: {e}")
+                while True:
+                    try:
+                        sender, message = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    try:
+                        await self._handle_single_message(sender, message)
+                    except Exception as e:
+                        logger.error(f"[{self.display_name}] Error handling message from '{sender}': {e}")
         finally:
+            # Clear the flag BEFORE checking emptiness so a concurrent enqueue sees
+            # the flag as False and can start a new drain if needed.
             self._queue_processors[queue_key] = False
+            queue = self._message_queues.get(queue_key)
+            if queue and not queue.empty() and not self._queue_processors.get(queue_key):
+                self._queue_processors[queue_key] = True
+                asyncio.create_task(self._drain_message_queue_for_key(queue_key))
             current_uid.reset(token_ctx)
             current_username.reset(username_ctx)
             current_incident_id.reset(incident_ctx)
@@ -1296,6 +1306,10 @@ class BaseAgent:
 
             # Broadcast "done" state with final report
             await event_bus.broadcast(self.name, "done", {"report": final_thought})
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            # LLM timed out — band_client will retry and fall to local executor.
+            # Don't broadcast alert here; an alert clears the run lock prematurely.
+            logger.warning(f"[{self.display_name}] LLM executor timed out: {e}")
         except Exception as e:
             logger.error(f"[{self.display_name}] Error running agent: {e}")
             await event_bus.broadcast(self.name, "alert", {"error": str(e)})

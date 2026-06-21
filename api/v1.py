@@ -958,6 +958,12 @@ async def chat_with_commander(msg: ChatMessage, request: Request = None):
                 })
                 await _dispatch_incident(incident_id, msg.user_message)
                 dispatched = True
+                # Start watchdog so a stalled chat-triggered deal can't wedge the lock forever.
+                try:
+                    from api.main import run_pipeline_watchdog
+                    asyncio.create_task(run_pipeline_watchdog(incident_id))
+                except Exception:
+                    pass
             except Exception:
                 # Release the run-lock so a failed dispatch doesn't wedge this user's
                 # namespace until the 300s staleness watchdog trips. (This chat path
@@ -2888,7 +2894,7 @@ async def parse_and_structure_file(text: str, filename: str, incident_id: str) -
     # Deterministic/instant by default: skip the (potentially slow, rate-limited)
     # LLM enrichment call and return regex-extracted facts immediately. Opt back
     # into LLM-first extraction with ARGUS_LLM_UPLOAD_PARSE=true.
-    if os.getenv("ARGUS_LLM_UPLOAD_PARSE", "true").strip().lower() not in ("1", "true", "yes"):
+    if os.getenv("ARGUS_LLM_UPLOAD_PARSE", "false").strip().lower() not in ("1", "true", "yes"):
         return regex_data
 
     llm_router = get_router()
@@ -3061,15 +3067,19 @@ async def upload_pitch_document(
     incident_id = _new_incident_id()
     files_text = {}
     structured_data = None
-    
+    max_bytes = int(sim_state.max_file_size_mb * 1024 * 1024)
+    total_bytes = 0
+
     for u_file in uploaded_files:
-        max_bytes = int(sim_state.max_file_size_mb * 1024 * 1024)
         content = await u_file.read(max_bytes + 1)
         if len(content) > max_bytes:
             raise HTTPException(
                 status_code=400,
                 detail=f"File {u_file.filename} exceeds size limit of {sim_state.max_file_size_mb}MB"
             )
+        total_bytes += len(content)
+        if total_bytes > max_bytes * 3:
+            raise HTTPException(status_code=400, detail=f"Total upload exceeds {sim_state.max_file_size_mb * 3}MB combined limit")
             
         filename = u_file.filename or "uploaded_doc"
         
@@ -3202,7 +3212,7 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
         if inc:
             user_memory = public_memory  # use the store that actually has the data
     if not inc:
-        raise HTTPException(status_code=400, detail="Deal record not found. The evaluation may have expired — please re-run the analysis.")
+        raise HTTPException(status_code=404, detail="Deal record not found. The evaluation may have expired — please re-run the analysis.")
         
     raw_company = inc["metadata"].get("company", "NovaPay Inc")
     if isinstance(raw_company, dict):
@@ -3235,18 +3245,24 @@ async def generate_research_report(request: Request, incident_id: Optional[str] 
     if pitch_data:
         logger.info(f"[generate-report] Using pitch_data from incident metadata for {incident_id}")
     else:
-        # Priority 2: pitch_{incident_id}.json on disk (uploaded file saved to disk)
+        # Priority 2: pitch_{incident_id}.json on disk
         try:
             import os
             from core.demo_registry import resolve_pitch_file
             data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
             pitch_file = f"pitch_{incident_id}.json"
-            if not os.path.exists(os.path.join(data_dir, pitch_file)):
+            # 2a: user-scoped memory dir (where uploads are actually saved)
+            user_pitch_path = str(user_memory.base_path / pitch_file)
+            if os.path.exists(user_pitch_path):
+                pitch_data = _load_pitch_file(user_pitch_path)
+            elif os.path.exists(os.path.join(data_dir, pitch_file)):
+                # 2b: data/ dir
+                pitch_data = _load_pitch_file(pitch_file)
+            else:
                 # Priority 3: match a demo deal by company name
                 demo_file = resolve_pitch_file(company_name)
-                pitch_file = demo_file if demo_file else None
-            if pitch_file:
-                pitch_data = _load_pitch_file(pitch_file)
+                if demo_file:
+                    pitch_data = _load_pitch_file(demo_file)
         except Exception as e:
             logger.warning(f"Failed to load pitch file for incident {incident_id}: {e}")
 

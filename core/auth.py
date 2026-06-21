@@ -163,5 +163,5 @@ async def get_uid_optional(request: Request) -> str | None:
     """Returns uid or None — for public endpoints that work with or without auth."""
     try:
         return await get_uid(request)
-    except HTTPException:
+    except Exception:
         return None

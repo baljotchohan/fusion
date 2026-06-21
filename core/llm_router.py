@@ -86,7 +86,10 @@ class LLMRouter:
         timeout: float = DEFAULT_TIMEOUT,
     ) -> str:
         """Route a prompt to a provider, falling back down the chain on errors."""
-        providers = self.chain if model == "auto" else [model]
+        # Non-"auto" model strings are provider keys (e.g. "aimlapi"), not model names.
+        # If the string isn't a known provider key, fall back to the full chain so
+        # callers passing a model name (e.g. "gpt-4o-mini") don't silently get nothing.
+        providers = self.chain if model == "auto" or model not in self.keys else [model]
         if not providers:
             raise RuntimeError("No LLM provider configured. Set AIMLAPI_KEY and/or FEATHERLESS_API_KEY.")
 

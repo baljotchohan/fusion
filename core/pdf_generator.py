@@ -8,18 +8,22 @@ and every page carries consistent header / footer chrome.
 import io
 import os
 import re
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, KeepTogether, HRFlowable, Image, Flowable,
-)
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib.utils import ImageReader
-from reportlab.pdfgen import canvas
-from reportlab.graphics.shapes import Drawing, Rect, String as GStr, Line as GLine
-from reportlab.graphics import renderPDF
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+        PageBreak, KeepTogether, HRFlowable, Image, Flowable,
+    )
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+    from reportlab.graphics.shapes import Drawing, Rect, String as GStr, Line as GLine
+    from reportlab.graphics import renderPDF
+    _REPORTLAB_AVAILABLE = True
+except ImportError:
+    _REPORTLAB_AVAILABLE = False
 
 # ── Brand palette ──────────────────────────────────────────────────────────────
 C_SLATE_900  = colors.HexColor("#0f172a")
@@ -159,8 +163,9 @@ def clean_unicode_and_emojis(text: str) -> str:
     for k, v in replacements.items():
         text = text.replace(k, v)
     text = text.replace("Warning:  Potential Conflict:", "Potential Conflict:")
-    cleaned = [c for c in text if ord(c) <= 255]
-    text = "".join(cleaned)
+    # ReportLab's built-in fonts only support Latin-1; replace anything outside
+    # U+00FF with '?' rather than silently dropping it (which creates invisible gaps).
+    text = "".join(c if ord(c) <= 255 else "?" for c in text)
     text = text.replace("&", "&amp;").replace("&amp;amp;", "&amp;")
     text = text.replace("<", "&lt;").replace(">", "&gt;")
     for tag in ["b", "i", "u", "strong", "em"]:
@@ -537,6 +542,8 @@ def compile_pdf_report(report_md: str, company_name: str) -> bytes:
       Page 3  — Risk Analysis Scorecard (2×2 grid + bar chart)
       Page 4+ — One dedicated page per partner agent
     """
+    if not _REPORTLAB_AVAILABLE:
+        raise RuntimeError("reportlab is not installed — PDF generation unavailable. Run: pip install reportlab")
     report_md = _strip_agent_internals(report_md)
     buffer = io.BytesIO()
 

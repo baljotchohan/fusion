@@ -41,7 +41,9 @@ def _init() -> bool:
         return True
     except Exception as exc:
         logger.error("RTDB init failed: %s", exc)
-        _ready = True   # permanent failure — stop retrying
+        # Don't set _ready=True for transient errors (network, SDK not loaded yet)
+        # so the next write attempt will retry. Only permanent config failures
+        # (no URL, bad credentials) set _ready above via early returns.
         return False
 
 
@@ -75,7 +77,11 @@ def clean_key(s: str) -> str:
     """Normalize a string to be a safe Firebase Realtime Database path key."""
     if not s:
         return "unknown"
-    return "".join(c for c in s if c.isalnum() or c in ("-", "_")).lower()
+    # Replace common separators before stripping so user@a.com → user-at-a-com
+    # (not useracom which collides with user.a.com → useracom).
+    s = s.replace("@", "-at-").replace(".", "-")
+    return ("".join(c for c in s if c.isalnum() or c in ("-", "_")).strip("-").lower()
+            or "unknown")
 
 
 def get_user_folder(uid: str) -> str:
