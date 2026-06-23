@@ -1,7 +1,7 @@
 # FUSION — Project Memory File
 > Drop this file in ~/Desktop/fusion/ as FUSION_MEMORY.md
 > Claude Code reads this automatically for full project context.
-> Last updated: Jun 13, 2026
+> Last updated: Jun 23, 2026
 
 ---
 
@@ -117,30 +117,25 @@ Tools: Gemini API key, Featherless $25 credits, AI/ML API $10 credits, Ollama lo
 
 ---
 
-## Current Codebase State (Jun 13, 2026)
+## Current Codebase State (Jun 23, 2026)
 
-### ✅ Working
+### ✅ Working / Completed
 - FastAPI backend running on localhost:8000
-- 5 agents wired to Band rooms (mock mode)
+- 5 agents wired to Band rooms (both mock and real modes supported)
 - Memory graph (Graphify) — incidents, patterns, chat history persist
 - Managing Partner chat with LLM works (Gemini primary)
 - Intent classification + thinking steps animation
 - WebSocket event streaming to frontend
 - Next.js frontend running on localhost:3000
-- Verdict rendering (risk score, confidence, PASS/INVEST/CONDITIONAL)
-- Download Research Report button (UI only, not wired)
-- MCP server file exists
-
-### ❌ Not Built Yet (FUSION_COOK.md fixes these)
-- `/api/v1/upload-pitch` endpoint — does not exist
-- `pitch_loader.py` is hardcoded to `novapay_pitch.json` regardless of upload
-- `state.py` missing `active_pitch_file` field
-- `@mention` routing — all chat goes to Managing Partner only
-- `/api/v1/generate-report` endpoint — does not exist
-- Frontend uploader wired to nothing
-- Download Report button calls nothing
-- `llm_router.py` system prompt says "cybersecurity expert / ARGUS SOC team" (wrong)
-- `pypdf` not in requirements.txt
+- Verdict rendering (risk score, confidence, PASS/INVEST/CONDITIONAL/INSUFFICIENT EVIDENCE)
+- Download Research Report button fully wired (serves dynamically generated PDF and Markdown reports)
+- `/api/v1/upload-pitch` endpoint fully built (supports JSON, PDF, TXT, and MD pitch uploads)
+- Pitch parsing logic dynamically maps uploaded pitches instead of hardcoding `novapay_pitch.json`
+- `state.py` has active session tracking for dynamic pitch routing
+- `@mention` routing fully wired across all rooms and agents
+- `llm_router.py` system prompts aligned with VC partner personas
+- `pypdf` integrated for parsing PDF pitch decks
+- MCP server fully operational for stdio clients
 
 ---
 
@@ -286,21 +281,19 @@ graphify export obsidian --dir obsidian_vault
 
 ## Hackathon Checklist
 
-### Remaining (as of Jun 13)
-- [ ] Apply FUSION_COOK.md (upload + @mention + report gen)
-- [ ] Band real mode — 5 new rooms + agent keys in agent_config.yaml
+### Done
+- [x] Apply FUSION_COOK.md (upload + @mention + report gen)
+- [x] Band real mode — 5 new rooms + agent keys in agent_config.yaml
 - [x] Hugging Face Spaces backend live URL (https://baljot07-fusion.hf.space)
 - [x] Vercel frontend live URL (https://fusionos.vercel.app)
-- [ ] AI/ML API wired in llm_router (partner prize: $1k cash + $1k credits)
-- [ ] End-to-end NovaPay demo run under 5 minutes
-- [ ] Record video ≤5min (split screen: Boardroom UI left, band.ai right)
-- [ ] Create slides (required — not optional)
-- [ ] Cover image (boardroom + 5 agent cards + PASS verdict)
-- [ ] Fill lablab.ai submission form
-- [ ] Submit before Jun 19, 8:30 PM IST
-- [ ] Tweet @lablabai @band @FeatherlessAI immediately after
-
-### Done
+- [x] AI/ML API wired in llm_router (partner prize: $1k cash + $1k credits)
+- [x] End-to-end NovaPay demo run under 5 minutes
+- [x] Record video ≤5min (split screen: Boardroom UI left, band.ai right)
+- [x] Create slides (required — not optional)
+- [x] Cover image (boardroom + 5 agent cards + PASS verdict)
+- [x] Fill lablab.ai submission form
+- [x] Submit before Jun 19, 8:30 PM IST
+- [x] Tweet @lablabai @band @FeatherlessAI immediately after
 - [x] Codebase built and running
 - [x] 5 agents on Band rooms (mock mode)
 - [x] Memory graph working

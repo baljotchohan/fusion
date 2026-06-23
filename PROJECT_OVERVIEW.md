@@ -1,139 +1,120 @@
-# ARGUS — Full Project Overview & Architecture Guide
+# FUSION — Full Project Overview & Architecture Guide
 
-Welcome to **ARGUS**, the Autonomous Cyber Defense Command Center. This document explains what ARGUS is, how it is structured, its key features, and how the 9 specialized AI agents collaborate to defend a company against attacks in plain, easy-to-understand language.
+Welcome to **FUSION**, the AI-Powered Venture Capital Investment Committee. This document explains what FUSION is, how it is structured, its key features, and how the 5 specialized AI VC partner agents collaborate to conduct due diligence, debate issues in real-time, and deliver a unified investment verdict.
 
 ---
 
-## 1. What is ARGUS? (The Big Picture)
-Think of ARGUS as a **digital cybersecurity war room** run entirely by AI. Instead of a single AI trying to do everything, ARGUS uses a **swarm of 9 specialized AI agents** (like Threat Intel, Recon, Red Team, and Blue Team). 
+## 1. What is FUSION? (The Big Picture)
 
-When an alert comes in (like a phishing email), the agents talk to each other in real-time over the **Band AI Platform** (app.thenvoi.com) using `@mentions` to investigate, simulate, analyze, and defend the network, culminating in a boardroom decision by a CEO agent.
+FUSION is a **digital venture capital war room** run entirely by AI. Instead of evaluating startups in separate silos (where the lawyer doesn't speak to the system architect, and the financial analyst misses the patent litigation), FUSION deploys a **swarm of 5 specialized AI partner agents** to audit a startup simultaneously:
+
+1. **Managing Partner** (Committee Chair — orchestrates the review and delivers the final verdict)
+2. **Financial Partner** (Forensic Accounting — TAM, burn rate, LTV:CAC, runway)
+3. **Legal Partner** (M&A Legal — litigation exposure, state licensing, regulatory compliance, IP status)
+4. **Technical Partner** (System Architecture & Security — EOL stacks, SSN storage, data security, scalability)
+5. **Market Partner** (Market Research — sector growth, competition, industry headwinds)
+
+The swarm collaborates via the **Band AI Platform** using `@mentions` to share findings, identify contradictions in the data room, run boardroom debates, and compute a final weighted risk scorecard.
 
 ---
 
 ## 2. Core Features
 
 ### 📡 Real-Time WebSocket Collaboration
-All 9 agents connect directly to Band.ai using live WebSocket connections. They listen to a shared chat room and **only wake up when explicitly `@mentioned`**. This keeps them coordinated and prevents them from talking over one another.
+All 5 partner agents connect directly to the Band AI Platform (or an in-process mock bus). They communicate via WebSocket channels and **only activate when explicitly `@mentioned`**, allowing them to hold structured boardroom conversations without talking over one another.
 
-### 🧠 Shared Team Memory Graph
-The agents share a memory graph. If the team has handled a specific attack before (like a known phishing technique), they query the memory graph, see what defensive actions worked, and reuse the solution. When a new defense works, they write it back to memory.
+### 🧠 Shared Team Memory Graph (Graphify)
+The agents share a JSON-backed memory graph (located under `fusion_memory/`). FUSION logs every deal history, timeline, and learned risk pattern. If a startup presents a pattern the team has audited before, the agents reference past precedents to make faster, more consistent recommendations.
 
 ### 🛡️ Automatic LLM Fallback (Resilient Mode)
-If the primary LLM (Groq or Gemini) fails (e.g., due to rate limits or API outage), the system automatically degrades to a **local simulation engine** (`/mock-llm`) running Server-Sent Events (SSE) streaming. This ensures the defense pipeline never crashes.
+To ensure the diligence pipeline never crashes, the `llm_router.py` features a multi-provider fallback chain (Gemini -> Groq -> Featherless -> AI/ML API). If all cloud providers fail or keys are absent, the system degrades to a **local simulation engine** (`/mock-llm`) running OpenAI-compatible mock responses that stream deterministic, calculation-backed outcomes.
 
 ### 📊 Live Next.js Web Dashboard
-A beautiful web dashboard with visual node graphs shows the real-time status of each agent, active incidents, memory logs, and allows users to trigger attack simulations.
+A beautiful, real-time web dashboard showing the status of each agent (idle, auditing, debating), active deal timelines, live discussion logs, and the final interactive risk scorecard. It also supports custom pitch uploads (JSON, PDF, TXT, MD) and downloads of generated reports.
+
+### 📄 Branded Report Generator
+A ReportLab-based document compiler (`pdf_generator.py`) that exports publication-grade diligence reports. It formats the final committee verdict, risk scorecard, SWOT metrics, partner report cards, and targeted questions into Markdown and print-ready PDFs.
+
+### 🔌 Model Context Protocol (MCP) Server
+An enterprise-ready MCP server (`mcp_server.py`) that exposes the Investment Committee's capabilities as tools (`chat_with_managing_partner`, `get_deal_record`, etc.) to external AI clients like Claude Desktop.
 
 ---
 
 ## 3. How the Swarm Collaborates (Step-by-Step Flow)
 
-Here is exactly how the agents hand off tasks to one another when a phishing email is detected:
+Here is how the partners coordinate when a pitch deck is uploaded:
 
 ```
-[Trigger] ──> @Threat-Intel (Analyzes alert)
-                   │
-                   └──> @Incident-Commander (Coordinates the response)
-                             │
-                             ├──> @Recon (Maps vulnerable systems)
-                             ├──> @Detection (Scans mail/server logs)
-                             │
-                             └──> [Reports returned to Commander]
-                                       │
-                                       ├──> @Red-Team (Simulates attack path)
-                                       ├──> @Malware-Investigation (Analyzes file)
-                                       │
-                                       └──> [Reports returned to Commander]
-                                                 │
-                                                 └──> @Attack-Path (Calculates Risk Score)
-                                                           │
-                                                           └──> If Risk >= 70:
-                                                                 ├──> @Blue-Team (Writes playbook)
-                                                                 └──> @Executive-Decision (C-Suite Verdict)
+[Pitch Uploaded / Trigger Deal]
+              │
+              ▼
+      💼 Managing Partner
+              │
+              ├─► @financial-partner (Audits unit economics, burn, runway)
+              ├─► @legal-partner     (Audits lawsuits, licenses, regulatory risks)
+              ├─► @technical-partner (Audits EOL tech debt, plaintext PII leaks)
+              └─► @market-partner    (Audits TAM validity, industry headwinds)
+              │
+              ▼
+    [Specialists Report Back to Room]
+              │
+              ▼
+   👥 Boardroom Debate Round (Managing Partner resolves partner disagreements)
+              │
+              ▼
+    ⚖️ Weighted Committee Verdict (Calculates exact 1-10 risk scorecard)
+              │
+              ▼
+    📄 Publication-Grade PDF/MD Report Compiled
 ```
 
 ---
 
-## 4. The 9 Specialized Agents
-
-Here is a summary of the 9 agents, their roles, and what tools they use:
-
-| # | Agent Name | Band Handle | Role / Action | Key Tools |
-|---|---|---|---|---|
-| **1** | **Incident Commander** | `@baljotchohan23/incident-commander` | The brain and router. Monitors the chat, tracks the timeline, and recruits specialists. | `build_incident_timeline`, `assess_escalation_needed` |
-| **2** | **Threat Intelligence** | `@baljotchohan23/threat-intel` | Analyzes incoming alerts, matches MITRE TTPs, and looks up CVEs. | `search_mitre_attack`, `lookup_cve` |
-| **3** | **Recon** | `@baljotchohan23/recon` | Maps the digital twin network topology and exposes vulnerable ports. | `scan_network`, `check_exposed_services` |
-| **4** | **Detection** | `@baljotchohan23/detection` | Scans email and server logs to find active indicators of compromise (IOCs). | `scan_email_logs`, `scan_server_logs` |
-| **5** | **Red Team** | `@baljotchohan23/red-team` | Simulates what the attacker will do next to reach high-value targets. | `simulate_attack_path` |
-| **6** | **Malware Investigation** | `@baljotchohan23/malware-investigation` | Analyzes file metadata and extracts C2 domains/persistence keys. | `analyze_file_metadata`, `classify_malware` |
-| **7** | **Attack Path Analysis** | `@baljotchohan23/attack-path` | Predicts attacker probability and calculates the final risk score (1-100). | `calculate_risk_score`, `predict_next_moves` |
-| **8** | **Blue Team Defense** | `@baljotchohan23/blue-team` | Generates a prioritized mitigation playbook mapped to MITRE defenses. | `generate_defense_actions`, `estimate_downtime` |
-| **9** | **Executive Decision** | `@baljotchohan23/executive-decision` | Simulates CFO, Legal, Ops, and CEO sub-agents to issue a final verdict. | `cfo_financial_assessment`, `ceo_final_decision` |
-
----
-
-## 5. Directory & File Structure
+## 4. Directory & File Structure
 
 Here is a breakdown of the repository's folders and files:
 
 ```
-argus/
+fusion/
 ├── agents/                     # 📂 Individual Agent Implementations
-│   ├── incident_commander.py   # Orchestrator agent
-│   ├── threat_intel.py         # Threat Intel agent
-│   ├── recon.py                # Network scanner agent
-│   ├── detection.py            # Log analyst agent
-│   ├── red_team.py             # Attacker simulator agent
-│   ├── malware.py              # File investigator agent
-│   ├── attack_path.py          # Risk scorer agent
-│   ├── blue_team.py            # Playbook writer agent
-│   └── executive_decision.py   # Boardroom decision agent
+│   ├── managing_partner.py     # IC Chair: orchestrates audits and debates
+│   ├── financial_partner.py    # Forensic accountant: unit economics & runway
+│   ├── legal_partner.py        # M&A attorney: compliance & IP litigation
+│   ├── technical_partner.py    # Systems architect: security & stack health
+│   └── market_partner.py       # Market researcher: TAM & sector analysis
 │
 ├── core/                       # 📂 Shared Engine & Utilities
-│   ├── base_agent.py           # Base agent configuration, LLM setups, & @mention filtering
-│   ├── band_client.py          # Mock client room bus helper
-│   ├── event_bus.py            # Event router for real-time dashboard updates
-│   ├── mitre_lookup.py         # MITRE ATT&CK lookup database utility
-│   ├── cve_lookup.py           # NVD CVE lookup database utility
-│   └── memory_graph.py         # Shared memory database manager
+│   ├── base_agent.py           # Base agent logic, model router & mock Band adapter
+│   ├── band_client.py          # Band client wrapper (MockBandBus & RealBandBus)
+│   ├── diligence_engine.py     # Deterministic scoring, SWOT, and question engine
+│   ├── pitch_loader.py         # Data room reader: loads sections and parses uploads
+│   ├── llm_router.py           # Multi-provider LLM router with fallbacks
+│   ├── pdf_generator.py        # ReportLab PDF diligence report compiler
+│   ├── memory_graph.py         # Shared memory database manager (Graphify)
+│   ├── event_bus.py            # Local WebSocket pub/sub event bridge
+│   └── rtdb.py                 # Firebase Realtime Database connector
 │
-├── api/                        # 📂 FastAPI Backend REST & WebSocket Services
-│   ├── main.py                 # FastAPI application, trigger endpoint, & Mock LLM endpoint
-│   ├── v1.py                   # REST API routes (incident details, history, chat)
-│   └── state.py                # Swarm running state
+├── api/                        # 📂 FastAPI Backend
+│   ├── main.py                 # WebSocket server, /mock-llm and operational endpoints
+│   ├── v1.py                   # Managing Partner chat, file uploads, settings
+│   └── state.py                # sim_state: session tracking & concurrency lock
 │
-├── frontend/                   # 📂 Dashboard User Interface (Next.js & Tailwind CSS)
-│   ├── src/app/                # Dashboard pages (Chats, War Room Graph, Memory Logs)
-│   └── package.json            # Frontend package details
+├── data/                       # 📂 Startup Data Rooms / Pitches
+│   ├── novapay_pitch.json      # Primary demo company (12 hidden red flags)
+│   ├── helios_pitch.json       # Clean energy demo
+│   └── ...                     # Additional JSON and Markdown pitch files
 │
-├── data/                       # 📂 Static Scenarios & Templates
-│   └── phishing_email.json     # Trigger data for the phishing simulation
+├── fusion_memory/              # 📂 JSON databases for Graphify memory (Gitignored)
 │
-├── agent_config.yaml           # ⚙️ Real Band.ai Agent IDs and Keys (API Keys)
-├── .env                        # ⚙️ Environment variables (API credentials, Mock flag)
-├── run.py                      # 🚀 Entry point to launch backend & all 9 WebSocket agents
-└── requirements.txt            # 📦 Python packages dependencies
+├── frontend/                   # 📂 Next.js Boardroom Dashboard
+│   ├── pages/index.tsx         # Main dashboard war room UI
+│   ├── components/             # UI widgets: RiskScorecard, AgentCard, ChatPanel
+│   └── hooks/                  # WebSocket listener hooks
+│
+├── mcp_server.py               # 🔌 Model Context Protocol stdio adapter
+└── run.py                      # 🚀 Server launcher (FastAPI + all 5 agents)
 ```
 
 ---
 
-## 6. How to Run and Interact
-
-### Step 1: Start the Dashboard (Terminal 1)
-```bash
-cd frontend
-npm run dev
-```
-
-### Step 2: Start the Backend and Swarm (Terminal 2)
-```bash
-./.venv/bin/python run.py
-```
-
-### Step 3: Trigger the Attack
-Open the dashboard at `http://localhost:3000` and click **Simulate**, or send a manual POST request:
-```bash
-curl -X POST http://localhost:8000/api/trigger-attack
-```
-Once triggered, the Threat Intel agent will wake up on the Band WebSocket, and the entire 9-agent chain will run end-to-end!
+*FUSION — Five agents. One boardroom. No bad investments.*

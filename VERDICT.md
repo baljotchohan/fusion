@@ -388,7 +388,7 @@ PRIMARY REASONS:
 ## Project File Structure
 
 ```
-argus/  (project folder — VERDICT lives here)
+fusion/  (project folder — VERDICT lives here)
 │
 ├── VERDICT.md              ← This file
 ├── CLAUDE.md               ← Agent/AI coding guide
@@ -402,7 +402,7 @@ argus/  (project folder — VERDICT lives here)
 │   ├── technical_partner.py← Tech stack, security, scalability
 │   └── market_partner.py   ← Market size, competition, timing
 │
-├── core/                   ← Shared infrastructure (reused from ARGUS)
+├── core/                   ← Shared infrastructure (FUSION core)
 │   ├── base_agent.py       ← LangGraph agent base + Band client
 │   ├── band_client.py      ← Band SDK wrapper (real + mock bus)
 │   ├── pitch_loader.py     ← Tool: loads pitch sections for agents
@@ -463,7 +463,7 @@ Streams every agent event to the Next.js dashboard in real time.
 
 ### 1. Environment Setup
 ```bash
-cd ~/Desktop/argus
+cd ~/Desktop/fusion
 cp .env.example .env
 # Add your GOOGLE_API_KEY or GROQ_API_KEY
 # Set BAND_MOCK=true for local demo

@@ -1,57 +1,97 @@
-# Band Swap Procedure — Jun 12, 2026 Kickoff
+# Band Swap Procedure — FUSION VC Committee Real Mode
 
-## Time budget: 90 minutes from API key receipt
+This document outlines the procedure to swap the FUSION multi-agent system from local Mock Mode (`MockBandBus`) to production Real Mode (`RealBandBus` via the `thenvoi` SDK).
 
-### Step 1: Get credentials (5 min)
-1. Login to band.ai
-2. Create 9 Band agents — one per ARGUS agent
-3. Name them exactly: Threat-Intel, Recon, Red-Team, Attack-Path,
-   Detection, Malware-Investigation, Blue-Team, Incident-Commander, Executive-Decision
-4. Copy agent_id and api_key for each into agent_config.yaml
+---
 
-### Step 2: Create 9 Band rooms (10 min)
-Create rooms with these exact names:
-- threat-intel-room
-- recon-room
-- redteam-room
-- attack-path-room
-- detection-room
-- malware-room
-- blueteam-room
-- incident-command-room
-- executive-room
+### Step 1: Create 5 Band External Agents (5 min)
 
-### Step 3: Flip the switch (1 min)
-In .env:
+1. Log in to your **band.ai** developer dashboard.
+2. Create **5 External Agents** — one for each VC partner.
+3. Name them exactly as follows to match the handles:
+   - `managing-partner`
+   - `financial-partner`
+   - `legal-partner`
+   - `technical-partner`
+   - `market-partner`
+4. Copy the `agent_id` and `api_key` for each agent and paste them into your local `agent_config.yaml` file:
+
+```yaml
+# agent_config.yaml
+agents:
+  managing_partner:
+    agent_id: "your_managing_partner_agent_id"
+    api_key: "your_managing_partner_api_key"
+    room: "managing-partner-room"
+  financial_partner:
+    agent_id: "your_financial_partner_agent_id"
+    api_key: "your_financial_partner_api_key"
+    room: "finance-partner-room"
+  ...
 ```
+
+---
+
+### Step 2: Set Up Band Rooms (10 min)
+
+Run the automated setup script to register the 5 boardroom rooms on the Band platform:
+
+```bash
+python scripts/setup_band_rooms.py
+```
+
+This registers:
+- `managing-partner-room` (monitored by Managing Partner)
+- `finance-partner-room` (monitored by Financial Partner)
+- `legal-partner-room` (monitored by Legal Partner)
+- `tech-partner-room` (monitored by Technical Partner)
+- `market-partner-room` (monitored by Market Partner)
+
+---
+
+### Step 3: Flip the Switch in `.env` (1 min)
+
+Open your `.env` file and set the mode switches:
+
+```bash
 BAND_MOCK=false
-BAND_API_KEY=<your-key>
+BAND_API_KEY=your-developer-band-api-key
 ```
 
-### Step 4: Test (30 min)
+This disables `MockBandBus` and instructs the `BaseAgent` compiler in `core/base_agent.py` to instantiate the `thenvoi` `LangGraphAdapter` with your credentials.
+
+---
+
+### Step 4: Run & Test (15 min)
+
+Start the FUSION server:
+
 ```bash
 python run.py
-# In another terminal:
-curl -X POST http://localhost:8000/api/trigger-attack
-# Watch Band dashboard — should see 9 agents lighting up
 ```
 
-### Step 5: Verify chain fires (15 min)
-Watch Band rooms for:
-- Threat Intel → incident-command-room (report)
-- Incident Commander → recon-room + detection-room (parallel)
-- Recon + Detection → incident-command-room (reports)
-- Incident Commander → redteam-room + malware-room (parallel)
-- Red Team + Malware → incident-command-room (reports)
-- Incident Commander → attack-path-room
-- Attack Path → incident-command-room (risk score 87)
-- Incident Commander → blueteam-room + executive-room (PARALLEL)
-- Blue Team + Executive → incident-command-room (final reports)
+In another terminal, trigger a new due diligence simulation:
 
-## Implementation note (real-mode wiring)
-`core/base_agent.py::compile_agent()` already contains the real-mode branch that
-builds a `thenvoi` `LangGraphAdapter` + `Agent` when `is_mock_mode()` is False. Before
-flipping the switch, run a quick `python -c "import thenvoi"` to confirm the SDK is
-installed and the import path (`from thenvoi.adapters import LangGraphAdapter`) matches
-the version you `pip install`ed. If the SDK signature differs, adjust only the
-`else:` block in `compile_agent()` — the mock path and all 9 agent prompts stay unchanged.
+```bash
+curl -X POST "http://localhost:8000/api/trigger-deal?company=NovaPay%20Inc"
+```
+
+---
+
+### Step 5: Verify the Band Swarm Event Flow (10 min)
+
+Log in to the **band.ai** room explorer and verify the following flow of messages:
+
+1. **Convene**: `@managing-partner` joins and posts the audit triggers in parallel:
+   - `@baljotchohan23/financial-partner New deal in committee...` in the `finance-partner-room`.
+   - `@baljotchohan23/legal-partner New deal in committee...` in the `legal-partner-room`.
+   - ... and so on for tech and market partners.
+2. **Auditing**: Each partner wakes up, reads its pitch section via the `load_deal_brief` tool, and posts its completed analysis back to `managing-partner-room` using a `@mention`:
+   - `@managing-partner FINANCIAL ANALYSIS COMPLETE. Risk Score: 9.0/10...`
+3. **Consensus & Verdict**: The Managing Partner collects all 4 completion reports, resolves any conflicts (e.g. high margins vs declining sector), and writes the final verdict card:
+   - `DECISION: PASS` / `WEIGHTED SCORE: 9.3/10`.
+4. **WebSocket Sync**: Ensure that every message sent on Band is successfully mirrored to the Next.js boardroom dashboard via the WebSocket event bridge.
+
+---
+
+*FUSION — Five agents. One boardroom. No bad investments.*
