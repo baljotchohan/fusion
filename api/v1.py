@@ -1042,6 +1042,115 @@ async def chat_with_commander(msg: ChatMessage, request: Request = None):
             current_pitch_file.reset(token_pitch)
 
 
+@router.post("/chat/stream")
+async def chat_with_commander_stream(msg: ChatMessage, request: Request):
+    """Streaming variant of /chat — NDJSON lines over a chunked response.
+
+    Emits {"type":"token","text":...} for each REAL provider delta while a live
+    LLM generates the reply, then one {"type":"final",...} line carrying the
+    full ChatResponse payload plus engine="live"|"simulated". Deterministic
+    (no-LLM) replies emit zero token lines — the reply arrives whole in the
+    final frame, never re-chunked into a fake typing effect."""
+    from core.auth import current_uid
+    from core.llm_router import chat_token_sink
+
+    uid = await get_uid_optional(request)
+    # Same guest limiter as POST /chat (that inline check is skipped because we
+    # call chat_with_commander(request=None) below).
+    if not uid:
+        _now = time.time()
+        _ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+        _bucket = f"ip:{_ip}"
+        _chat_rate[_bucket] = [t for t in _chat_rate[_bucket] if _now - t < 3600]
+        if len(_chat_rate[_bucket]) >= 100:
+            raise HTTPException(status_code=429, detail="Chat limit: 100 messages/hour for guests. Sign in for unlimited access.")
+        _chat_rate[_bucket].append(_now)
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run():
+        token_uid = current_uid.set(uid or "__public__")
+        sink_token = chat_token_sink.set(queue)
+        try:
+            return await chat_with_commander(msg)
+        finally:
+            chat_token_sink.reset(sink_token)
+            current_uid.reset(token_uid)
+
+    async def gen():
+        task = asyncio.create_task(_run())
+        task.add_done_callback(lambda _t: queue.put_nowait(None))
+        streamed = 0
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            streamed += 1
+            yield json.dumps({"type": "token", "text": item}) + "\n"
+        try:
+            result = task.result()
+        except Exception as e:
+            logger.error(f"/chat/stream failed: {e}")
+            yield json.dumps({"type": "error", "detail": str(e)[:200]}) + "\n"
+            return
+        payload = result.model_dump() if hasattr(result, "model_dump") else result.dict()
+        payload["type"] = "final"
+        payload["engine"] = "live" if streamed else "simulated"
+        yield json.dumps(payload) + "\n"
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+
+@router.get("/deal-intel")
+async def deal_intel(request: Request, incident_id: Optional[str] = None):
+    """Deal Intelligence — the diligence engine's full deterministic output for
+    the dashboard: domain scores, churn stress-test scenario, contradictions,
+    evidence gaps, auto-generated founder questions, and prioritized actions.
+    Pure arithmetic over pitch evidence (core/diligence_engine.py) — no LLM."""
+    from core.diligence_engine import run_diligence_calculations
+    from core.pitch_loader import resolve_pitch_file_for_incident, _load_pitch_file, _company_name_of
+
+    uid = await get_uid_optional(request)
+    user_memory = memory_graph.__class__(uid=uid or "__public__")
+    inc_id = incident_id or sim_state.active_incident_id or user_memory.get_latest_incident_id()
+
+    pitch_data = None
+    if inc_id:
+        inc = user_memory.get_incident(inc_id) or {}
+        pitch_data = (inc.get("metadata") or {}).get("pitch_data")
+        if not pitch_data:
+            pf = resolve_pitch_file_for_incident(inc_id)
+            pitch_data = _load_pitch_file(pf) if pf else None
+    if not pitch_data:
+        pitch_data = _load_pitch_file()
+    if not pitch_data:
+        raise HTTPException(status_code=404, detail="No pitch data available for deal intelligence.")
+
+    calc = run_diligence_calculations(pitch_data)
+    return {
+        "incident_id": inc_id,
+        "company": calc.get("company_name") or _company_name_of(pitch_data),
+        "scores": {
+            "financial": calc.get("fin_score"),
+            "legal": calc.get("leg_score"),
+            "technical": calc.get("tech_score"),
+            "market": calc.get("mkt_score"),
+            "weighted": calc.get("weighted_score"),
+        },
+        "verdict": calc.get("verdict"),
+        "verdict_confidence": calc.get("verdict_confidence"),
+        "evidence_quality_score": calc.get("evidence_quality_score"),
+        "deal_readiness_score": calc.get("deal_readiness_score"),
+        "deal_readiness_status": calc.get("deal_readiness_status"),
+        "scenario": calc.get("scenario"),
+        "contradictions": calc.get("contradictions", []),
+        "missing_gaps": calc.get("missing_gaps", []),
+        "questions": calc.get("questions", {}),
+        "diligence_priorities": calc.get("diligence_priorities", []),
+        "override_reasons": calc.get("override_reasons", []),
+    }
+
+
 @router.get("/chat/history")
 async def chat_history(request: Request, limit: int = 100, session_id: Optional[str] = None):
     """Return persisted Commander chat history for the Memory tab."""
