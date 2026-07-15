@@ -56,6 +56,86 @@ function statusConfig(status: AgentStatus) {
   }
 }
 
+/* ── Committee flow graph — node-edge view of the live handoff ──
+   Chair on top, specialists below. Edge state mirrors the REAL agent status
+   from the event bus: dashed amber flow while auditing, solid green when the
+   report is in, recessive hairline while idle. No scripted animation. */
+function edgeVisual(status: AgentStatus) {
+  switch (status) {
+    case 'working': return { cls: 'text-accent-amber', dash: '6 5', animate: true, width: 1.8, opacity: 1 }
+    case 'done':    return { cls: 'text-accent-green', dash: undefined, animate: false, width: 1.8, opacity: 0.9 }
+    case 'alert':   return { cls: 'text-danger', dash: '3 3', animate: false, width: 1.8, opacity: 1 }
+    default:        return { cls: 'text-border-strong', dash: undefined, animate: false, width: 1, opacity: 0.6 }
+  }
+}
+
+function CommitteeFlow({ agentStates }: { agentStates: Record<string, AgentStatus> }) {
+  const chair = AGENTS[0]
+  const specialists = AGENTS.slice(1)
+  const W = 640, H = 168
+  const chairPos = { x: W / 2, y: 34 }
+  const nodeY = 128
+  const xs = specialists.map((_, i) => (W / (specialists.length + 1)) * (i + 1))
+  const chairStatus = agentStates[chair.name] || 'idle'
+  const chairCfg = statusConfig(chairStatus)
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none" role="img"
+      aria-label="Committee flow: Managing Partner dispatching to specialist partners">
+      {/* Edges (under nodes) */}
+      {specialists.map((a, i) => {
+        const st = agentStates[a.name] || 'idle'
+        const v = edgeVisual(st)
+        const x = xs[i]
+        const d = `M ${chairPos.x} ${chairPos.y + 22} C ${chairPos.x} ${chairPos.y + 62}, ${x} ${nodeY - 62}, ${x} ${nodeY - 24}`
+        return (
+          <g key={a.name} className={v.cls}>
+            <motion.path
+              d={d} fill="none" stroke="currentColor" strokeWidth={v.width}
+              strokeLinecap="round" strokeDasharray={v.dash} opacity={v.opacity}
+              animate={v.animate ? { strokeDashoffset: [0, -22] } : { strokeDashoffset: 0 }}
+              transition={v.animate ? { duration: 1, repeat: Infinity, ease: 'linear' } : { duration: 0 }}
+            />
+          </g>
+        )
+      })}
+
+      {/* Chair node */}
+      <g className={chairStatus === 'working' ? 'text-accent-amber' : chairStatus === 'done' ? 'text-accent-green' : 'text-border-strong'}>
+        <circle cx={chairPos.x} cy={chairPos.y} r={21} className="fill-bg-card" stroke="currentColor" strokeWidth={1.5} />
+        <text x={chairPos.x} y={chairPos.y + 5.5} textAnchor="middle" fontSize="16">{chair.icon}</text>
+      </g>
+      <text x={chairPos.x} y={chairPos.y - 28} textAnchor="middle" fontSize="9.5" fontWeight={700}
+        className="fill-text-secondary uppercase" style={{ letterSpacing: '0.08em' }}>
+        {chair.displayName} — {chairCfg.badge}
+      </text>
+
+      {/* Specialist nodes */}
+      {specialists.map((a, i) => {
+        const st = agentStates[a.name] || 'idle'
+        const ring = st === 'working' ? 'text-accent-amber' : st === 'done' ? 'text-accent-green' : st === 'alert' ? 'text-danger' : 'text-border-strong'
+        const x = xs[i]
+        return (
+          <g key={a.name} className={ring}>
+            <circle cx={x} cy={nodeY} r={18} className="fill-bg-card" stroke="currentColor" strokeWidth={1.5} />
+            {st === 'working' && (
+              <motion.circle cx={x} cy={nodeY} r={18} fill="none" stroke="currentColor" strokeWidth={1}
+                animate={{ r: [18, 25], opacity: [0.5, 0] }} transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut' }} />
+            )}
+            <text x={x} y={nodeY + 5} textAnchor="middle" fontSize="14">{a.icon}</text>
+            <text x={x} y={nodeY + 34} textAnchor="middle" fontSize="9" fontWeight={600} className="fill-text-secondary">
+              {a.displayName.replace(' Partner', '')}
+            </text>
+            {st === 'done' && (
+              <text x={x + 15} y={nodeY - 12} fontSize="10" className="fill-accent-green" fontWeight={700}>✓</text>
+            )}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
 /* ── Card animation variants ───────────────────────────────── */
 const cardVariants = {
   hidden: { opacity: 0, y: 16, scale: 0.96 },
@@ -138,6 +218,11 @@ export function AgentGraph({ agentStates, theme, heightClass }: AgentGraphProps)
           })}
         </div>
       </motion.div>
+
+      {/* ── Committee Flow Graph ── */}
+      <div className="rounded-xl border border-border bg-bg-subtle/50 px-2 pt-3 pb-1">
+        <CommitteeFlow agentStates={agentStates} />
+      </div>
 
       {/* ── Chair Card (Managing Partner — full width) ── */}
       <motion.div
