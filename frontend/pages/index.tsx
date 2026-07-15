@@ -56,16 +56,19 @@ import {
   FileText,
   Menu,
   Trash2,
+  BarChart3,
 } from 'lucide-react'
+import DealIntel from '@/components/DealIntel'
 
 type Tab = 'overview' | 'history' | 'insights' | 'integrations' | 'partners' | 'settings' | 'docs' | 'issues'
-type OverviewTab = 'roundtable' | 'minutes' | 'binders'
+type OverviewTab = 'roundtable' | 'minutes' | 'binders' | 'intel'
 
 interface ChatTurn {
   role: 'user' | 'assistant'
   content: string
   incidentId?: string
   intent?: string
+  engine?: 'live' | 'simulated'
 }
 
 const NAV_GROUPS = [
@@ -565,24 +568,88 @@ export default function FUSION() {
     if (!text || chatThinking) return
     logActivity('chat_sent', { message: text })
     setChatHistory(prev => [...prev, { role: 'user', content: text }]); setChatInput(''); setChatThinking(true); setShowMentionPopup(false)
+    const body = JSON.stringify({
+      user_message: text,
+      incident_id: activeIncidentId || undefined,
+      session_id: activeSessionId || undefined
+    })
+    const applyFinal = (data: { incident_id?: string; company?: string; company_name?: string; dispatched?: boolean }) => {
+      if (data.incident_id) setActiveIncidentId(data.incident_id)
+      const company = data.company || data.company_name
+      if (company) setActiveCompany(company)
+      if (data.dispatched) { resetAll(); setIsSimulating(true); setUploadStatus('processing'); setTab('overview') }
+      loadChatSessions()
+    }
     try {
-      const response = await apiFetch(`${API_BASE}/api/v1/chat`, {
+      // Streaming path: NDJSON frames — real provider token deltas while a live
+      // LLM generates, then one final frame. Deterministic replies send no
+      // token frames (the backend never fakes a typing effect).
+      const response = await apiFetch(`${API_BASE}/api/v1/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_message: text,
-          incident_id: activeIncidentId || undefined,
-          session_id: activeSessionId || undefined
-        }),
+        body,
       })
-      const data = await response.json()
-      if (data.incident_id) setActiveIncidentId(data.incident_id)
-      if (data.company || data.company_name) setActiveCompany(data.company || data.company_name)
-      if (data.dispatched) { resetAll(); setIsSimulating(true); setUploadStatus('processing'); setTab('overview') }
-      setChatHistory(prev => [...prev, { role: 'assistant', content: data.commander_response, incidentId: data.incident_id, intent: data.intent }])
-      loadChatSessions()
+      if (!response.ok || !response.body) throw new Error(`stream unavailable (${response.status})`)
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let streamedText = ''
+      let started = false
+      let gotFinal = false
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          const frame = JSON.parse(line)
+          if (frame.type === 'token') {
+            streamedText += frame.text
+            if (!started) {
+              started = true
+              setChatThinking(false)
+              setChatHistory(prev => [...prev, { role: 'assistant', content: streamedText, engine: 'live' }])
+            } else {
+              setChatHistory(prev => {
+                const next = [...prev]
+                next[next.length - 1] = { ...next[next.length - 1], content: streamedText }
+                return next
+              })
+            }
+          } else if (frame.type === 'final') {
+            gotFinal = true
+            applyFinal(frame)
+            const turn: ChatTurn = {
+              role: 'assistant', content: frame.commander_response,
+              incidentId: frame.incident_id, intent: frame.intent, engine: frame.engine,
+            }
+            setChatHistory(prev => started ? [...prev.slice(0, -1), turn] : [...prev, turn])
+          } else if (frame.type === 'error') {
+            throw new Error(frame.detail)
+          }
+        }
+      }
+      if (!gotFinal) throw new Error('stream ended without a final frame')
     } catch {
-      setChatHistory(prev => [...prev, { role: 'assistant', content: 'Cannot reach the Managing Partner — is the FUSION backend running?' }])
+      // Fallback: classic one-shot POST /chat (also covers older backends).
+      try {
+        const response = await apiFetch(`${API_BASE}/api/v1/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        })
+        const data = await response.json()
+        applyFinal(data)
+        setChatHistory(prev => {
+          const trimmed = prev[prev.length - 1]?.role === 'assistant' && prev[prev.length - 1]?.engine === 'live'
+            ? prev.slice(0, -1) : prev  // drop a partial streamed bubble left by a mid-stream failure
+          return [...trimmed, { role: 'assistant', content: data.commander_response, incidentId: data.incident_id, intent: data.intent }]
+        })
+      } catch {
+        setChatHistory(prev => [...prev, { role: 'assistant', content: 'Cannot reach the Managing Partner — is the FUSION backend running?' }])
+      }
     } finally { setChatThinking(false) }
   }, [chatInput, chatThinking, activeIncidentId, activeSessionId, resetAll, loadChatSessions])
 
@@ -673,7 +740,14 @@ export default function FUSION() {
               }`}>
                 {m.role === 'user'
                   ? <p className="whitespace-pre-wrap">{m.content}</p>
-                  : <div className="space-y-0.5">{renderMarkdown(m.content)}</div>}
+                  : <div className="space-y-0.5">
+                      {renderMarkdown(m.content)}
+                      {m.engine === 'simulated' && (
+                        <p className="text-[9px] font-mono uppercase tracking-wider text-text-muted pt-1.5" title="No live LLM available — this reply came from the deterministic local engine">
+                          ⚙ simulated engine
+                        </p>
+                      )}
+                    </div>}
               </div>
             </div>
           ))}
@@ -1363,6 +1437,7 @@ export default function FUSION() {
                             { id: 'roundtable' as OverviewTab, label: 'Roundtable', Icon: Users2 },
                             { id: 'minutes' as OverviewTab, label: 'Minutes', Icon: FileText },
                             { id: 'binders' as OverviewTab, label: 'Diligence Binders', Icon: BookOpen },
+                            { id: 'intel' as OverviewTab, label: 'Deal Intel', Icon: BarChart3 },
                           ]).map(t => (
                             <button key={t.id} onClick={() => setOverviewTab(t.id)}
                               className={`flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium border-b-2 -mb-px transition ${overviewTab === t.id ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'}`}>
@@ -1374,6 +1449,7 @@ export default function FUSION() {
                         {overviewTab === 'roundtable' && <AgentGraph agentStates={agentStates} theme={theme} />}
                         {overviewTab === 'minutes' && <div className="h-[420px]"><LiveLog events={logEvents} /></div>}
                         {overviewTab === 'binders' && <AgentDetailPanel agentStates={agentStates} agentOutputs={agentOutputs} devMode={false} />}
+                        {overviewTab === 'intel' && <DealIntel incidentId={activeIncidentId} />}
                       </div>
                     </div>
                   )}
