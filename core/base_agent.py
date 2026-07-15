@@ -539,7 +539,10 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
             await event_bus.broadcast(self._argus_agent_name, "working", {
                 "current_action": f"Processing message from Band room"
             })
-            
+            reasoning_text = await self._base_agent.narrate_real_thinking(f"the message: {msg.content[:300]}")
+            if reasoning_text:
+                await event_bus.broadcast(self._argus_agent_name, "thinking", {"reasoning": reasoning_text})
+
             # Resolve incident_id
             incident_id = resolve_incident_id_from_message(msg.content)
             if not incident_id:
@@ -683,7 +686,9 @@ class ArgusLangGraphAdapter(LangGraphAdapter):
                     
                 if should_log:
                     await self._base_agent._log_to_memory(final_thought, incident_id)
-                await event_bus.broadcast(self._argus_agent_name, "done", {"report": final_thought})
+                await event_bus.broadcast(self._argus_agent_name, "done", {
+                    "report": final_thought, "engine": self._base_agent.engine_tag()
+                })
             except Exception as e:
                 err_str = str(e)
                 # If only Band message-send failed (403 room limit), still mark
@@ -879,6 +884,83 @@ class BaseAgent:
             fallback_llm_is_local=fallback_is_local,
         )
 
+    def _build_reasoning_llm(self):
+        """Optional real reasoning-token narrator (Groq). Purely additive and
+        NEVER on the tool-calling critical path: neither AIML's gpt-4o-mini nor
+        Featherless's Qwen2.5-72B-Instruct emit reasoning tokens at all, so this
+        is the only source of genuine model "thinking" in the app. Missing/bad
+        key -> None -> the Live Reasoning panel is simply absent, never faked."""
+        key = os.getenv("GROQ_API_KEY")
+        if not key or "your-" in key:
+            return None
+        try:
+            from langchain_groq import ChatGroq
+            return ChatGroq(
+                api_key=key,
+                model=os.getenv("ARGUS_GROQ_MODEL", "openai/gpt-oss-120b"),
+                reasoning_format="parsed",  # → additional_kwargs["reasoning_content"]
+                temperature=0.4,
+                max_tokens=500,
+                max_retries=1,
+                timeout=20,
+            )
+        except Exception as e:
+            logger.warning(f"[{self.display_name}] Groq reasoning narrator unavailable: {e}")
+            return None
+
+    async def narrate_real_thinking(self, task: str) -> Optional[str]:
+        """Stream a genuine reasoning model's chain-of-thought over `task`,
+        broadcasting incremental 'thinking' events so the UI panel fills in
+        live as the model actually thinks (ChatGroq streamed chunks carry
+        per-chunk additional_kwargs['reasoning_content'] deltas). Best-effort
+        and separate from the committee — it never feeds into or gates the
+        actual analysis/report. Returns the full reasoning text, or None."""
+        if not self.reasoning_llm:
+            return None
+        try:
+            prompt = (
+                f"You are the {self.display_name} on a VC investment committee. "
+                f"Think out loud, briefly (3-6 sentences of real reasoning, not "
+                f"a report), about: {task}"
+            )
+
+            async def _stream() -> tuple[str, str]:
+                reasoning_parts: List[str] = []
+                content_parts: List[str] = []
+                last_broadcast_len = 0
+                async for chunk in self.reasoning_llm.astream([("user", prompt)]):
+                    delta = (chunk.additional_kwargs or {}).get("reasoning_content")
+                    if delta:
+                        reasoning_parts.append(delta)
+                    text = _msg_content_text(chunk.content)
+                    if text:
+                        content_parts.append(text)
+                    accumulated = "".join(reasoning_parts)
+                    # Throttle UI updates to every ~60 new chars — still visibly
+                    # live, without a broadcast per token.
+                    if len(accumulated) - last_broadcast_len >= 60:
+                        last_broadcast_len = len(accumulated)
+                        await event_bus.broadcast(self.name, "thinking", {"reasoning": accumulated, "streaming": True})
+                return "".join(reasoning_parts), "".join(content_parts)
+
+            reasoning, content = await asyncio.wait_for(_stream(), timeout=25.0)
+            if not reasoning:
+                # reasoning_format="parsed" should always separate it, but if a
+                # model ignores that and inlines <think> tags anyway, recover it
+                # rather than silently dropping real reasoning we already paid for.
+                m = _re.search(r"<think>(.*?)</think>", content, _re.DOTALL)
+                reasoning = m.group(1).strip() if m else ""
+            return reasoning.strip() or None
+        except Exception as e:
+            logger.info(f"[{self.display_name}] Live reasoning narration skipped: {e}")
+            return None
+
+    def engine_tag(self) -> str:
+        """'live' if this agent's next analysis call will hit a real LLM,
+        'simulated' if it's about to run on the deterministic local engine —
+        so the UI can label output honestly instead of implying it's always live."""
+        return "live" if (not self.llm_is_local and not llm_degraded()) else "simulated"
+
     def _setup_llm(self):
         """Set up the agent LLM — the committee's *analysis* brain.
 
@@ -895,6 +977,9 @@ class BaseAgent:
         """
         def _valid(key: str) -> bool:
             return bool(key) and "your-" not in (key or "")
+
+        # Real reasoning narrator (Groq) — independent of the analysis chain below.
+        self.reasoning_llm = self._build_reasoning_llm()
 
         # Analysis prefers AIML (concurrency-safe); Featherless is the secondary
         # real fallback.
@@ -1265,6 +1350,10 @@ class BaseAgent:
         # Broadcast "working" state to event bus/dashboard
         await event_bus.broadcast(self.name, "working", {"current_action": f"Analyzing input from {sender}"})
 
+        reasoning_text = await self.narrate_real_thinking(f"the message from {sender}: {message[:300]}")
+        if reasoning_text:
+            await event_bus.broadcast(self.name, "thinking", {"reasoning": reasoning_text})
+
         # ponytail: add a small artificial delay so the yellow edge glow animation is visible on the UI,
         # otherwise in mock mode the agent completes in milliseconds and the animation never shows.
         await asyncio.sleep(1.5)
@@ -1305,7 +1394,7 @@ class BaseAgent:
             await self._log_to_memory(final_thought)
 
             # Broadcast "done" state with final report
-            await event_bus.broadcast(self.name, "done", {"report": final_thought})
+            await event_bus.broadcast(self.name, "done", {"report": final_thought, "engine": self.engine_tag()})
         except (asyncio.TimeoutError, TimeoutError) as e:
             # LLM timed out — band_client will retry and fall to local executor.
             # Don't broadcast alert here; an alert clears the run lock prematurely.
