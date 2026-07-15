@@ -19,7 +19,10 @@ error. If the chain is empty (no keys), callers fall back to the deterministic
 local engine, so the chat path never stalls.
 """
 import os
+import json
+import asyncio
 import logging
+from contextvars import ContextVar
 from typing import Optional
 
 import httpx
@@ -36,7 +39,15 @@ OPENAI_COMPAT_ENDPOINTS = {
         "https://api.featherless.ai/v1",
         "Qwen/Qwen2.5-72B-Instruct",
     ),
+    "groq": ("ARGUS_GROQ_BASE_URL", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b"),
 }
+
+# When set (by /api/v1/chat/stream), call_llm streams from the provider and
+# pushes each REAL token delta into this queue as it arrives — the accumulated
+# text is still returned normally, so chat_with_commander needs no changes.
+# Deterministic (non-LLM) replies never touch the sink: no tokens → the client
+# knows the reply wasn't generated live, and nothing fakes a typing effect.
+chat_token_sink: ContextVar[Optional[asyncio.Queue]] = ContextVar("chat_token_sink", default=None)
 
 SYSTEM_PROMPT = (
     "You are an expert AI investment partner on the FUSION VC committee. "
@@ -65,13 +76,14 @@ class LLMRouter:
         self.keys = {
             "aimlapi": os.getenv("AIMLAPI_KEY"),
             "featherless": os.getenv("FEATHERLESS_API_KEY"),
+            "groq": os.getenv("GROQ_API_KEY"),
         }
-        # Chat runs on AIML first, then falls back to Featherless. ARGUS_LLM_PRIMARY
-        # can override the chat primary; default is aimlapi.
+        # Chat runs on AIML first, then falls back to Featherless, then Groq.
+        # ARGUS_LLM_PRIMARY can override the chat primary; default is aimlapi.
         primary = os.getenv("ARGUS_LLM_PRIMARY", "aimlapi")
-        if primary not in ("aimlapi", "featherless"):
+        if primary not in self.keys:
             primary = "aimlapi"
-        chain = [primary] + [p for p in ("aimlapi", "featherless") if p != primary]
+        chain = [primary] + [p for p in ("aimlapi", "featherless", "groq") if p != primary]
         self.chain = [p for p in chain if not _is_placeholder(self.keys.get(p))]
 
     def available_providers(self) -> list:
@@ -111,6 +123,7 @@ class LLMRouter:
     ) -> str:
         base_env, default_base, default_model = OPENAI_COMPAT_ENDPOINTS[provider]
         url = os.getenv(base_env, default_base).rstrip("/") + "/chat/completions"
+        sink = chat_token_sink.get()
         payload = {
             "model": os.getenv(f"ARGUS_{provider.upper()}_MODEL", default_model),
             "messages": [
@@ -124,11 +137,35 @@ class LLMRouter:
             "Authorization": f"Bearer {self.keys[provider]}",
             "Content-Type": "application/json",
         }
+        if sink is None:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+
+        # Streaming path: forward each REAL provider delta into the sink as it
+        # arrives, and return the accumulated text so callers work unchanged.
+        payload["stream"] = True
+        parts: list[str] = []
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        delta = json.loads(data)["choices"][0]["delta"]
+                    except (json.JSONDecodeError, LookupError):
+                        continue
+                    token = delta.get("content")
+                    if token:
+                        parts.append(token)
+                        sink.put_nowait(token)
+        return "".join(parts)
 
 
 # Lazy global router (env may not be loaded at import time)
