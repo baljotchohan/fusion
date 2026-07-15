@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { getCurrentIdToken } from '@/lib/firebase'
 
 export type AgentStatus = 'idle' | 'working' | 'done' | 'alert'
-export type EventStatus = AgentStatus | 'debate' | 'memory_match' | 'confidence_update'
+export type EventStatus = AgentStatus | 'debate' | 'memory_match' | 'confidence_update' | 'thinking'
 
 export interface AgentUpdate {
   agent: string
@@ -135,6 +135,26 @@ export function useAgentWebSocket(uid?: string | null) {
             return
           }
 
+          // Live reasoning from a real model (core/base_agent.py::narrate_real_thinking).
+          // Attaches to the agent's output without touching its status badge — this is
+          // narration alongside "working", not a state of its own. Streamed deltas
+          // arrive as repeated events with growing text; collapse consecutive ones
+          // from the same agent so the log shows one live-updating entry.
+          if (update.status === 'thinking') {
+            const reasoning = update.output?.reasoning
+            if (reasoning) {
+              setAgentOutputs(prev => ({ ...prev, [update.agent]: { ...prev[update.agent], reasoning } }))
+            }
+            setLogEvents(prev => {
+              const last = prev[prev.length - 1]
+              if (last && last.agent === update.agent && last.status === 'thinking') {
+                return [...prev.slice(0, -1), update].slice(-80)
+              }
+              return [...prev, update].slice(-80)
+            })
+            return
+          }
+
           // Handle partial confidence updates embedded in specialist "done" events
           if (typeof update.output?.partial_confidence === 'number') {
             setPartialConfidence(update.output.partial_confidence)
@@ -149,7 +169,9 @@ export function useAgentWebSocket(uid?: string | null) {
           setAgentStates(prev => ({ ...prev, [update.agent]: update.status as AgentStatus }))
 
           if (update.output && Object.keys(update.output).length > 0) {
-            setAgentOutputs(prev => ({ ...prev, [update.agent]: update.output }))
+            // Merge (not replace) — preserves fields like `reasoning`, set earlier
+            // by a 'thinking' event, across the later 'working'/'done' updates.
+            setAgentOutputs(prev => ({ ...prev, [update.agent]: { ...prev[update.agent], ...update.output } }))
           }
 
           // Collapse consecutive heartbeats from the same agent in the same phase

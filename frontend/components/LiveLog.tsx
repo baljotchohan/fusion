@@ -65,6 +65,12 @@ const BADGE_CONFIG: Record<
     text: 'text-amber-600 dark:text-amber-400',
     bg: 'bg-amber-50 dark:bg-amber-500/10 border-amber-200/60 dark:border-amber-500/20',
   },
+  thinking: {
+    label: '🧠 Live Reasoning',
+    dot: 'bg-success animate-pulse',
+    text: 'text-success',
+    bg: 'bg-success-soft border-success/20',
+  },
 }
 
 /* ------------------------------------------------------------------ */
@@ -102,6 +108,10 @@ function summarise(output: Record<string, any>): string | null {
   // Fallback: current_action from working state
   if (typeof output.current_action === 'string')
     return output.current_action
+
+  // Fallback: real model reasoning (see AgentDetailPanel's Live Reasoning panel)
+  if (typeof output.reasoning === 'string' && output.reasoning.length > 0)
+    return output.reasoning
 
   return null
 }

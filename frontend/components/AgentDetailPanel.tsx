@@ -234,6 +234,10 @@ function BinderCard({
   const accent = AGENT_ACCENT[agent.name] || 'border-l-slate-400'
   const iconBg = AGENT_ICON_BG[agent.name] || 'bg-bg-muted'
   const report = formatReport(output)
+  // Set only once analysis completes (core/base_agent.py::engine_tag) — absent
+  // while idle/working, since we don't know yet which engine will answer.
+  const engine = output?.engine as 'live' | 'simulated' | undefined
+  const reasoning = typeof output?.reasoning === 'string' ? output.reasoning : null
 
   return (
     <div
@@ -258,6 +262,18 @@ function BinderCard({
             {agent.role}
           </p>
         </div>
+
+        {/* Engine badge — honest label for what actually produced this report */}
+        {engine && (
+          <span
+            className={`hidden sm:inline-flex px-2 py-1 rounded-full shrink-0 text-[8px] font-bold font-mono uppercase tracking-wider ${
+              engine === 'live' ? 'bg-success-soft text-success' : 'bg-bg-muted text-text-muted'
+            }`}
+            title={engine === 'live' ? 'Answered by a live LLM call' : 'No live LLM available — answered by the deterministic local engine'}
+          >
+            {engine === 'live' ? 'Live LLM' : 'Simulated'}
+          </span>
+        )}
 
         {/* Status Badge */}
         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full shrink-0 ${badge.bg}`}>
@@ -298,6 +314,23 @@ function BinderCard({
                     {agent.checklist.map((item, idx) => (
                       <ChecklistItem key={idx} label={item} status={status} />
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Live Reasoning — a real model's actual chain-of-thought (core/base_agent.py
+                  ::narrate_real_thinking via Groq), never scripted. Absent entirely when no
+                  GROQ_API_KEY is configured, rather than filled with fake narration. */}
+              {reasoning && (
+                <div>
+                  <span className="text-[9px] font-bold font-mono tracking-widest text-text-muted uppercase flex items-center gap-1.5 mb-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success" />
+                    Live Reasoning — real model output
+                  </span>
+                  <div className="rounded-xl bg-bg-subtle border border-dashed border-border p-4 max-h-48 overflow-y-auto">
+                    <p className="text-[10.5px] text-text-secondary leading-relaxed italic whitespace-pre-wrap">
+                      {reasoning}
+                    </p>
                   </div>
                 </div>
               )}
